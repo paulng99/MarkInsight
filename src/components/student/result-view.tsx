@@ -16,7 +16,7 @@ type SubmissionDetail = {
     id: string;
     title: string;
     examDate: string;
-    classSubject: { name: string };
+    classSubject: { id: string; name: string };
   };
   questionScores: Array<{
     questionKey: string;
@@ -178,8 +178,15 @@ export function StudentResultView({
       ) : null}
 
       <Link
+        href={`/student/subjects/${detail.exam.classSubject.id}?locale=${locale}`}
+        className="inline-block text-sm font-medium text-[var(--brand)] hover:underline"
+      >
+        {t.crossExamWeaknessNav}
+      </Link>
+
+      <Link
         href={`/student?locale=${locale}`}
-        className="inline-block text-sm text-[var(--muted)] hover:underline"
+        className="ml-4 inline-block text-sm text-[var(--muted)] hover:underline"
       >
         {t.studentNavHome}
       </Link>

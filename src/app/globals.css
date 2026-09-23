@@ -169,6 +169,14 @@ body {
   opacity: 0.92;
 }
 
+.teacher-weakness .topic-chip,
+.teacher-weakness .type-chip {
+  /* Restrained teacher chrome — no colorful weakness cues. */
+  background: var(--surface);
+  color: var(--muted);
+  border-color: var(--border);
+}
+
 /* Skip decorative animation when the user prefers reduced motion. */
 @media (prefers-reduced-motion: reduce) {
   .animate-fade-up,

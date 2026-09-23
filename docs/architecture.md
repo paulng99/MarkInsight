@@ -4,9 +4,9 @@
 
 ## Scope reminder
 
-- **In (this knife):** exam / script upload UI + APIs, local storage, in-process analysis jobs, OpenRouter multimodal client, result screens with job states, `llmModel` persistence
-- **Prior knives:** scaffold + admin school settings
-- **Out of scope now:** native apps, school-wide reports, manual regrade, eClass sync, parents, billing, Jina-required path
+- **In (this knife):** same-subject cross-exam weakness aggregation (課題 / 題型) from stored `QuestionScore` tags; student + teacher (class-scoped) UIs; empty state when &lt;2 SUCCEEDED analyses
+- **Prior knives:** scaffold + admin school settings + exam upload / analysis jobs
+- **Out of scope now:** school-wide reports, class-wide summary (optional), manual regrade, gamification, native apps, eClass sync, parents, billing, Jina-required path
 
 ## Supplier decisions (locked)
 
@@ -78,8 +78,8 @@ Almost every table includes `schoolId` so queries can enforce a **tenant boundar
 | Role | Capabilities (product intent) |
 |------|--------------------------------|
 | `ADMIN` | Create **schools** and **teacher** accounts; **school settings** (read/write). Not a teaching workspace. |
-| `TEACHER` | Manage class subjects, exams, uploads; view class/student weak points (later). No settings API access. |
-| `STUDENT` | View own submissions and aggregates (later). No settings API access. |
+| `TEACHER` | Manage class subjects, exams, uploads; view per-student cross-exam weak points for own class. No settings API access. |
+| `STUDENT` | View own submissions and same-subject cross-exam aggregates. No settings API access. |
 
 Auth in this scaffold is a **credentials stub** (NextAuth) with role-aware session claims. Production email / OAuth is not required for local demo — see README.
 
@@ -113,8 +113,9 @@ Auth in this scaffold is a **credentials stub** (NextAuth) with role-aware sessi
 ### SubjectAggregate
 
 - Subject-level rollups by `(topic, itemType)`.
-- `enrollmentId` null ⇒ class-wide; set ⇒ per-student.
-- Recomputed by jobs after analysis completes (implementation TODO).
+- `enrollmentId` null ⇒ class-wide (optional / not required this knife); set ⇒ per-student.
+- Recomputed after successful submission scoring via `refreshSubjectAggregates` (true `examCount`, stale-row cleanup, classSubject-scoped).
+- Live API `GET /api/class-subjects/[id]/weakness` aggregates DONE `QuestionScore` rows for the enrollment (prefer stored tags; no extra LLM).
 
 ### AnalysisJob
 
@@ -178,21 +179,22 @@ No secrets or real student scripts belong in the repository.
 src/
   app/                 # App Router — landing, admin settings, teacher/student exam flows
   auth.ts              # NextAuth config (credentials stub)
-  lib/
-    prisma.ts
-    rbac.ts
-    errors.ts          # Vendor-neutral AppError helpers
-    storage/           # Local object storage (MVP)
-    demo-bootstrap.ts  # demo_school class + enrollments
-    exams/service.ts   # Exam/submission RBAC helpers
-    i18n/              # en + zh-HK dictionaries
-    config/
-      openrouter-model-allowlist.ts
-    school-settings/   # Admin settings helpers
-    llm/               # LlmClient + OpenRouter client
-    jobs/
-      analyze-exam.ts  # In-process analysis job runner
-      status-copy.ts   # Job status → UI copy keys
+    lib/
+      prisma.ts
+      rbac.ts
+      errors.ts          # Vendor-neutral AppError helpers
+      storage/           # Local object storage (MVP)
+      demo-bootstrap.ts  # demo_school class + enrollments
+      exams/service.ts   # Exam/submission RBAC helpers
+      aggregates/        # Cross-exam weakness rollups (topic × itemType)
+      i18n/              # en + zh-HK dictionaries
+      config/
+        openrouter-model-allowlist.ts
+      school-settings/   # Admin settings helpers
+      llm/               # LlmClient + OpenRouter client
+      jobs/
+        analyze-exam.ts  # In-process analysis job runner
+        status-copy.ts   # Job status → UI copy keys
 prisma/schema.prisma
 docs/architecture.md
 ```
