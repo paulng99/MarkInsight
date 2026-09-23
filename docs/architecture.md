@@ -4,9 +4,9 @@
 
 ## Scope reminder
 
-- **In:** Web MVP shell, school-scoped RBAC, Prisma schema, analysis **job stub**, OpenRouter **LLM client stub**
-- **Later (knife 1):** exam upload UI + real analysis job (OpenRouter multimodal)
-- **Out of scope now:** native apps, school-wide reports, manual regrade, eClass sync, parents, billing
+- **In (this knife):** exam / script upload UI + APIs, local storage, in-process analysis jobs, OpenRouter multimodal client, result screens with job states, `llmModel` persistence
+- **Prior knives:** scaffold + admin school settings
+- **Out of scope now:** native apps, school-wide reports, manual regrade, eClass sync, parents, billing, Jina-required path
 
 ## Supplier decisions (locked)
 
@@ -17,9 +17,9 @@
 
 First-version scoring stays **OpenRouter multimodal**. Do not gate MVP on Jina.
 
-Scaffold code lives under `src/lib/llm/` (`LlmClient` interface + `OpenRouterLlmClient` stub). **No live API calls** in this stage — see TODOs on the client.
+Scaffold code lives under `src/lib/llm/` (`LlmClient` + `OpenRouterLlmClient`). Live calls use `OPENROUTER_API_KEY`. If the key is missing, jobs fail with a **vendor-neutral** message unless `MARKINSIGHT_ANALYSIS_DEMO=true` (deterministic offline results for local verify).
 
-Env placeholders (never commit real keys): `OPENROUTER_API_KEY`, optional `OPENROUTER_*_MODEL`, optional `JINA_API_KEY` — see `.env.example`.
+Env placeholders (never commit real keys): `OPENROUTER_API_KEY`, optional `OPENROUTER_*_MODEL`, optional `JINA_API_KEY`, `MARKINSIGHT_ANALYSIS_DEMO` — see `.env.example`.
 
 ### Persist model id on every analysis result (locked)
 
@@ -156,17 +156,7 @@ Auth in this scaffold is a **credentials stub** (NextAuth) with role-aware sessi
 
 Optional later: Jina for syllabus/PDF text / embeddings — **not** on the v1 scoring path. Product UI stays vendor-neutral.
 
-**Knife 1 TODOs** (do not implement in this PR):
-
-- Real multipart upload + storage adapter
-- Queue-backed `enqueueAnalyzeExam` / `enqueueAnalyzeSubmission`
-- Real `OpenRouterLlmClient.chat` (OpenAI-compatible `POST /chat/completions`) + structured extraction → `QuestionScore`
-- Persist `llmModel` on `AnalysisJob` + `Exam.structureLlmModel` / `Submission.scoringLlmModel`
-- Read `SchoolSettings.analysisLlmModel` for **new** jobs; never rewrite historical model ids
-- Aggregate recompute + teacher/student read APIs
-- Keep product UI free of vendor brand names
-
-**Done in settings knife:** Prisma-backed admin school settings form (allowlist select + toggles + teacher accounts); new jobs resolve `SchoolSettings.analysisLlmModel` in the analyze stub.
+**Done in upload/analyze knife:** multipart upload + local storage adapter; in-process `enqueueAnalyzeExam` / `enqueueAnalyzeSubmission` with Prisma `AnalysisJob` rows; real `OpenRouterLlmClient.chat` (+ demo mode); persist `llmModel`; teacher/student upload & result UIs with job status copy (排隊中 / 進行中 / 成功 / 失敗); RBAC on APIs.
 
 ## Storage & LLM env
 
@@ -182,24 +172,29 @@ Placeholders live in `.env.example`:
 
 No secrets or real student scripts belong in the repository.
 
-## App structure (scaffold)
+## App structure
 
 ```text
 src/
-  app/                 # App Router pages (landing + role shells + admin settings)
+  app/                 # App Router — landing, admin settings, teacher/student exam flows
   auth.ts              # NextAuth config (credentials stub)
   lib/
-    prisma.ts          # Prisma client singleton
-    rbac.ts            # Role helpers + TODO enforcement notes
+    prisma.ts
+    rbac.ts
+    errors.ts          # Vendor-neutral AppError helpers
+    storage/           # Local object storage (MVP)
+    demo-bootstrap.ts  # demo_school class + enrollments
+    exams/service.ts   # Exam/submission RBAC helpers
     i18n/              # en + zh-HK dictionaries
     config/
       openrouter-model-allowlist.ts
-    school-settings/   # DTO + admin-only helpers
-    llm/               # LlmClient + OpenRouter stub (no live calls)
+    school-settings/   # Admin settings helpers
+    llm/               # LlmClient + OpenRouter client
     jobs/
-      analyze-exam.ts  # In-process analysis job stub
-prisma/schema.prisma   # Canonical data model (incl. SchoolSettings)
-docs/architecture.md   # This document
+      analyze-exam.ts  # In-process analysis job runner
+      status-copy.ts   # Job status → UI copy keys
+prisma/schema.prisma
+docs/architecture.md
 ```
 
 ## i18n
@@ -216,12 +211,12 @@ Scaffold tokens live in `src/app/globals.css` (CSS variables only — **no** Thr
 | Semantic | `--color-success`, `--color-warn`, `--color-error`, `--color-info` |
 | Motion | `--motion-fast` 150ms, `--motion-base` 200ms, `--motion-slow` 300ms, `--motion-success` ≤500ms |
 
-**Role-tiered motion** (apply when building role UIs later):
+**Role-tiered motion** (applied on result UIs):
 
 | Role | Motion intensity |
 |------|------------------|
-| Student | High |
-| Teacher | Medium |
+| Student | High (colorful chips, chart stub, success pop) |
+| Teacher | Medium (half chroma / quieter motion) |
 | Admin | Low |
 
-**`prefers-reduced-motion`:** when set, skip decorative animation (landing fades already respect this). Do not ship a full colorful student-result UI in the scaffold — tokens + notes only.
+**`prefers-reduced-motion`:** when set, skip decorative animation. Student/teacher result screens use CSS-only motion (no Framer Motion / 3D / gamification).

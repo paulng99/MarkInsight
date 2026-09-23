@@ -1,71 +1,483 @@
 /**
- * Analysis job stub — in-process only.
+ * In-process analysis job runner (MVP).
  *
- * TODO(knife-1): Replace with a real queue (Inngest / BullMQ / SQS / etc.).
- * TODO(knife-1): Worker should: load Asset from storage → use resolved
- *   SchoolSettings.analysisLlmModel (already read here) → multimodal LLM
- *   (`createLlmClient`) → write QuestionScore rows → persist llmModel on AnalysisJob
- *   + Exam.structureLlmModel / Submission.scoringLlmModel → mark Submission DONE →
- *   refresh SubjectAggregate. Do not rewrite historical model ids when settings change.
- *   Product UI must not show vendor names.
- * Do NOT call external LLM APIs from this scaffold.
+ * - Creates AnalysisJob rows with llmModel from SchoolSettings.analysisLlmModel
+ * - Runs structure / scoring via createLlmClient (OpenRouter)
+ * - Persists llmModel on AnalysisJob + Exam.structureLlmModel / Submission.scoringLlmModel
+ * - Product errors stay vendor-neutral
+ *
+ * Swap for a real queue later; UI polls GET /api/jobs/[jobId].
  */
 
+import type { AnalysisJobKind, Prisma } from "@prisma/client";
+import { AppError, ANALYSIS_FAILED_GENERIC, sanitizeVendorLeak } from "@/lib/errors";
 import { createLlmClient } from "@/lib/llm";
+import { prisma } from "@/lib/prisma";
 import { resolveAnalysisLlmModelForNewJob } from "@/lib/school-settings";
 
-export type AnalyzeExamPayload = {
-  schoolId: string;
-  examId: string;
-  /** Optional: analyze one submission; omit for whole-exam batch (later). */
-  submissionId?: string;
-  requestedByUserId?: string;
-};
-
-export type JobStubResult = {
+export type EnqueueResult = {
   jobId: string;
-  status: "queued_stub";
-  /** Model id from current SchoolSettings — for new jobs only. */
+  status: "PENDING" | "RUNNING" | "SUCCEEDED" | "FAILED";
   llmModel: string;
-  message: string;
+  kind: AnalysisJobKind;
 };
 
-function fakeJobId(prefix: string): string {
-  return `${prefix}_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
+const running = new Set<string>();
+
+function schedule(jobId: string) {
+  // Fire-and-forget; errors handled inside processJob.
+  void processJob(jobId);
 }
 
-/** Enqueue exam-level analysis (stub). */
-export async function enqueueAnalyzeExam(
-  payload: AnalyzeExamPayload,
-): Promise<JobStubResult> {
-  const jobId = fakeJobId("exam");
-  // New jobs use the school's current allowlisted model; history stays immutable.
+export async function enqueueAnalyzeExam(payload: {
+  schoolId: string;
+  examId: string;
+  requestedByUserId?: string;
+}): Promise<EnqueueResult> {
   const llmModel = await resolveAnalysisLlmModelForNewJob(payload.schoolId);
-  // Resolve client so the LLM wiring path is exercised (no live HTTP).
-  const llm = createLlmClient();
-  void llm;
 
-  // In-process stub: log only. Persist AnalysisJob via Prisma in upload/analyze knife.
-  console.info("[jobs/analyze-exam] stub enqueue", {
-    jobId,
-    llmModel,
-    ...payload,
+  const exam = await prisma.exam.findFirst({
+    where: { id: payload.examId, schoolId: payload.schoolId },
   });
+  if (!exam) {
+    throw new AppError("Exam not found", 404, "exam_not_found");
+  }
+
+  const assets = await prisma.asset.findMany({
+    where: {
+      examId: payload.examId,
+      schoolId: payload.schoolId,
+      kind: { in: ["QUESTION_PAPER", "ANSWER_KEY"] },
+    },
+  });
+  if (assets.length === 0) {
+    throw new AppError("請檢查檔案 — upload a question paper first", 400, "missing_assets");
+  }
+
+  const job = await prisma.analysisJob.create({
+    data: {
+      schoolId: payload.schoolId,
+      examId: payload.examId,
+      kind: "EXAM_STRUCTURE",
+      status: "PENDING",
+      llmModel,
+      createdById: payload.requestedByUserId ?? null,
+    },
+  });
+
+  schedule(job.id);
   return {
-    jobId,
-    status: "queued_stub",
+    jobId: job.id,
+    status: "PENDING",
     llmModel,
-    message:
-      "Analysis job accepted (in-process stub). Wire a real queue + worker in the upload/analyze knife.",
+    kind: "EXAM_STRUCTURE",
   };
 }
 
-/** Enqueue a single submission analysis (stub). */
 export async function enqueueAnalyzeSubmission(payload: {
   schoolId: string;
   examId: string;
   submissionId: string;
   requestedByUserId?: string;
-}): Promise<JobStubResult> {
-  return enqueueAnalyzeExam(payload);
+}): Promise<EnqueueResult> {
+  const llmModel = await resolveAnalysisLlmModelForNewJob(payload.schoolId);
+
+  const submission = await prisma.submission.findFirst({
+    where: {
+      id: payload.submissionId,
+      examId: payload.examId,
+      schoolId: payload.schoolId,
+    },
+  });
+  if (!submission) {
+    throw new AppError("Submission not found", 404, "submission_not_found");
+  }
+  if (!submission.assetId) {
+    throw new AppError("請檢查檔案 — upload an answer script first", 400, "missing_script");
+  }
+
+  await prisma.submission.update({
+    where: { id: submission.id },
+    data: {
+      status: "QUEUED",
+      errorMessage: null,
+    },
+  });
+
+  const job = await prisma.analysisJob.create({
+    data: {
+      schoolId: payload.schoolId,
+      examId: payload.examId,
+      submissionId: payload.submissionId,
+      kind: "SUBMISSION_SCORING",
+      status: "PENDING",
+      llmModel,
+      createdById: payload.requestedByUserId ?? null,
+    },
+  });
+
+  schedule(job.id);
+  return {
+    jobId: job.id,
+    status: "PENDING",
+    llmModel,
+    kind: "SUBMISSION_SCORING",
+  };
 }
+
+/** Retry a failed job by enqueuing a fresh run of the same kind. */
+export async function retryAnalysisJob(
+  jobId: string,
+  requestedByUserId?: string,
+): Promise<EnqueueResult> {
+  const existing = await prisma.analysisJob.findUnique({ where: { id: jobId } });
+  if (!existing) {
+    throw new AppError("Job not found", 404, "job_not_found");
+  }
+  if (existing.kind === "EXAM_STRUCTURE") {
+    if (!existing.examId) {
+      throw new AppError("Job missing exam", 400, "job_invalid");
+    }
+    return enqueueAnalyzeExam({
+      schoolId: existing.schoolId,
+      examId: existing.examId,
+      requestedByUserId,
+    });
+  }
+  if (!existing.examId || !existing.submissionId) {
+    throw new AppError("Job missing submission", 400, "job_invalid");
+  }
+  return enqueueAnalyzeSubmission({
+    schoolId: existing.schoolId,
+    examId: existing.examId,
+    submissionId: existing.submissionId,
+    requestedByUserId,
+  });
+}
+
+export async function processJob(jobId: string): Promise<void> {
+  if (running.has(jobId)) return;
+  running.add(jobId);
+  try {
+    const job = await prisma.analysisJob.findUnique({ where: { id: jobId } });
+    if (!job || job.status === "SUCCEEDED" || job.status === "RUNNING") {
+      return;
+    }
+
+    const llmModel =
+      job.llmModel ||
+      (await resolveAnalysisLlmModelForNewJob(job.schoolId));
+
+    await prisma.analysisJob.update({
+      where: { id: jobId },
+      data: {
+        status: "RUNNING",
+        llmModel,
+        startedAt: new Date(),
+        errorMessage: null,
+      },
+    });
+
+    if (job.kind === "EXAM_STRUCTURE") {
+      await runExamStructure(jobId, job.schoolId, job.examId!, llmModel);
+    } else {
+      await runSubmissionScoring(
+        jobId,
+        job.schoolId,
+        job.examId!,
+        job.submissionId!,
+        llmModel,
+      );
+    }
+  } catch (error) {
+    const message =
+      error instanceof AppError
+        ? error.message
+        : sanitizeVendorLeak(
+            error instanceof Error ? error.message : ANALYSIS_FAILED_GENERIC,
+          );
+    await failJob(jobId, message);
+  } finally {
+    running.delete(jobId);
+  }
+}
+
+async function failJob(jobId: string, message: string) {
+  const safe = sanitizeVendorLeak(message || ANALYSIS_FAILED_GENERIC);
+  const job = await prisma.analysisJob.update({
+    where: { id: jobId },
+    data: {
+      status: "FAILED",
+      errorMessage: safe,
+      finishedAt: new Date(),
+    },
+  });
+  if (job.submissionId) {
+    await prisma.submission.update({
+      where: { id: job.submissionId },
+      data: { status: "FAILED", errorMessage: safe },
+    });
+  }
+}
+
+async function runExamStructure(
+  jobId: string,
+  schoolId: string,
+  examId: string,
+  llmModel: string,
+) {
+  const assets = await prisma.asset.findMany({
+    where: {
+      examId,
+      schoolId,
+      kind: { in: ["QUESTION_PAPER", "ANSWER_KEY"] },
+    },
+  });
+  if (assets.length === 0) {
+    throw new AppError("請檢查檔案", 400, "missing_assets");
+  }
+
+  const llm = createLlmClient();
+  const result = await llm.analyzeExamStructure({
+    schoolId,
+    examId,
+    modelOverride: llmModel,
+    assetRefs: assets.map((a) => ({
+      kind: a.kind,
+      storageKey: a.storageKey,
+      mimeType: a.mimeType,
+    })),
+  });
+
+  // Schema has no ExamStructure table — cache questions on disk for scoring.
+  await structureCache.set(examId, result.questions);
+
+  await prisma.exam.update({
+    where: { id: examId },
+    data: { structureLlmModel: result.llmModel },
+  });
+
+  await prisma.analysisJob.update({
+    where: { id: jobId },
+    data: {
+      status: "SUCCEEDED",
+      llmModel: result.llmModel,
+      finishedAt: new Date(),
+      errorMessage: null,
+    },
+  });
+}
+
+async function runSubmissionScoring(
+  jobId: string,
+  schoolId: string,
+  examId: string,
+  submissionId: string,
+  llmModel: string,
+) {
+  await prisma.submission.update({
+    where: { id: submissionId },
+    data: { status: "ANALYZING", errorMessage: null },
+  });
+
+  const submission = await prisma.submission.findFirstOrThrow({
+    where: { id: submissionId, schoolId },
+    include: { asset: true },
+  });
+  if (!submission.asset) {
+    throw new AppError("請檢查檔案", 400, "missing_script");
+  }
+
+  let questions = await structureCache.get(examId);
+  if (!questions || questions.length === 0) {
+    // Rebuild from a prior successful structure job is not stored — use demo structure
+    // if exam has structureLlmModel set, fall back to default questions for scoring MVP.
+    const exam = await prisma.exam.findUnique({ where: { id: examId } });
+    if (!exam?.structureLlmModel) {
+      throw new AppError(
+        "Exam structure analysis has not completed yet.",
+        400,
+        "structure_required",
+      );
+    }
+    // Re-run structure from assets to recover questions when process restarted.
+    const assets = await prisma.asset.findMany({
+      where: {
+        examId,
+        schoolId,
+        kind: { in: ["QUESTION_PAPER", "ANSWER_KEY"] },
+      },
+    });
+    const llmRecover = createLlmClient();
+    const recovered = await llmRecover.analyzeExamStructure({
+      schoolId,
+      examId,
+      modelOverride: exam.structureLlmModel,
+      assetRefs: assets.map((a) => ({
+        kind: a.kind,
+        storageKey: a.storageKey,
+        mimeType: a.mimeType,
+      })),
+    });
+    questions = recovered.questions;
+    await structureCache.set(examId, questions);
+  }
+
+  const llm = createLlmClient();
+  const result = await llm.scoreSubmission({
+    schoolId,
+    examId,
+    submissionId,
+    modelOverride: llmModel,
+    questions,
+    assetRefs: [
+      {
+        kind: submission.asset.kind,
+        storageKey: submission.asset.storageKey,
+        mimeType: submission.asset.mimeType,
+      },
+    ],
+  });
+
+  await prisma.$transaction(async (tx) => {
+    await tx.questionScore.deleteMany({ where: { submissionId } });
+    if (result.scores.length > 0) {
+      await tx.questionScore.createMany({
+        data: result.scores.map((s) => ({
+          schoolId,
+          submissionId,
+          questionKey: s.questionKey,
+          topic: s.topic,
+          itemType: s.itemType,
+          score: s.score,
+          maxScore: s.maxScore,
+          feedback: s.feedback ?? null,
+        })),
+      });
+    }
+
+    await tx.submission.update({
+      where: { id: submissionId },
+      data: {
+        status: "DONE",
+        scoringLlmModel: result.llmModel,
+        analyzedAt: new Date(),
+        errorMessage: null,
+      },
+    });
+
+    await tx.analysisJob.update({
+      where: { id: jobId },
+      data: {
+        status: "SUCCEEDED",
+        llmModel: result.llmModel,
+        finishedAt: new Date(),
+        errorMessage: null,
+      },
+    });
+  });
+
+  await refreshSubjectAggregates(schoolId, examId, submission.enrollmentId);
+}
+
+/** In-memory + DB-backed structure cache (survives via ExamStructureBlob table avoidance). */
+type QuestionShape = {
+  questionKey: string;
+  topic: string;
+  itemType: string;
+  maxScore: number;
+};
+
+/**
+ * Persist exam structure JSON on AnalysisJob is not in schema.
+ * We store via a lightweight Prisma model workaround: encode in SubjectAggregate
+ * is wrong. Use filesystem cache next to uploads instead.
+ */
+const structureCache = {
+  async set(examId: string, questions: QuestionShape[]) {
+    const { mkdir, writeFile } = await import("fs/promises");
+    const path = await import("path");
+    const dir = path.join(process.cwd(), ".data", "exam-structure");
+    await mkdir(dir, { recursive: true });
+    await writeFile(
+      path.join(dir, `${examId}.json`),
+      JSON.stringify(questions),
+      "utf8",
+    );
+  },
+  async get(examId: string): Promise<QuestionShape[] | null> {
+    try {
+      const { readFile } = await import("fs/promises");
+      const path = await import("path");
+      const raw = await readFile(
+        path.join(process.cwd(), ".data", "exam-structure", `${examId}.json`),
+        "utf8",
+      );
+      return JSON.parse(raw) as QuestionShape[];
+    } catch {
+      return null;
+    }
+  },
+};
+
+async function refreshSubjectAggregates(
+  schoolId: string,
+  examId: string,
+  enrollmentId: string,
+) {
+  const exam = await prisma.exam.findUnique({ where: { id: examId } });
+  if (!exam) return;
+
+  const scores = await prisma.questionScore.findMany({
+    where: { schoolId, submission: { enrollmentId } },
+  });
+
+  const buckets = new Map<
+    string,
+    { topic: string; itemType: string; sum: number; count: number }
+  >();
+  for (const s of scores) {
+    const key = `${s.topic}::${s.itemType}`;
+    const ratio = s.maxScore > 0 ? s.score / s.maxScore : 0;
+    const cur = buckets.get(key) ?? {
+      topic: s.topic,
+      itemType: s.itemType,
+      sum: 0,
+      count: 0,
+    };
+    cur.sum += ratio;
+    cur.count += 1;
+    buckets.set(key, cur);
+  }
+
+  for (const b of buckets.values()) {
+    await prisma.subjectAggregate.upsert({
+      where: {
+        classSubjectId_enrollmentId_topic_itemType: {
+          classSubjectId: exam.classSubjectId,
+          enrollmentId,
+          topic: b.topic,
+          itemType: b.itemType,
+        },
+      },
+      create: {
+        schoolId,
+        classSubjectId: exam.classSubjectId,
+        enrollmentId,
+        topic: b.topic,
+        itemType: b.itemType,
+        examCount: 1,
+        attemptCount: b.count,
+        avgScoreRatio: b.count ? b.sum / b.count : 0,
+        lastComputedAt: new Date(),
+      },
+      update: {
+        attemptCount: b.count,
+        avgScoreRatio: b.count ? b.sum / b.count : 0,
+        lastComputedAt: new Date(),
+      },
+    });
+  }
+}
+
+export type { Prisma };
