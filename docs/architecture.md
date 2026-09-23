@@ -54,7 +54,7 @@ LLM result DTOs (`AnalyzeExamStructureResult` / `ScoreSubmissionResult`) include
 
 **Hard rule:** `OPENROUTER_API_KEY` and `JINA_API_KEY` remain **env-only**. Never store keys in `SchoolSettings`, never expose them in UI or API responses.
 
-Scaffold: Prisma model + types + `GET`/`PUT /api/admin/school-settings` stub + `/admin/settings` TODO page. Full form persistence is a follow-up.
+**Implemented (settings knife):** Prisma persistence via `GET`/`PUT /api/admin/school-settings`, teacher create/list at `/api/admin/teachers`, school-year create at `/api/admin/school-years`, and the admin form at `/admin/settings` (single page, one save). Platform admin stub (`schoolId` null) resolves to `demo_school` and bootstraps School + default SchoolYear + SchoolSettings on first load. Teachers/students have no settings nav and receive 403 on settings APIs.
 
 ## High-level shape
 
@@ -163,9 +163,10 @@ Optional later: Jina for syllabus/PDF text / embeddings — **not** on the v1 sc
 - Real `OpenRouterLlmClient.chat` (OpenAI-compatible `POST /chat/completions`) + structured extraction → `QuestionScore`
 - Persist `llmModel` on `AnalysisJob` + `Exam.structureLlmModel` / `Submission.scoringLlmModel`
 - Read `SchoolSettings.analysisLlmModel` for **new** jobs; never rewrite historical model ids
-- Prisma-backed admin school settings form (allowlist select + toggles)
 - Aggregate recompute + teacher/student read APIs
 - Keep product UI free of vendor brand names
+
+**Done in settings knife:** Prisma-backed admin school settings form (allowlist select + toggles + teacher accounts); new jobs resolve `SchoolSettings.analysisLlmModel` in the analyze stub.
 
 ## Storage & LLM env
 
@@ -185,7 +186,7 @@ No secrets or real student scripts belong in the repository.
 
 ```text
 src/
-  app/                 # App Router pages (landing + role shells + admin settings stub)
+  app/                 # App Router pages (landing + role shells + admin settings)
   auth.ts              # NextAuth config (credentials stub)
   lib/
     prisma.ts          # Prisma client singleton

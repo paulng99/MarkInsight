@@ -2,8 +2,8 @@
  * Analysis job stub — in-process only.
  *
  * TODO(knife-1): Replace with a real queue (Inngest / BullMQ / SQS / etc.).
- * TODO(knife-1): Worker should: load Asset from storage → resolve
- *   SchoolSettings.analysisLlmModel (allowlist) → OpenRouter multimodal LLM
+ * TODO(knife-1): Worker should: load Asset from storage → use resolved
+ *   SchoolSettings.analysisLlmModel (already read here) → multimodal LLM
  *   (`createLlmClient`) → write QuestionScore rows → persist llmModel on AnalysisJob
  *   + Exam.structureLlmModel / Submission.scoringLlmModel → mark Submission DONE →
  *   refresh SubjectAggregate. Do not rewrite historical model ids when settings change.
@@ -12,6 +12,7 @@
  */
 
 import { createLlmClient } from "@/lib/llm";
+import { resolveAnalysisLlmModelForNewJob } from "@/lib/school-settings";
 
 export type AnalyzeExamPayload = {
   schoolId: string;
@@ -24,6 +25,8 @@ export type AnalyzeExamPayload = {
 export type JobStubResult = {
   jobId: string;
   status: "queued_stub";
+  /** Model id from current SchoolSettings — for new jobs only. */
+  llmModel: string;
   message: string;
 };
 
@@ -36,17 +39,24 @@ export async function enqueueAnalyzeExam(
   payload: AnalyzeExamPayload,
 ): Promise<JobStubResult> {
   const jobId = fakeJobId("exam");
-  // Resolve client so the OpenRouter wiring path is exercised (no live HTTP).
+  // New jobs use the school's current allowlisted model; history stays immutable.
+  const llmModel = await resolveAnalysisLlmModelForNewJob(payload.schoolId);
+  // Resolve client so the LLM wiring path is exercised (no live HTTP).
   const llm = createLlmClient();
   void llm;
 
-  // In-process stub: log only. Persist AnalysisJob via Prisma when DB is wired in knife 1.
-  console.info("[jobs/analyze-exam] stub enqueue", { jobId, ...payload });
+  // In-process stub: log only. Persist AnalysisJob via Prisma in upload/analyze knife.
+  console.info("[jobs/analyze-exam] stub enqueue", {
+    jobId,
+    llmModel,
+    ...payload,
+  });
   return {
     jobId,
     status: "queued_stub",
+    llmModel,
     message:
-      "Analysis job accepted (in-process stub). Wire a real queue + OpenRouter worker in knife 1.",
+      "Analysis job accepted (in-process stub). Wire a real queue + worker in the upload/analyze knife.",
   };
 }
 
