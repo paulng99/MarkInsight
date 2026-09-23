@@ -2,133 +2,77 @@
 
 **試卷成績分析** — help teachers and students turn exam scripts into topic-level weak-point insight.
 
-Web-only MVP scaffold (Next.js App Router + TypeScript + Prisma). Full upload/LLM product features are intentionally **not** implemented yet.
+Web MVP (Next.js App Router + TypeScript + Prisma). This knife delivers **exam upload + analysis jobs** (not a settings redo).
 
-## MVP scope (this repo stage)
+## Knife boundaries
 
-| In scope now | Out of scope (for later) |
-|--------------|--------------------------|
-| Product docs + architecture | Native iOS/Android |
-| Next.js app that builds | School-wide reports |
-| Role-aware auth **stubs** (admin / teacher / student) | Manual regrade UI |
-| Prisma schema (`school_id` tenant) | eClass sync |
-| Analysis **job stub** + OpenRouter **LLM client stub** | Parents / billing |
-| Landing + empty role shells | Live LLM / OCR / charts / real upload UI |
+| In this PR (upload / analyze) | Out of scope |
+|-------------------------------|--------------|
+| Teacher create exam + paper/key upload | Manual regrade UI |
+| Student script upload (+ teacher proxy when allowed) | School-wide reports |
+| In-process analysis jobs + UI polling | Native apps / eClass / parents / billing |
+| Results screens with job five-states | Jina as a required path |
+| Persist `llmModel` on jobs / exam / submission | Reworking admin settings |
 
 **Roles (locked):**
 
-- **Admin** — create schools + teacher accounts only
-- **Teacher** — teaching workspace (exams / analysis later)
-- **Student** — own results (later)
+- **Admin** — school settings + teacher accounts (already shipped)
+- **Teacher** — open exam, upload assets, trigger structure analysis, optional proxy upload, class results
+- **Student** — upload own script, view own results only
 
-**Core later:** exam upload + multimodal LLM analysis; multi-exam weak-point aggregates via `topic` / `item_type` tags.
+## LLM / storage
 
-## LLM suppliers (locked)
+| Piece | Behaviour |
+|-------|-----------|
+| Analysis model | New jobs read `SchoolSettings.analysisLlmModel` (allowlist) |
+| Live multimodal | `OPENROUTER_API_KEY` → chat completions; product UI never shows vendor names |
+| Missing key | Job fails with vendor-neutral copy (or set `MARKINSIGHT_ANALYSIS_DEMO=true` for offline deterministic results) |
+| Storage | `STORAGE_PROVIDER=local` → `.data/uploads` |
 
-| Supplier | Use | MVP |
-|----------|-----|-----|
-| **OpenRouter** | All multimodal LLM calls — exam structure analysis + student submission scoring (OpenAI-compatible API) | **Required** |
-| **Jina** | Optional later help for syllabus/PDF text extraction or embeddings | **Optional** — does not block scaffold or MVP |
+Every successful analysis persists the model id on `AnalysisJob.llmModel` plus `Exam.structureLlmModel` or `Submission.scoringLlmModel`.
 
-Scaffold wires an `LlmClient` interface with an `OpenRouterLlmClient` stub under `src/lib/llm/`. **No live API calls** in this PR. Put placeholders only in `.env.example` — never commit real keys.
+## Verify: teacher create → upload → student upload → results
 
-Every analysis result must persist the **model id** used (`AnalysisJob.llmModel`, `Exam.structureLlmModel`, `Submission.scoringLlmModel`). **Product UI must not show vendor names.**
+```bash
+npm install
+cp .env.example .env
+# set DATABASE_URL, NEXTAUTH_SECRET / AUTH_SECRET, NEXTAUTH_URL
+# optional for offline success path: MARKINSIGHT_ANALYSIS_DEMO=true
+npx prisma db push
+npm run dev
+```
 
-**School settings (admin-only):** Admin page at `/admin/settings` configures display name, contact note, default school year, allowlisted `analysisLlmModel`, teacher permission toggles, and teacher accounts (email + name). Persist via `GET`/`PUT /api/admin/school-settings`. API keys stay in env — never in DB/UI. Teachers/students have no settings entry. See `docs/architecture.md`.
+1. (Optional) Admin `admin@example.com` / `password` → School settings → pick analysis model + enable **Allow teachers to upload on behalf of students** → Save
+2. Teacher `teacher@example.com` / `password` → **開卷** → create exam for class → upload question paper (PDF/image) → **Start structure analysis** → watch PENDING→排隊中 / RUNNING→進行中 / SUCCEEDED→成功 (or FAILED→失敗 + retry)
+3. Student `student@example.com` / `password` → **上載答卷** → upload script → poll job states → **分析結果** (chips + expandable scores + chart stub; respects `prefers-reduced-motion`)
+4. Teacher may proxy-upload only when settings allow; student sees only own submissions; other roles get **403** on foreign APIs
+5. `npm run build` passes
 
-### Verify school settings (dev stub)
+Optional automated smoke (server running on :3000, `MARKINSIGHT_ANALYSIS_DEMO=true`):
 
-1. `npx prisma db push` (Postgres required)
-2. `npm run dev`
-3. Sign in as `admin@example.com` / `password`
-4. Open **School settings** from `/admin` (or `/admin/settings`)
-5. Edit fields → **Save settings** once; optionally add a year (`2026-2027`) and create a teacher
-6. Confirm teachers/students redirected away from `/admin/settings` and get 403 on `/api/admin/school-settings`
+```bash
+node scripts/smoke-upload.cjs
+```
+
+### Smoke checklist
+
+- New analysis jobs use the admin-selected allowlisted model
+- Failed upload / analysis shows clear error + retry (HK: 「請檢查檔案」 where appropriate); no vendor brand names in UI errors
+- RBAC: student cannot read another student’s submission; teacher limited to own class; `schoolId` on all rows
 
 ## Architecture
 
-See **[docs/architecture.md](./docs/architecture.md)** for:
-
-- Data model: School → SchoolYear → ClassSubject → Enrollment → Exam → Asset → Submission → QuestionScore → SubjectAggregate
-- Upload → storage → job → **OpenRouter** → DB pipeline
-- `schoolId` tenancy + RBAC sketch
+See **[docs/architecture.md](./docs/architecture.md)**.
 
 ## Stack
 
 - Next.js (App Router) + TypeScript + Tailwind CSS
-- NextAuth (Auth.js v5) credentials stub — **no production email required** for local demo
+- NextAuth (Auth.js v5) credentials stub
 - Prisma + PostgreSQL
-- OpenRouter (required for MVP LLM; stubbed here)
+- Local object storage + in-process job runner (MVP)
 - i18n: English + 繁體中文（香港）; dates **yyyy-mm-dd**
-- Design tokens in CSS variables (primary/accent + semantic + motion); CSS-only motion in scaffold
 
-## Design tokens & reduced motion
-
-See `src/app/globals.css` and **[docs/architecture.md](./docs/architecture.md)** (Design tokens & motion).
-
-- Durations: 150–300ms decorative; success feedback up to 500ms
-- Role-tiered motion later: student high · teacher medium · admin low
-- Honor **`prefers-reduced-motion`**: skip decorative animation
-- No heavy animation libraries in this scaffold (no Three.js / particles; Framer Motion optional later)
-- No full colorful student-result UI in this PR — tokens + notes only
-
-## Local setup
-
-### Prerequisites
-
-- Node.js 20+
-- PostgreSQL 14+ (local or hosted)
-- npm
-
-### 1. Install
-
-```bash
-npm install
-```
-
-### 2. Environment
-
-```bash
-cp .env.example .env
-```
-
-Fill at least:
-
-- `DATABASE_URL` — Postgres connection string
-- `NEXTAUTH_SECRET` — random string (`openssl rand -base64 32`)
-- `NEXTAUTH_URL` — `http://localhost:3000`
-
-Storage / OpenRouter / Jina keys may stay empty; the scaffold does not call them. When wiring knife 1, set `OPENROUTER_API_KEY` (required for live multimodal calls).
-
-### 3. Database
-
-Push the schema (good for local scaffold) **or** create a migration:
-
-```bash
-# Option A — prototype / local
-npx prisma db push
-
-# Option B — versioned migration
-npx prisma migrate dev --name init
-```
-
-Generate the client (usually automatic after install/push):
-
-```bash
-npx prisma generate
-```
-
-### 4. Run
-
-```bash
-npm run dev
-```
-
-Open [http://localhost:3000](http://localhost:3000).
-
-### 5. Auth stub (dev)
-
-Sign-in uses **demo credentials** (no email provider):
+### Dev sign-in
 
 | Email | Password | Role |
 |-------|----------|------|
@@ -136,53 +80,7 @@ Sign-in uses **demo credentials** (no email provider):
 | `teacher@example.com` | `password` | Teacher |
 | `student@example.com` | `password` | Student |
 
-These users are **in-memory stubs** — they are not seeded into Postgres. Wire real `User` rows + password hashes before production.
-
-### Build check
-
-```bash
-npm run build
-```
-
-## Environment variables
-
-See **[.env.example](./.env.example)** for the full list. Groups:
-
-- App / NextAuth (`NEXTAUTH_URL`, `NEXTAUTH_SECRET`, locale)
-- `DATABASE_URL`
-- Object storage placeholders (`STORAGE_*`)
-- **OpenRouter (required for MVP):** `OPENROUTER_API_KEY`, `OPENROUTER_BASE_URL`, **`OPENROUTER_MODEL_ALLOWLIST`**, optional `OPENROUTER_EXAM_STRUCTURE_MODEL` / `OPENROUTER_SCORING_MODEL`
-- **Jina (optional):** `JINA_API_KEY` — not required for scaffold or v1 scoring; env-only
-- Optional `FAL_KEY`
-
-**Do not commit real secrets or student PII. Never put API keys in `SchoolSettings` or the UI.**
-
-## Job + LLM stubs
-
-- `src/lib/jobs/analyze-exam.ts` — in-process enqueue stub (resolves `createLlmClient()`, no HTTP)
-- `src/lib/llm/` — `LlmClient` + `OpenRouterLlmClient` targeting `https://openrouter.ai/api/v1`
-
-```ts
-// TODO(knife-1): real queue + OpenRouter chat/completions → QuestionScore
-```
-
-## Project layout
-
-```text
-docs/architecture.md
-prisma/schema.prisma
-src/app/                 # landing + /admin /teacher /student shells
-src/auth.ts              # NextAuth config
-src/lib/prisma.ts
-src/lib/rbac.ts
-src/lib/i18n/
-src/lib/config/openrouter-model-allowlist.ts
-src/lib/school-settings/
-src/lib/llm/             # OpenRouter LlmClient stub
-src/lib/jobs/analyze-exam.ts
-src/app/admin/settings/  # admin school settings (form + API)
-.env.example
-```
+Demo teacher/student are upserted into Postgres on first workspace/exam API call (`demo_school`).
 
 ## License
 

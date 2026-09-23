@@ -45,6 +45,9 @@ yarn-error.log*
 
 /src/generated/prisma
 
+# Local uploads + exam structure cache (MVP storage)
+.data/
+
 # Local agent skill caches (not part of the product scaffold)
 .agents/
 .claude/

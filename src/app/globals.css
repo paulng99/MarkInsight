@@ -87,12 +87,100 @@ body {
   animation: fade-up var(--motion-slow) var(--ease-out) var(--motion-base) both;
 }
 
+@keyframes success-pop {
+  from {
+    opacity: 0;
+    transform: scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+.animate-success-pop {
+  animation: success-pop var(--motion-success) var(--ease-out) both;
+}
+
+@keyframes job-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.72;
+  }
+}
+
+.job-pulse {
+  animation: job-pulse 1.2s var(--ease-out) infinite;
+}
+
+.topic-chip,
+.type-chip {
+  display: inline-flex;
+  align-items: center;
+  border-radius: 999px;
+  padding: 0.25rem 0.65rem;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--muted);
+}
+
+.topic-chip--color,
+.type-chip--color {
+  border-color: transparent;
+  background: hsla(var(--chip-hue, 200), 70%, 92%, 1);
+  color: hsla(var(--chip-hue, 200), 70%, 28%, 1);
+}
+
+.score-card--student.score-card--open {
+  box-shadow: 0 10px 28px rgba(26, 95, 191, 0.12);
+  border-color: color-mix(in srgb, var(--brand) 35%, var(--border));
+}
+
+.score-card--teacher.score-card--open {
+  box-shadow: 0 6px 16px rgba(26, 95, 191, 0.06);
+}
+
+.student-results-hero {
+  background:
+    radial-gradient(circle at 12% 20%, rgba(14, 143, 140, 0.14), transparent 42%),
+    radial-gradient(circle at 88% 10%, rgba(26, 95, 191, 0.16), transparent 40%),
+    linear-gradient(160deg, #f7fbff, #eef6ff 55%, #f3fbfa);
+}
+
+.student-exam-card {
+  transition: transform var(--motion-fast) var(--ease-out),
+    box-shadow var(--motion-base) var(--ease-out);
+}
+
+.student-exam-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 12px 28px rgba(15, 63, 134, 0.08);
+}
+
+.student-upload-panel {
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.95), rgba(244, 248, 252, 0.9));
+}
+
+.teacher-results .chart-stub--medium {
+  opacity: 0.92;
+}
+
 /* Skip decorative animation when the user prefers reduced motion. */
 @media (prefers-reduced-motion: reduce) {
   .animate-fade-up,
   .animate-fade-up-delay,
-  .animate-fade-up-delay-2 {
+  .animate-fade-up-delay-2,
+  .animate-success-pop,
+  .job-pulse {
     animation: none;
+  }
+
+  .student-exam-card:hover {
+    transform: none;
   }
 
   *,

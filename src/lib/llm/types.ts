@@ -42,7 +42,9 @@ export type AnalyzeExamStructureInput = {
   schoolId: string;
   examId: string;
   /** Object-storage keys or signed URLs for question paper / answer key assets. */
-  assetRefs: Array<{ kind: string; storageKey: string }>;
+  assetRefs: Array<{ kind: string; storageKey: string; mimeType?: string | null }>;
+  /** Allowlisted model id from SchoolSettings for this run. */
+  modelOverride?: string;
 };
 
 export type AnalyzeExamStructureResult = {
@@ -63,9 +65,11 @@ export type ScoreSubmissionInput = {
   examId: string;
   submissionId: string;
   /** Student script asset ref(s). */
-  assetRefs: Array<{ kind: string; storageKey: string }>;
+  assetRefs: Array<{ kind: string; storageKey: string; mimeType?: string | null }>;
   /** Expected items from prior exam-structure analysis. */
   questions: AnalyzeExamStructureResult["questions"];
+  /** Allowlisted model id from SchoolSettings for this run. */
+  modelOverride?: string;
 };
 
 export type ScoreSubmissionResult = {
