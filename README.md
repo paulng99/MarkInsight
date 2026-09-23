@@ -34,7 +34,16 @@ Scaffold wires an `LlmClient` interface with an `OpenRouterLlmClient` stub under
 
 Every analysis result must persist the **model id** used (`AnalysisJob.llmModel`, `Exam.structureLlmModel`, `Submission.scoringLlmModel`). **Product UI must not show vendor names.**
 
-**School settings (admin-only):** `SchoolSettings` holds display name, contact note, default school year, allowlisted `analysisLlmModel`, and teacher toggles. API keys stay in env — never in DB/UI. See `docs/architecture.md`.
+**School settings (admin-only):** Admin page at `/admin/settings` configures display name, contact note, default school year, allowlisted `analysisLlmModel`, teacher permission toggles, and teacher accounts (email + name). Persist via `GET`/`PUT /api/admin/school-settings`. API keys stay in env — never in DB/UI. Teachers/students have no settings entry. See `docs/architecture.md`.
+
+### Verify school settings (dev stub)
+
+1. `npx prisma db push` (Postgres required)
+2. `npm run dev`
+3. Sign in as `admin@example.com` / `password`
+4. Open **School settings** from `/admin` (or `/admin/settings`)
+5. Edit fields → **Save settings** once; optionally add a year (`2026-2027`) and create a teacher
+6. Confirm teachers/students redirected away from `/admin/settings` and get 403 on `/api/admin/school-settings`
 
 ## Architecture
 
@@ -171,7 +180,7 @@ src/lib/config/openrouter-model-allowlist.ts
 src/lib/school-settings/
 src/lib/llm/             # OpenRouter LlmClient stub
 src/lib/jobs/analyze-exam.ts
-src/app/admin/settings/  # settings UI stub (TODO form)
+src/app/admin/settings/  # admin school settings (form + API)
 .env.example
 ```
 

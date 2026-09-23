@@ -41,7 +41,7 @@ export function isAllowedAnalysisModel(modelId: string): boolean {
 export function assertAllowedAnalysisModel(modelId: string): void {
   if (!isAllowedAnalysisModel(modelId)) {
     throw new Error(
-      `analysisLlmModel "${modelId}" is not in OPENROUTER_MODEL_ALLOWLIST`,
+      `analysisLlmModel "${modelId}" is not in the analysis model allowlist`,
     );
   }
 }
