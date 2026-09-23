@@ -1,0 +1,335 @@
+// MarkInsight data model (scaffold)
+// Tenant boundary: almost every row carries schoolId for RBAC isolation.
+// See docs/architecture.md for pipeline + aggregate notes.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  ADMIN
+  TEACHER
+  STUDENT
+}
+
+enum EnrollmentRole {
+  TEACHER
+  STUDENT
+}
+
+enum AssetKind {
+  QUESTION_PAPER
+  ANSWER_KEY
+  STUDENT_SCRIPT
+  OTHER
+}
+
+enum SubmissionStatus {
+  PENDING
+  QUEUED
+  ANALYZING
+  DONE
+  FAILED
+}
+
+enum AnalysisJobStatus {
+  PENDING
+  RUNNING
+  SUCCEEDED
+  FAILED
+}
+
+/// Distinguishes exam-structure vs submission-scoring analysis runs.
+enum AnalysisJobKind {
+  EXAM_STRUCTURE
+  SUBMISSION_SCORING
+}
+
+/// Platform / school user. Admin may create schools + teacher accounts only.
+model User {
+  id           String   @id @default(cuid())
+  email        String   @unique
+  name         String?
+  /// Optional until real auth provider is wired (credentials stub in MVP).
+  passwordHash String?
+  role         Role
+  /// Null only for platform-level ADMIN accounts (out of school tenant).
+  schoolId     String?
+  school       School?  @relation(fields: [schoolId], references: [id], onDelete: SetNull)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  enrollments       Enrollment[]
+  createdExams      Exam[]             @relation("ExamCreatedBy")
+  uploadedAssets    Asset[]            @relation("AssetUploadedBy")
+  submissions       Submission[]       @relation("SubmissionStudent")
+  analysisJobs      AnalysisJob[]      @relation("AnalysisJobCreatedBy")
+
+  @@index([schoolId])
+  @@index([role])
+}
+
+model School {
+  id        String   @id @default(cuid())
+  name      String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  settings          SchoolSettings?
+  users             User[]
+  schoolYears       SchoolYear[]
+  classSubjects     ClassSubject[]
+  enrollments       Enrollment[]
+  exams             Exam[]
+  assets            Asset[]
+  submissions       Submission[]
+  questionScores    QuestionScore[]
+  subjectAggregates SubjectAggregate[]
+  analysisJobs      AnalysisJob[]
+}
+
+/// Admin-managed school settings (1:1 with School). API keys never stored here.
+model SchoolSettings {
+  schoolId String @id
+  school   School @relation(fields: [schoolId], references: [id], onDelete: Cascade)
+
+  /// Display name shown in product UI (may differ from School.name).
+  displayName String
+  /// Optional free-text contact note for admins (no secrets).
+  contactNote String?
+
+  /// Default academic year for new class/exam flows (FK). Example year name: "2026-2027".
+  defaultSchoolYearId String?
+  defaultSchoolYear   SchoolYear? @relation("SchoolSettingsDefaultYear", fields: [defaultSchoolYearId], references: [id], onDelete: SetNull)
+
+  /// Analysis model id chosen from OPENROUTER_MODEL_ALLOWLIST only (app-layer validation).
+  /// New AnalysisJobs use this value; past Exam/Submission/AnalysisJob rows keep their stored llmModel.
+  analysisLlmModel String
+
+  /// When true, teachers may create student accounts (still school-scoped).
+  allowTeacherCreateStudents Boolean @default(false)
+  /// When true, teachers may upload submissions on behalf of students.
+  allowTeacherUploadOnBehalf Boolean @default(false)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([defaultSchoolYearId])
+}
+
+/// Academic year within a school (e.g. name "2025-2026", dates yyyy-mm-dd).
+model SchoolYear {
+  id        String   @id @default(cuid())
+  schoolId  String
+  school    School   @relation(fields: [schoolId], references: [id], onDelete: Cascade)
+  name      String
+  startsOn  DateTime @db.Date
+  endsOn    DateTime @db.Date
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  classSubjects     ClassSubject[]
+  defaultForSettings SchoolSettings[] @relation("SchoolSettingsDefaultYear")
+
+  @@unique([schoolId, name])
+  @@index([schoolId])
+}
+
+/// A taught class+subject cohort for a school year (e.g. "3A Mathematics").
+model ClassSubject {
+  id           String     @id @default(cuid())
+  schoolId     String
+  school       School     @relation(fields: [schoolId], references: [id], onDelete: Cascade)
+  schoolYearId String
+  schoolYear   SchoolYear @relation(fields: [schoolYearId], references: [id], onDelete: Cascade)
+  name         String
+  subjectCode  String
+  gradeLevel   String?
+  createdAt    DateTime   @default(now())
+  updatedAt    DateTime   @updatedAt
+
+  enrollments       Enrollment[]
+  exams             Exam[]
+  subjectAggregates SubjectAggregate[]
+
+  @@index([schoolId])
+  @@index([schoolYearId])
+}
+
+/// Links a teacher or student user to a ClassSubject (tenant-scoped).
+model Enrollment {
+  id             String         @id @default(cuid())
+  schoolId       String
+  school         School         @relation(fields: [schoolId], references: [id], onDelete: Cascade)
+  classSubjectId String
+  classSubject   ClassSubject   @relation(fields: [classSubjectId], references: [id], onDelete: Cascade)
+  userId         String
+  user           User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  role           EnrollmentRole
+  createdAt      DateTime       @default(now())
+  updatedAt      DateTime       @updatedAt
+
+  submissions       Submission[]
+  subjectAggregates SubjectAggregate[]
+
+  @@unique([classSubjectId, userId])
+  @@index([schoolId])
+  @@index([userId])
+}
+
+model Exam {
+  id             String       @id @default(cuid())
+  schoolId       String
+  school         School       @relation(fields: [schoolId], references: [id], onDelete: Cascade)
+  classSubjectId String
+  classSubject   ClassSubject @relation(fields: [classSubjectId], references: [id], onDelete: Cascade)
+  title          String
+  /// Exam calendar date (store/display as yyyy-mm-dd).
+  examDate       DateTime     @db.Date
+  createdById    String?
+  createdBy      User?        @relation("ExamCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+  /// Model id/name used for the latest successful exam-structure analysis (persist always when analyzed).
+  /// Store the provider model id string only (e.g. `google/gemini-2.5-flash`). Product UI must not show vendor names.
+  structureLlmModel String?
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+
+  assets       Asset[]
+  submissions  Submission[]
+  analysisJobs AnalysisJob[]
+
+  @@index([schoolId])
+  @@index([classSubjectId])
+}
+
+/// Stored file metadata (object storage key). No binary blobs in DB.
+model Asset {
+  id           String    @id @default(cuid())
+  schoolId     String
+  school       School    @relation(fields: [schoolId], references: [id], onDelete: Cascade)
+  examId       String
+  exam         Exam      @relation(fields: [examId], references: [id], onDelete: Cascade)
+  kind         AssetKind
+  storageKey   String
+  mimeType     String?
+  originalName String?
+  uploadedById String?
+  uploadedBy   User?     @relation("AssetUploadedBy", fields: [uploadedById], references: [id], onDelete: SetNull)
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  submissions Submission[] @relation("SubmissionPrimaryAsset")
+
+  @@index([schoolId])
+  @@index([examId])
+}
+
+/// One student's script/result for an exam; drives the analysis pipeline.
+model Submission {
+  id          String           @id @default(cuid())
+  schoolId    String
+  school      School           @relation(fields: [schoolId], references: [id], onDelete: Cascade)
+  examId      String
+  exam        Exam             @relation(fields: [examId], references: [id], onDelete: Cascade)
+  enrollmentId String
+  enrollment  Enrollment       @relation(fields: [enrollmentId], references: [id], onDelete: Cascade)
+  studentId   String
+  student     User             @relation("SubmissionStudent", fields: [studentId], references: [id], onDelete: Cascade)
+  assetId     String?
+  asset       Asset?           @relation("SubmissionPrimaryAsset", fields: [assetId], references: [id], onDelete: SetNull)
+  status      SubmissionStatus @default(PENDING)
+  errorMessage String?
+  analyzedAt  DateTime?
+  /// Model id/name used for the latest successful submission scoring (persist always when scored).
+  /// Product UI must not show vendor names — store model id only.
+  scoringLlmModel String?
+  createdAt   DateTime         @default(now())
+  updatedAt   DateTime         @updatedAt
+
+  questionScores QuestionScore[]
+  analysisJobs   AnalysisJob[]
+
+  @@unique([examId, enrollmentId])
+  @@index([schoolId])
+  @@index([studentId])
+  @@index([status])
+}
+
+/// Per-question result with topic + item_type tags for weak-point aggregates.
+model QuestionScore {
+  id           String     @id @default(cuid())
+  schoolId     String
+  school       School     @relation(fields: [schoolId], references: [id], onDelete: Cascade)
+  submissionId String
+  submission   Submission @relation(fields: [submissionId], references: [id], onDelete: Cascade)
+  questionKey  String
+  topic        String
+  itemType     String
+  score        Float
+  maxScore     Float
+  /// Optional LLM/short feedback; keep free of unnecessary PII.
+  feedback     String?
+  createdAt    DateTime   @default(now())
+  updatedAt    DateTime   @updatedAt
+
+  @@unique([submissionId, questionKey])
+  @@index([schoolId])
+  @@index([topic])
+  @@index([itemType])
+}
+
+/// Subject-level weak-point aggregate rolled up by topic / item_type (multi-exam).
+model SubjectAggregate {
+  id             String        @id @default(cuid())
+  schoolId       String
+  school         School        @relation(fields: [schoolId], references: [id], onDelete: Cascade)
+  classSubjectId String
+  classSubject   ClassSubject  @relation(fields: [classSubjectId], references: [id], onDelete: Cascade)
+  /// Null = class-wide; set = per-enrollment (student) aggregate.
+  enrollmentId   String?
+  enrollment     Enrollment?   @relation(fields: [enrollmentId], references: [id], onDelete: Cascade)
+  topic          String
+  itemType       String
+  examCount      Int           @default(0)
+  attemptCount   Int           @default(0)
+  avgScoreRatio  Float         @default(0)
+  lastComputedAt DateTime      @default(now())
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
+
+  @@unique([classSubjectId, enrollmentId, topic, itemType])
+  @@index([schoolId])
+  @@index([topic, itemType])
+}
+
+/// Analysis job stub row (in-process now; swap for real queue later).
+model AnalysisJob {
+  id          String            @id @default(cuid())
+  schoolId    String
+  school      School            @relation(fields: [schoolId], references: [id], onDelete: Cascade)
+  examId      String?
+  exam        Exam?             @relation(fields: [examId], references: [id], onDelete: Cascade)
+  submissionId String?
+  submission  Submission?       @relation(fields: [submissionId], references: [id], onDelete: Cascade)
+  kind        AnalysisJobKind
+  status      AnalysisJobStatus @default(PENDING)
+  /// OpenRouter (or routed) model id/name actually used for this run — required once the job starts.
+  /// Example: `google/gemini-2.5-flash`. Always persist; product UI must not display vendor names.
+  llmModel    String?
+  createdById String?
+  createdBy   User?             @relation("AnalysisJobCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+  errorMessage String?
+  startedAt   DateTime?
+  finishedAt  DateTime?
+  createdAt   DateTime          @default(now())
+  updatedAt   DateTime          @updatedAt
+
+  @@index([schoolId])
+  @@index([status])
+  @@index([kind])
+}

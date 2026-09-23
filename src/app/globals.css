@@ -1,0 +1,106 @@
+@import "tailwindcss";
+
+/*
+ * MarkInsight design tokens (scaffold stub).
+ * Blue-primary product UI; semantic colors for feedback states.
+ * Motion: prefer CSS only — no Three.js / particle libs in scaffold.
+ * Framer Motion is optional later, not required here.
+ */
+
+:root {
+  /* Surfaces */
+  --background: #f4f8fc;
+  --foreground: #0f1b2d;
+  --ink: #0f1b2d;
+  --muted: #4a5d73;
+  --surface: #ffffff;
+  --border: #c9d7e8;
+
+  /* Brand — primary / accent (blue-led, multi-accent later) */
+  --color-primary: #1a5fbf;
+  --color-primary-deep: #0f3f86;
+  --color-primary-soft: #9ec5f5;
+  --color-accent: #0e8f8c;
+  --brand: var(--color-primary);
+  --brand-deep: var(--color-primary-deep);
+  --brand-soft: var(--color-primary-soft);
+
+  /* Semantic */
+  --color-success: #1b7f4a;
+  --color-warn: #b86a00;
+  --color-error: #b42318;
+  --color-info: #1a5fbf;
+  --danger: var(--color-error);
+
+  /*
+   * Motion durations (ms) — keep decorative motion in 150–300ms;
+   * success/confirmation feedback may use up to 500ms.
+   * Role-tiered intensity (product direction; wire in role shells later):
+   *   student → high | teacher → medium | admin → low
+   */
+  --motion-fast: 150ms;
+  --motion-base: 200ms;
+  --motion-slow: 300ms;
+  --motion-success: 500ms;
+  --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --font-sans: var(--font-sans-hk);
+}
+
+body {
+  background: var(--background);
+  color: var(--foreground);
+}
+
+.hero-grid {
+  background-image:
+    linear-gradient(to right, rgba(26, 95, 191, 0.06) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(26, 95, 191, 0.06) 1px, transparent 1px);
+  background-size: 48px 48px;
+  mask-image: radial-gradient(ellipse at center, black 20%, transparent 75%);
+}
+
+@keyframes fade-up {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.animate-fade-up {
+  animation: fade-up var(--motion-slow) var(--ease-out) both;
+}
+
+.animate-fade-up-delay {
+  animation: fade-up var(--motion-slow) var(--ease-out) var(--motion-fast) both;
+}
+
+.animate-fade-up-delay-2 {
+  animation: fade-up var(--motion-slow) var(--ease-out) var(--motion-base) both;
+}
+
+/* Skip decorative animation when the user prefers reduced motion. */
+@media (prefers-reduced-motion: reduce) {
+  .animate-fade-up,
+  .animate-fade-up-delay,
+  .animate-fade-up-delay-2 {
+    animation: none;
+  }
+
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
