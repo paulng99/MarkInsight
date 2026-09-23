@@ -29,7 +29,8 @@ export type LlmChatRequest = {
 
 export type LlmChatResponse = {
   content: string;
-  model: string;
+  /** Model id actually used (from request or provider response). Persist on AnalysisJob / result rows. */
+  llmModel: string;
   usage?: {
     promptTokens?: number;
     completionTokens?: number;
@@ -45,6 +46,8 @@ export type AnalyzeExamStructureInput = {
 };
 
 export type AnalyzeExamStructureResult = {
+  /** Model id used for this structure analysis — must be persisted (Exam.structureLlmModel + AnalysisJob.llmModel). */
+  llmModel: string;
   questions: Array<{
     questionKey: string;
     topic: string;
@@ -66,6 +69,8 @@ export type ScoreSubmissionInput = {
 };
 
 export type ScoreSubmissionResult = {
+  /** Model id used for this scoring — must be persisted (Submission.scoringLlmModel + AnalysisJob.llmModel). */
+  llmModel: string;
   scores: Array<{
     questionKey: string;
     topic: string;

@@ -44,6 +44,12 @@ enum AnalysisJobStatus {
   FAILED
 }
 
+/// Distinguishes exam-structure vs submission-scoring analysis runs.
+enum AnalysisJobKind {
+  EXAM_STRUCTURE
+  SUBMISSION_SCORING
+}
+
 /// Platform / school user. Admin may create schools + teacher accounts only.
 model User {
   id           String   @id @default(cuid())
@@ -156,6 +162,9 @@ model Exam {
   examDate       DateTime     @db.Date
   createdById    String?
   createdBy      User?        @relation("ExamCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+  /// Model id/name used for the latest successful exam-structure analysis (persist always when analyzed).
+  /// Store the provider model id string only (e.g. `google/gemini-2.5-flash`). Product UI must not show vendor names.
+  structureLlmModel String?
   createdAt      DateTime     @default(now())
   updatedAt      DateTime     @updatedAt
 
@@ -205,6 +214,9 @@ model Submission {
   status      SubmissionStatus @default(PENDING)
   errorMessage String?
   analyzedAt  DateTime?
+  /// Model id/name used for the latest successful submission scoring (persist always when scored).
+  /// Product UI must not show vendor names — store model id only.
+  scoringLlmModel String?
   createdAt   DateTime         @default(now())
   updatedAt   DateTime         @updatedAt
 
@@ -273,7 +285,11 @@ model AnalysisJob {
   exam        Exam?             @relation(fields: [examId], references: [id], onDelete: Cascade)
   submissionId String?
   submission  Submission?       @relation(fields: [submissionId], references: [id], onDelete: Cascade)
+  kind        AnalysisJobKind
   status      AnalysisJobStatus @default(PENDING)
+  /// OpenRouter (or routed) model id/name actually used for this run — required once the job starts.
+  /// Example: `google/gemini-2.5-flash`. Always persist; product UI must not display vendor names.
+  llmModel    String?
   createdById String?
   createdBy   User?             @relation("AnalysisJobCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
   errorMessage String?
@@ -284,4 +300,5 @@ model AnalysisJob {
 
   @@index([schoolId])
   @@index([status])
+  @@index([kind])
 }

@@ -63,28 +63,31 @@ export class OpenRouterLlmClient implements LlmClient {
   ): Promise<AnalyzeExamStructureResult> {
     // TODO(knife-1): Build multimodal prompt from assetRefs + call this.chat with examStructureModel.
     // TODO(knife-1): Parse JSON → questions[{ questionKey, topic, itemType, maxScore }].
+    // TODO(knife-1): Persist llmModel on AnalysisJob + Exam.structureLlmModel (never show vendor names in UI).
+    const llmModel = this.config.examStructureModel;
     console.info("[llm/openrouter] stub analyzeExamStructure", {
       schoolId: input.schoolId,
       examId: input.examId,
       assetCount: input.assetRefs.length,
-      model: this.config.examStructureModel,
+      llmModel,
     });
-    return { questions: [] };
+    return { llmModel, questions: [] };
   }
 
   async scoreSubmission(
     input: ScoreSubmissionInput,
   ): Promise<ScoreSubmissionResult> {
     // TODO(knife-1): Multimodal score vs known questions via this.chat (scoringModel).
-    // TODO(knife-1): Persist via QuestionScore rows in the analysis worker.
+    // TODO(knife-1): Persist llmModel on AnalysisJob + Submission.scoringLlmModel; write QuestionScore rows.
+    const llmModel = this.config.scoringModel;
     console.info("[llm/openrouter] stub scoreSubmission", {
       schoolId: input.schoolId,
       examId: input.examId,
       submissionId: input.submissionId,
       questionCount: input.questions.length,
-      model: this.config.scoringModel,
+      llmModel,
     });
-    return { scores: [] };
+    return { llmModel, scores: [] };
   }
 }
 

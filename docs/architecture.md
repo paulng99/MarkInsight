@@ -21,6 +21,20 @@ Scaffold code lives under `src/lib/llm/` (`LlmClient` interface + `OpenRouterLlm
 
 Env placeholders (never commit real keys): `OPENROUTER_API_KEY`, optional `OPENROUTER_*_MODEL`, optional `JINA_API_KEY` — see `.env.example`.
 
+### Persist model id on every analysis result (locked)
+
+Every exam-structure analysis and every submission scoring run **must** store the model id/name that produced the result:
+
+| Location | Field | When |
+|----------|-------|------|
+| `AnalysisJob` | `llmModel` | Set when the job runs (structure or scoring); also `kind` = `EXAM_STRUCTURE` \| `SUBMISSION_SCORING` |
+| `Exam` | `structureLlmModel` | Latest successful structure analysis |
+| `Submission` | `scoringLlmModel` | Latest successful submission scoring |
+
+LLM result DTOs (`AnalyzeExamStructureResult` / `ScoreSubmissionResult`) include required `llmModel` so workers copy it into those columns.
+
+**Product UI must not show vendor names** (e.g. do not display “OpenRouter” / “Jina” to end users). Internal docs and env vars may name suppliers; user-facing copy stays vendor-neutral. If a model id is shown later for support/debug, show the model id string only — not the vendor brand.
+
 ## High-level shape
 
 ```text
@@ -82,7 +96,15 @@ Auth in this scaffold is a **credentials stub** (NextAuth) with role-aware sessi
 ### AnalysisJob
 
 - Persisted job row for observability.
+- `kind`: `EXAM_STRUCTURE` | `SUBMISSION_SCORING`.
+- `llmModel`: model id actually used for that run (required once started/succeeded).
 - Scaffold runs **in-process**; replace with a real queue (e.g. Inngest / BullMQ / SQS) later.
+
+### Exam / Submission model provenance
+
+- `Exam.structureLlmModel` — model id for last successful structure analysis.
+- `Submission.scoringLlmModel` — model id for last successful scoring.
+- Mirror the same `llmModel` onto the related `AnalysisJob` row.
 
 ## Upload → storage → job → LLM → DB pipeline
 
@@ -97,24 +119,28 @@ Auth in this scaffold is a **credentials stub** (NextAuth) with role-aware sessi
                               │
                               ▼
                      OpenRouter multimodal (LlmClient)  ← REQUIRED for MVP
-                       • analyzeExamStructure
-                       • scoreSubmission
+                       • analyzeExamStructure → llmModel
+                       • scoreSubmission → llmModel
                               │
                               ▼
+                     Persist llmModel on AnalysisJob
+                       + Exam.structureLlmModel / Submission.scoringLlmModel
                      QuestionScore rows + Submission.status=DONE
                               │
                               ▼
                      Refresh SubjectAggregate
 ```
 
-Optional later: Jina for syllabus/PDF text / embeddings — **not** on the v1 scoring path.
+Optional later: Jina for syllabus/PDF text / embeddings — **not** on the v1 scoring path. Product UI stays vendor-neutral.
 
 **Knife 1 TODOs** (do not implement in this PR):
 
 - Real multipart upload + storage adapter
 - Queue-backed `enqueueAnalyzeExam` / `enqueueAnalyzeSubmission`
 - Real `OpenRouterLlmClient.chat` (OpenAI-compatible `POST /chat/completions`) + structured extraction → `QuestionScore`
+- Persist `llmModel` on `AnalysisJob` + `Exam.structureLlmModel` / `Submission.scoringLlmModel`
 - Aggregate recompute + teacher/student read APIs
+- Keep product UI free of vendor brand names
 
 ## Storage & LLM env
 

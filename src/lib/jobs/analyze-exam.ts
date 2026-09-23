@@ -3,8 +3,9 @@
  *
  * TODO(knife-1): Replace with a real queue (Inngest / BullMQ / SQS / etc.).
  * TODO(knife-1): Worker should: load Asset from storage → OpenRouter multimodal LLM
- *   (`createLlmClient`) → write QuestionScore rows → mark Submission DONE →
- *   refresh SubjectAggregate.
+ *   (`createLlmClient`) → write QuestionScore rows → persist llmModel on AnalysisJob
+ *   + Exam.structureLlmModel / Submission.scoringLlmModel → mark Submission DONE →
+ *   refresh SubjectAggregate. Product UI must not show vendor names.
  * Do NOT call external LLM APIs from this scaffold.
  */
 

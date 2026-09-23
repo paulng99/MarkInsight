@@ -32,6 +32,8 @@ Web-only MVP scaffold (Next.js App Router + TypeScript + Prisma). Full upload/LL
 
 Scaffold wires an `LlmClient` interface with an `OpenRouterLlmClient` stub under `src/lib/llm/`. **No live API calls** in this PR. Put placeholders only in `.env.example` — never commit real keys.
 
+Every analysis result must persist the **model id** used (`AnalysisJob.llmModel`, `Exam.structureLlmModel`, `Submission.scoringLlmModel`). **Product UI must not show vendor names.**
+
 ## Architecture
 
 See **[docs/architecture.md](./docs/architecture.md)** for:
