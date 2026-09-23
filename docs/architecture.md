@@ -35,10 +35,32 @@ LLM result DTOs (`AnalyzeExamStructureResult` / `ScoreSubmissionResult`) include
 
 **Product UI must not show vendor names** (e.g. do not display “OpenRouter” / “Jina” to end users). Internal docs and env vars may name suppliers; user-facing copy stays vendor-neutral. If a model id is shown later for support/debug, show the model id string only — not the vendor brand.
 
+## School settings (admin-only, MVP)
+
+`SchoolSettings` is **1:1** with `School` (`schoolId` PK). Admin read/write only — teachers and students must not access settings APIs or pages.
+
+| Field | Purpose |
+|-------|---------|
+| `displayName` | School display name in product UI |
+| `contactNote` | Optional contact note (no secrets) |
+| `defaultSchoolYearId` | FK → `SchoolYear` (e.g. year name `2026-2027`) |
+| `analysisLlmModel` | Model id from **`OPENROUTER_MODEL_ALLOWLIST`** only (not free-text) |
+| `allowTeacherCreateStudents` | Toggle: teachers may create student accounts |
+| `allowTeacherUploadOnBehalf` | Toggle: teachers may upload submissions for students |
+
+**Model allowlist:** env `OPENROUTER_MODEL_ALLOWLIST` (comma-separated) or built-in `DEFAULT_OPENROUTER_MODEL_ALLOWLIST` in `src/lib/config/openrouter-model-allowlist.ts`. App-layer validation via `assertAllowedAnalysisModel`.
+
+**Job behaviour:** new `AnalysisJob` rows use the school’s current `analysisLlmModel`. Past `AnalysisJob.llmModel` / `Exam.structureLlmModel` / `Submission.scoringLlmModel` values are **immutable history** — changing settings does not rewrite them.
+
+**Hard rule:** `OPENROUTER_API_KEY` and `JINA_API_KEY` remain **env-only**. Never store keys in `SchoolSettings`, never expose them in UI or API responses.
+
+Scaffold: Prisma model + types + `GET`/`PUT /api/admin/school-settings` stub + `/admin/settings` TODO page. Full form persistence is a follow-up.
+
 ## High-level shape
 
 ```text
 School
+  ├── SchoolSettings (admin-only; analysisLlmModel from allowlist)
   └── SchoolYear
         └── ClassSubject
               ├── Enrollment (teacher | student)
@@ -55,9 +77,9 @@ Almost every table includes `schoolId` so queries can enforce a **tenant boundar
 
 | Role | Capabilities (product intent) |
 |------|--------------------------------|
-| `ADMIN` | Create **schools** and **teacher** accounts only. Not a teaching workspace. |
-| `TEACHER` | Manage class subjects, exams, uploads; view class/student weak points (later). |
-| `STUDENT` | View own submissions and aggregates (later). |
+| `ADMIN` | Create **schools** and **teacher** accounts; **school settings** (read/write). Not a teaching workspace. |
+| `TEACHER` | Manage class subjects, exams, uploads; view class/student weak points (later). No settings API access. |
+| `STUDENT` | View own submissions and aggregates (later). No settings API access. |
 
 Auth in this scaffold is a **credentials stub** (NextAuth) with role-aware session claims. Production email / OAuth is not required for local demo — see README.
 
@@ -66,6 +88,7 @@ Auth in this scaffold is a **credentials stub** (NextAuth) with role-aware sessi
 1. Session carries `userId`, `role`, `schoolId`.
 2. Every DB read/write filters by `schoolId` (admins creating schools are the exception).
 3. Teachers/students only see rows linked via `Enrollment` (or own `Submission`).
+4. **School settings** routes/actions: `role === ADMIN` only (403 otherwise).
 
 ## Data model notes
 
@@ -139,6 +162,8 @@ Optional later: Jina for syllabus/PDF text / embeddings — **not** on the v1 sc
 - Queue-backed `enqueueAnalyzeExam` / `enqueueAnalyzeSubmission`
 - Real `OpenRouterLlmClient.chat` (OpenAI-compatible `POST /chat/completions`) + structured extraction → `QuestionScore`
 - Persist `llmModel` on `AnalysisJob` + `Exam.structureLlmModel` / `Submission.scoringLlmModel`
+- Read `SchoolSettings.analysisLlmModel` for **new** jobs; never rewrite historical model ids
+- Prisma-backed admin school settings form (allowlist select + toggles)
 - Aggregate recompute + teacher/student read APIs
 - Keep product UI free of vendor brand names
 
@@ -148,8 +173,10 @@ Placeholders live in `.env.example`:
 
 - `DATABASE_URL`
 - `STORAGE_*` — S3-compatible or local stub
-- **`OPENROUTER_API_KEY`** (+ optional model / site vars) — required for MVP when live calls are wired
-- **`JINA_API_KEY`** — optional; unused in scaffold
+- **`OPENROUTER_API_KEY`** — env-only; never in DB/UI
+- **`OPENROUTER_MODEL_ALLOWLIST`** — comma-separated ids for `SchoolSettings.analysisLlmModel`
+- Optional `OPENROUTER_*_MODEL` / site vars
+- **`JINA_API_KEY`** — optional; env-only; unused in scaffold
 - Optional `FAL_KEY` — unused in scaffold
 
 No secrets or real student scripts belong in the repository.
@@ -158,16 +185,19 @@ No secrets or real student scripts belong in the repository.
 
 ```text
 src/
-  app/                 # App Router pages (landing + role shells)
+  app/                 # App Router pages (landing + role shells + admin settings stub)
   auth.ts              # NextAuth config (credentials stub)
   lib/
     prisma.ts          # Prisma client singleton
     rbac.ts            # Role helpers + TODO enforcement notes
     i18n/              # en + zh-HK dictionaries
+    config/
+      openrouter-model-allowlist.ts
+    school-settings/   # DTO + admin-only helpers
     llm/               # LlmClient + OpenRouter stub (no live calls)
     jobs/
       analyze-exam.ts  # In-process analysis job stub
-prisma/schema.prisma   # Canonical data model
+prisma/schema.prisma   # Canonical data model (incl. SchoolSettings)
 docs/architecture.md   # This document
 ```
 

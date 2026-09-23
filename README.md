@@ -34,6 +34,8 @@ Scaffold wires an `LlmClient` interface with an `OpenRouterLlmClient` stub under
 
 Every analysis result must persist the **model id** used (`AnalysisJob.llmModel`, `Exam.structureLlmModel`, `Submission.scoringLlmModel`). **Product UI must not show vendor names.**
 
+**School settings (admin-only):** `SchoolSettings` holds display name, contact note, default school year, allowlisted `analysisLlmModel`, and teacher toggles. API keys stay in env — never in DB/UI. See `docs/architecture.md`.
+
 ## Architecture
 
 See **[docs/architecture.md](./docs/architecture.md)** for:
@@ -129,11 +131,11 @@ See **[.env.example](./.env.example)** for the full list. Groups:
 - App / NextAuth (`NEXTAUTH_URL`, `NEXTAUTH_SECRET`, locale)
 - `DATABASE_URL`
 - Object storage placeholders (`STORAGE_*`)
-- **OpenRouter (required for MVP):** `OPENROUTER_API_KEY`, `OPENROUTER_BASE_URL`, optional `OPENROUTER_EXAM_STRUCTURE_MODEL` / `OPENROUTER_SCORING_MODEL`
-- **Jina (optional):** `JINA_API_KEY` — not required for scaffold or v1 scoring
+- **OpenRouter (required for MVP):** `OPENROUTER_API_KEY`, `OPENROUTER_BASE_URL`, **`OPENROUTER_MODEL_ALLOWLIST`**, optional `OPENROUTER_EXAM_STRUCTURE_MODEL` / `OPENROUTER_SCORING_MODEL`
+- **Jina (optional):** `JINA_API_KEY` — not required for scaffold or v1 scoring; env-only
 - Optional `FAL_KEY`
 
-**Do not commit real secrets or student PII.**
+**Do not commit real secrets or student PII. Never put API keys in `SchoolSettings` or the UI.**
 
 ## Job + LLM stubs
 
@@ -154,8 +156,11 @@ src/auth.ts              # NextAuth config
 src/lib/prisma.ts
 src/lib/rbac.ts
 src/lib/i18n/
+src/lib/config/openrouter-model-allowlist.ts
+src/lib/school-settings/
 src/lib/llm/             # OpenRouter LlmClient stub
 src/lib/jobs/analyze-exam.ts
+src/app/admin/settings/  # settings UI stub (TODO form)
 .env.example
 ```
 

@@ -7,6 +7,7 @@ import type {
   ScoreSubmissionInput,
   ScoreSubmissionResult,
 } from "@/lib/llm/types";
+import { parseOpenRouterModelAllowlist } from "@/lib/config/openrouter-model-allowlist";
 
 /**
  * OpenRouter-backed LLM client (scaffold stub).
@@ -30,16 +31,19 @@ export type OpenRouterClientConfig = {
 };
 
 export function loadOpenRouterConfigFromEnv(): OpenRouterClientConfig {
+  const allowlist = parseOpenRouterModelAllowlist();
+  const fallback = allowlist[0] ?? "openrouter/auto";
+  const structure =
+    process.env.OPENROUTER_EXAM_STRUCTURE_MODEL || fallback;
+  const scoring = process.env.OPENROUTER_SCORING_MODEL || fallback;
+
   return {
     apiKey: process.env.OPENROUTER_API_KEY || undefined,
     baseUrl:
       process.env.OPENROUTER_BASE_URL?.replace(/\/$/, "") ||
       "https://openrouter.ai/api/v1",
-    examStructureModel:
-      process.env.OPENROUTER_EXAM_STRUCTURE_MODEL ||
-      "openrouter/auto",
-    scoringModel:
-      process.env.OPENROUTER_SCORING_MODEL || "openrouter/auto",
+    examStructureModel: structure,
+    scoringModel: scoring,
     siteUrl: process.env.OPENROUTER_SITE_URL || undefined,
     siteName: process.env.OPENROUTER_SITE_NAME || "MarkInsight",
   };

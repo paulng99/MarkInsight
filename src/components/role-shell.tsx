@@ -67,6 +67,14 @@ export async function RoleShell({
         <p className="mt-3 max-w-2xl text-base leading-relaxed text-[var(--muted)]">
           {t[emptyKey]}
         </p>
+        {role === "ADMIN" ? (
+          <Link
+            href={`/admin/settings?locale=${locale}`}
+            className="mt-6 text-sm font-medium text-[var(--brand)] hover:underline"
+          >
+            {t.settingsTitle}
+          </Link>
+        ) : null}
         <Link
           href={`/?locale=${locale}`}
           className="mt-8 text-sm font-medium text-[var(--brand)] hover:underline"

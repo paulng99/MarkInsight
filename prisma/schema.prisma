@@ -80,6 +80,7 @@ model School {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
+  settings          SchoolSettings?
   users             User[]
   schoolYears       SchoolYear[]
   classSubjects     ClassSubject[]
@@ -90,6 +91,35 @@ model School {
   questionScores    QuestionScore[]
   subjectAggregates SubjectAggregate[]
   analysisJobs      AnalysisJob[]
+}
+
+/// Admin-managed school settings (1:1 with School). API keys never stored here.
+model SchoolSettings {
+  schoolId String @id
+  school   School @relation(fields: [schoolId], references: [id], onDelete: Cascade)
+
+  /// Display name shown in product UI (may differ from School.name).
+  displayName String
+  /// Optional free-text contact note for admins (no secrets).
+  contactNote String?
+
+  /// Default academic year for new class/exam flows (FK). Example year name: "2026-2027".
+  defaultSchoolYearId String?
+  defaultSchoolYear   SchoolYear? @relation("SchoolSettingsDefaultYear", fields: [defaultSchoolYearId], references: [id], onDelete: SetNull)
+
+  /// Analysis model id chosen from OPENROUTER_MODEL_ALLOWLIST only (app-layer validation).
+  /// New AnalysisJobs use this value; past Exam/Submission/AnalysisJob rows keep their stored llmModel.
+  analysisLlmModel String
+
+  /// When true, teachers may create student accounts (still school-scoped).
+  allowTeacherCreateStudents Boolean @default(false)
+  /// When true, teachers may upload submissions on behalf of students.
+  allowTeacherUploadOnBehalf Boolean @default(false)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([defaultSchoolYearId])
 }
 
 /// Academic year within a school (e.g. name "2025-2026", dates yyyy-mm-dd).
@@ -103,7 +133,8 @@ model SchoolYear {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  classSubjects ClassSubject[]
+  classSubjects     ClassSubject[]
+  defaultForSettings SchoolSettings[] @relation("SchoolSettingsDefaultYear")
 
   @@unique([schoolId, name])
   @@index([schoolId])
