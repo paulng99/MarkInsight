@@ -1,0 +1,94 @@
+/**
+ * Multimodal LLM client contract for MarkInsight.
+ *
+ * Product lock: MVP scoring/analysis goes through **OpenRouter** only
+ * (OpenAI-compatible Chat Completions API at https://openrouter.ai/api/v1).
+ *
+ * TODO(knife-1): Implement real HTTP calls (fetch/openai SDK) — no live calls in scaffold.
+ * TODO(knife-1): Structured outputs → QuestionScore (topic, itemType, score, maxScore).
+ * TODO(optional): Jina for syllabus/PDF text extraction or embeddings — not on the critical path.
+ */
+
+export type LlmContentPart =
+  | { type: "text"; text: string }
+  | { type: "image_url"; image_url: { url: string } };
+
+export type LlmChatMessage = {
+  role: "system" | "user" | "assistant";
+  content: string | LlmContentPart[];
+};
+
+export type LlmChatRequest = {
+  /** OpenRouter model id, e.g. `google/gemini-2.5-flash` (placeholder until locked). */
+  model: string;
+  messages: LlmChatMessage[];
+  temperature?: number;
+  /** Hint for JSON object responses when the model supports it. */
+  responseFormat?: "json_object" | "text";
+};
+
+export type LlmChatResponse = {
+  content: string;
+  model: string;
+  usage?: {
+    promptTokens?: number;
+    completionTokens?: number;
+  };
+};
+
+/** Exam paper / answer-key structure extraction (multimodal). */
+export type AnalyzeExamStructureInput = {
+  schoolId: string;
+  examId: string;
+  /** Object-storage keys or signed URLs for question paper / answer key assets. */
+  assetRefs: Array<{ kind: string; storageKey: string }>;
+};
+
+export type AnalyzeExamStructureResult = {
+  questions: Array<{
+    questionKey: string;
+    topic: string;
+    itemType: string;
+    maxScore: number;
+  }>;
+  rawModelText?: string;
+};
+
+/** Per-submission scoring against known structure (multimodal). */
+export type ScoreSubmissionInput = {
+  schoolId: string;
+  examId: string;
+  submissionId: string;
+  /** Student script asset ref(s). */
+  assetRefs: Array<{ kind: string; storageKey: string }>;
+  /** Expected items from prior exam-structure analysis. */
+  questions: AnalyzeExamStructureResult["questions"];
+};
+
+export type ScoreSubmissionResult = {
+  scores: Array<{
+    questionKey: string;
+    topic: string;
+    itemType: string;
+    score: number;
+    maxScore: number;
+    feedback?: string;
+  }>;
+  rawModelText?: string;
+};
+
+/**
+ * Provider-agnostic interface; MVP implementation MUST target OpenRouter.
+ */
+export interface LlmClient {
+  /** Low-level chat/completions (OpenAI-compatible). */
+  chat(request: LlmChatRequest): Promise<LlmChatResponse>;
+
+  /** High-level: derive exam question structure + tags. */
+  analyzeExamStructure(
+    input: AnalyzeExamStructureInput,
+  ): Promise<AnalyzeExamStructureResult>;
+
+  /** High-level: score one student submission. */
+  scoreSubmission(input: ScoreSubmissionInput): Promise<ScoreSubmissionResult>;
+}

@@ -4,9 +4,22 @@
 
 ## Scope reminder
 
-- **In:** Web MVP shell, school-scoped RBAC, Prisma schema, analysis **job stub**
-- **Later (knife 1):** exam upload UI + real analysis job (multimodal LLM)
+- **In:** Web MVP shell, school-scoped RBAC, Prisma schema, analysis **job stub**, OpenRouter **LLM client stub**
+- **Later (knife 1):** exam upload UI + real analysis job (OpenRouter multimodal)
 - **Out of scope now:** native apps, school-wide reports, manual regrade, eClass sync, parents, billing
+
+## Supplier decisions (locked)
+
+| Supplier | Role | MVP |
+|----------|------|-----|
+| **[OpenRouter](https://openrouter.ai)** | All multimodal LLM calls: exam structure analysis + student submission scoring | **Required** |
+| **[Jina](https://jina.ai)** | Possible later help for syllabus/PDF text extraction or embeddings | **Optional** — does not block scaffold or MVP acceptance |
+
+First-version scoring stays **OpenRouter multimodal**. Do not gate MVP on Jina.
+
+Scaffold code lives under `src/lib/llm/` (`LlmClient` interface + `OpenRouterLlmClient` stub). **No live API calls** in this stage — see TODOs on the client.
+
+Env placeholders (never commit real keys): `OPENROUTER_API_KEY`, optional `OPENROUTER_*_MODEL`, optional `JINA_API_KEY` — see `.env.example`.
 
 ## High-level shape
 
@@ -83,7 +96,9 @@ Auth in this scaffold is a **credentials stub** (NextAuth) with role-aware sessi
                      Worker / stub enqueue
                               │
                               ▼
-                     Multimodal LLM (TODO; no live calls in scaffold)
+                     OpenRouter multimodal (LlmClient)  ← REQUIRED for MVP
+                       • analyzeExamStructure
+                       • scoreSubmission
                               │
                               ▼
                      QuestionScore rows + Submission.status=DONE
@@ -92,11 +107,13 @@ Auth in this scaffold is a **credentials stub** (NextAuth) with role-aware sessi
                      Refresh SubjectAggregate
 ```
 
+Optional later: Jina for syllabus/PDF text / embeddings — **not** on the v1 scoring path.
+
 **Knife 1 TODOs** (do not implement in this PR):
 
 - Real multipart upload + storage adapter
 - Queue-backed `enqueueAnalyzeExam` / `enqueueAnalyzeSubmission`
-- LLM provider client (OpenRouter / etc.) with structured extraction → `QuestionScore`
+- Real `OpenRouterLlmClient.chat` (OpenAI-compatible `POST /chat/completions`) + structured extraction → `QuestionScore`
 - Aggregate recompute + teacher/student read APIs
 
 ## Storage & LLM env
@@ -105,7 +122,9 @@ Placeholders live in `.env.example`:
 
 - `DATABASE_URL`
 - `STORAGE_*` — S3-compatible or local stub
-- `LLM_*` / optional `EMBEDDING_*` / `FAL_KEY`
+- **`OPENROUTER_API_KEY`** (+ optional model / site vars) — required for MVP when live calls are wired
+- **`JINA_API_KEY`** — optional; unused in scaffold
+- Optional `FAL_KEY` — unused in scaffold
 
 No secrets or real student scripts belong in the repository.
 
@@ -119,6 +138,7 @@ src/
     prisma.ts          # Prisma client singleton
     rbac.ts            # Role helpers + TODO enforcement notes
     i18n/              # en + zh-HK dictionaries
+    llm/               # LlmClient + OpenRouter stub (no live calls)
     jobs/
       analyze-exam.ts  # In-process analysis job stub
 prisma/schema.prisma   # Canonical data model

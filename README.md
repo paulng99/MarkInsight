@@ -12,7 +12,7 @@ Web-only MVP scaffold (Next.js App Router + TypeScript + Prisma). Full upload/LL
 | Next.js app that builds | School-wide reports |
 | Role-aware auth **stubs** (admin / teacher / student) | Manual regrade UI |
 | Prisma schema (`school_id` tenant) | eClass sync |
-| Analysis **job stub** (in-process) | Parents / billing |
+| Analysis **job stub** + OpenRouter **LLM client stub** | Parents / billing |
 | Landing + empty role shells | Live LLM / OCR / charts / real upload UI |
 
 **Roles (locked):**
@@ -23,12 +23,21 @@ Web-only MVP scaffold (Next.js App Router + TypeScript + Prisma). Full upload/LL
 
 **Core later:** exam upload + multimodal LLM analysis; multi-exam weak-point aggregates via `topic` / `item_type` tags.
 
+## LLM suppliers (locked)
+
+| Supplier | Use | MVP |
+|----------|-----|-----|
+| **OpenRouter** | All multimodal LLM calls — exam structure analysis + student submission scoring (OpenAI-compatible API) | **Required** |
+| **Jina** | Optional later help for syllabus/PDF text extraction or embeddings | **Optional** — does not block scaffold or MVP |
+
+Scaffold wires an `LlmClient` interface with an `OpenRouterLlmClient` stub under `src/lib/llm/`. **No live API calls** in this PR. Put placeholders only in `.env.example` — never commit real keys.
+
 ## Architecture
 
 See **[docs/architecture.md](./docs/architecture.md)** for:
 
 - Data model: School → SchoolYear → ClassSubject → Enrollment → Exam → Asset → Submission → QuestionScore → SubjectAggregate
-- Upload → storage → job → LLM → DB pipeline
+- Upload → storage → job → **OpenRouter** → DB pipeline
 - `schoolId` tenancy + RBAC sketch
 
 ## Stack
@@ -36,6 +45,7 @@ See **[docs/architecture.md](./docs/architecture.md)** for:
 - Next.js (App Router) + TypeScript + Tailwind CSS
 - NextAuth (Auth.js v5) credentials stub — **no production email required** for local demo
 - Prisma + PostgreSQL
+- OpenRouter (required for MVP LLM; stubbed here)
 - i18n: English + 繁體中文（香港）; dates **yyyy-mm-dd**
 
 ## Local setup
@@ -64,7 +74,7 @@ Fill at least:
 - `NEXTAUTH_SECRET` — random string (`openssl rand -base64 32`)
 - `NEXTAUTH_URL` — `http://localhost:3000`
 
-Storage and LLM keys may stay empty; the scaffold does not call them.
+Storage / OpenRouter / Jina keys may stay empty; the scaffold does not call them. When wiring knife 1, set `OPENROUTER_API_KEY` (required for live multimodal calls).
 
 ### 3. Database
 
@@ -117,16 +127,19 @@ See **[.env.example](./.env.example)** for the full list. Groups:
 - App / NextAuth (`NEXTAUTH_URL`, `NEXTAUTH_SECRET`, locale)
 - `DATABASE_URL`
 - Object storage placeholders (`STORAGE_*`)
-- LLM / embedding / media placeholders (`LLM_*`, `EMBEDDING_*`, `FAL_KEY`)
+- **OpenRouter (required for MVP):** `OPENROUTER_API_KEY`, `OPENROUTER_BASE_URL`, optional `OPENROUTER_EXAM_STRUCTURE_MODEL` / `OPENROUTER_SCORING_MODEL`
+- **Jina (optional):** `JINA_API_KEY` — not required for scaffold or v1 scoring
+- Optional `FAL_KEY`
 
 **Do not commit real secrets or student PII.**
 
-## Job stub
+## Job + LLM stubs
 
-`src/lib/jobs/analyze-exam.ts` exposes in-process `enqueueAnalyzeExam` / `enqueueAnalyzeSubmission` helpers that log + return a fake job id.
+- `src/lib/jobs/analyze-exam.ts` — in-process enqueue stub (resolves `createLlmClient()`, no HTTP)
+- `src/lib/llm/` — `LlmClient` + `OpenRouterLlmClient` targeting `https://openrouter.ai/api/v1`
 
 ```ts
-// TODO(knife-1): replace with a real queue + multimodal LLM worker
+// TODO(knife-1): real queue + OpenRouter chat/completions → QuestionScore
 ```
 
 ## Project layout
@@ -139,6 +152,7 @@ src/auth.ts              # NextAuth config
 src/lib/prisma.ts
 src/lib/rbac.ts
 src/lib/i18n/
+src/lib/llm/             # OpenRouter LlmClient stub
 src/lib/jobs/analyze-exam.ts
 .env.example
 ```

@@ -2,10 +2,13 @@
  * Analysis job stub — in-process only.
  *
  * TODO(knife-1): Replace with a real queue (Inngest / BullMQ / SQS / etc.).
- * TODO(knife-1): Worker should: load Asset from storage → multimodal LLM →
- *   write QuestionScore rows → mark Submission DONE → refresh SubjectAggregate.
+ * TODO(knife-1): Worker should: load Asset from storage → OpenRouter multimodal LLM
+ *   (`createLlmClient`) → write QuestionScore rows → mark Submission DONE →
+ *   refresh SubjectAggregate.
  * Do NOT call external LLM APIs from this scaffold.
  */
+
+import { createLlmClient } from "@/lib/llm";
 
 export type AnalyzeExamPayload = {
   schoolId: string;
@@ -30,13 +33,17 @@ export async function enqueueAnalyzeExam(
   payload: AnalyzeExamPayload,
 ): Promise<JobStubResult> {
   const jobId = fakeJobId("exam");
+  // Resolve client so the OpenRouter wiring path is exercised (no live HTTP).
+  const llm = createLlmClient();
+  void llm;
+
   // In-process stub: log only. Persist AnalysisJob via Prisma when DB is wired in knife 1.
   console.info("[jobs/analyze-exam] stub enqueue", { jobId, ...payload });
   return {
     jobId,
     status: "queued_stub",
     message:
-      "Analysis job accepted (in-process stub). Wire a real queue + LLM worker in knife 1.",
+      "Analysis job accepted (in-process stub). Wire a real queue + OpenRouter worker in knife 1.",
   };
 }
 
