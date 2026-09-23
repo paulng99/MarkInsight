@@ -204,3 +204,23 @@ docs/architecture.md   # This document
 ## i18n
 
 UI copy supports **English** and **繁體中文（香港）** (`zh-HK`). Default locale is configurable via `NEXT_PUBLIC_DEFAULT_LOCALE`.
+
+## Design tokens & motion (UX direction)
+
+Scaffold tokens live in `src/app/globals.css` (CSS variables only — **no** Three.js / particle libs; Framer Motion optional later, not in this PR).
+
+| Token group | Examples |
+|-------------|----------|
+| Primary / accent | `--color-primary`, `--color-accent` |
+| Semantic | `--color-success`, `--color-warn`, `--color-error`, `--color-info` |
+| Motion | `--motion-fast` 150ms, `--motion-base` 200ms, `--motion-slow` 300ms, `--motion-success` ≤500ms |
+
+**Role-tiered motion** (apply when building role UIs later):
+
+| Role | Motion intensity |
+|------|------------------|
+| Student | High |
+| Teacher | Medium |
+| Admin | Low |
+
+**`prefers-reduced-motion`:** when set, skip decorative animation (landing fades already respect this). Do not ship a full colorful student-result UI in the scaffold — tokens + notes only.

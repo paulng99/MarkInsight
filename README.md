@@ -51,6 +51,17 @@ See **[docs/architecture.md](./docs/architecture.md)** for:
 - Prisma + PostgreSQL
 - OpenRouter (required for MVP LLM; stubbed here)
 - i18n: English + 繁體中文（香港）; dates **yyyy-mm-dd**
+- Design tokens in CSS variables (primary/accent + semantic + motion); CSS-only motion in scaffold
+
+## Design tokens & reduced motion
+
+See `src/app/globals.css` and **[docs/architecture.md](./docs/architecture.md)** (Design tokens & motion).
+
+- Durations: 150–300ms decorative; success feedback up to 500ms
+- Role-tiered motion later: student high · teacher medium · admin low
+- Honor **`prefers-reduced-motion`**: skip decorative animation
+- No heavy animation libraries in this scaffold (no Three.js / particles; Framer Motion optional later)
+- No full colorful student-result UI in this PR — tokens + notes only
 
 ## Local setup
 
