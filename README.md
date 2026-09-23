@@ -2,23 +2,22 @@
 
 **試卷成績分析** — help teachers and students turn exam scripts into topic-level weak-point insight.
 
-Web MVP (Next.js App Router + TypeScript + Prisma). This knife delivers **exam upload + analysis jobs** (not a settings redo).
+Web MVP (Next.js App Router + TypeScript + Prisma). This knife delivers **same-subject cross-exam weakness aggregation** (not a redo of settings or upload/analyze).
 
 ## Knife boundaries
 
-| In this PR (upload / analyze) | Out of scope |
-|-------------------------------|--------------|
-| Teacher create exam + paper/key upload | Manual regrade UI |
-| Student script upload (+ teacher proxy when allowed) | School-wide reports |
-| In-process analysis jobs + UI polling | Native apps / eClass / parents / billing |
-| Results screens with job five-states | Jina as a required path |
-| Persist `llmModel` on jobs / exam / submission | Reworking admin settings |
+| In this PR (cross-exam weakness) | Out of scope |
+|----------------------------------|--------------|
+| Same student + same subject + ≥2 SUCCEEDED analyses → topic / item_type rollup | School-wide reports |
+| Student subject entry 「跨卷薄弱點」 + teacher per-student class-scoped view | Manual regrade / gamification |
+| Empty state when &lt;2 successful analyses | Native apps / new vendors |
+| Single-exam result pages stay primary | Reworking admin settings or upload/analyze |
 
 **Roles (locked):**
 
 - **Admin** — school settings + teacher accounts (already shipped)
-- **Teacher** — open exam, upload assets, trigger structure analysis, optional proxy upload, class results
-- **Student** — upload own script, view own results only
+- **Teacher** — open exam, upload assets, class results + per-student cross-exam weakness (own class)
+- **Student** — upload own script, single-exam results, subject 「跨卷薄弱點」
 
 ## LLM / storage
 
@@ -54,11 +53,13 @@ Optional automated smoke (server running on :3000, `MARKINSIGHT_ANALYSIS_DEMO=tr
 node scripts/smoke-upload.cjs
 ```
 
-### Smoke checklist
+### Smoke checklist (cross-exam weakness)
 
-- New analysis jobs use the admin-selected allowlisted model
-- Failed upload / analysis shows clear error + retry (HK: 「請檢查檔案」 where appropriate); no vendor brand names in UI errors
-- RBAC: student cannot read another student’s submission; teacher limited to own class; `schoolId` on all rows
+- With **&lt;2** DONE submissions in a subject: student/teacher see empty copy 「需再完成至少一份成功分析」 + link back to subject / upload
+- With **≥2** DONE submissions for the same student + subject: 「跨卷薄弱點」 lists 課題 / 題型 ordered by weakness; topic drill links to related single-exam results
+- Teacher opens per-student aggregation only for own class (`studentId` required); student cannot request another student’s aggregates
+- Single-exam result page still works and links to cross-exam without replacing it
+- No vendor brand names in UI / errors; `prefers-reduced-motion` respected; `npm run build` passes
 
 ## Architecture
 

@@ -10,6 +10,7 @@
  */
 
 import type { AnalysisJobKind, Prisma } from "@prisma/client";
+import { refreshSubjectAggregates } from "@/lib/aggregates/weakness";
 import { AppError, ANALYSIS_FAILED_GENERIC, sanitizeVendorLeak } from "@/lib/errors";
 import { createLlmClient } from "@/lib/llm";
 import { prisma } from "@/lib/prisma";
@@ -419,65 +420,5 @@ const structureCache = {
     }
   },
 };
-
-async function refreshSubjectAggregates(
-  schoolId: string,
-  examId: string,
-  enrollmentId: string,
-) {
-  const exam = await prisma.exam.findUnique({ where: { id: examId } });
-  if (!exam) return;
-
-  const scores = await prisma.questionScore.findMany({
-    where: { schoolId, submission: { enrollmentId } },
-  });
-
-  const buckets = new Map<
-    string,
-    { topic: string; itemType: string; sum: number; count: number }
-  >();
-  for (const s of scores) {
-    const key = `${s.topic}::${s.itemType}`;
-    const ratio = s.maxScore > 0 ? s.score / s.maxScore : 0;
-    const cur = buckets.get(key) ?? {
-      topic: s.topic,
-      itemType: s.itemType,
-      sum: 0,
-      count: 0,
-    };
-    cur.sum += ratio;
-    cur.count += 1;
-    buckets.set(key, cur);
-  }
-
-  for (const b of buckets.values()) {
-    await prisma.subjectAggregate.upsert({
-      where: {
-        classSubjectId_enrollmentId_topic_itemType: {
-          classSubjectId: exam.classSubjectId,
-          enrollmentId,
-          topic: b.topic,
-          itemType: b.itemType,
-        },
-      },
-      create: {
-        schoolId,
-        classSubjectId: exam.classSubjectId,
-        enrollmentId,
-        topic: b.topic,
-        itemType: b.itemType,
-        examCount: 1,
-        attemptCount: b.count,
-        avgScoreRatio: b.count ? b.sum / b.count : 0,
-        lastComputedAt: new Date(),
-      },
-      update: {
-        attemptCount: b.count,
-        avgScoreRatio: b.count ? b.sum / b.count : 0,
-        lastComputedAt: new Date(),
-      },
-    });
-  }
-}
 
 export type { Prisma };

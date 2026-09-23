@@ -33,6 +33,10 @@ type SubmissionDetail = {
     avgScoreRatio: number;
   }>;
   student: { id: string; name: string | null; email: string };
+  exam?: {
+    id: string;
+    classSubject?: { id: string; name: string };
+  };
 };
 
 export function TeacherClassResults({
@@ -159,6 +163,14 @@ export function TeacherClassResults({
             </p>
           ) : null}
           <TopicChartStub data={chartData} t={t} intensity="medium" />
+          {detail.exam?.classSubject?.id ? (
+            <Link
+              href={`/teacher/class-subjects/${detail.exam.classSubject.id}/students/${detail.student.id}/weakness?locale=${locale}&fromExamId=${examId}`}
+              className="inline-block text-sm font-medium text-[var(--brand)] hover:underline"
+            >
+              {t.teacherStudentWeakness}
+            </Link>
+          ) : null}
           <div>
             <h3 className="mb-3 font-semibold">{t.expandScores}</h3>
             <ExpandableScoreCards
