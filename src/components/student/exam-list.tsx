@@ -99,7 +99,7 @@ export function StudentExamList({
   if (exams === null) {
     return (
       <div className="mt-8 space-y-6">
-        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+        <div className="grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-4">
           {Array.from({ length: 4 }).map((_, i) => (
             <div key={i} className="skeleton h-24" />
           ))}
@@ -128,7 +128,7 @@ export function StudentExamList({
 
   return (
     <div className="mt-8 space-y-10">
-      <div className="animate-fade-up-delay grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+      <div className="animate-fade-up-delay grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-4">
         <StatCard label={t.statExams} value={stats.exams} icon={<Icon.FileText />} tint="teal" />
         <StatCard label={t.uploadedLabel} value={stats.uploaded} icon={<Icon.Upload />} tint="blue" />
         <StatCard label={t.statResultsReady} value={stats.done} icon={<Icon.Award />} tint="emerald" />

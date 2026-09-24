@@ -600,8 +600,13 @@ body {
     background: var(--surface);
     border: 1px solid var(--border);
     border-radius: var(--radius-lg);
-    padding: 1.1rem 1.25rem;
+    padding: 0.95rem 1rem;
     box-shadow: var(--shadow-sm);
+  }
+  @media (min-width: 640px) {
+    .stat-card {
+      padding: 1.1rem 1.25rem;
+    }
   }
   .stat-card::after {
     content: "";

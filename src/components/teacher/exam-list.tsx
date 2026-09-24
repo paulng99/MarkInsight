@@ -160,7 +160,7 @@ export function TeacherExamList({
   if (subjects === null) {
     return (
       <div className="mt-8 space-y-6">
-        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+        <div className="grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-4">
           {Array.from({ length: 4 }).map((_, i) => (
             <div key={i} className="skeleton h-24" />
           ))}
@@ -191,7 +191,7 @@ export function TeacherExamList({
 
   return (
     <div className="mt-8 space-y-8">
-      <div className="animate-fade-up-delay grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+      <div className="animate-fade-up-delay grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-4">
         <StatCard label={t.statSubjects} value={stats.subjects} icon={<Icon.Layers />} tint="blue" />
         <StatCard label={t.statClasses} value={stats.classes} icon={<Icon.Users />} tint="violet" />
         <StatCard
