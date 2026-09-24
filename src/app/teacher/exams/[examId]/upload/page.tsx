@@ -1,6 +1,7 @@
 import { ProxyUploadForm } from "@/components/teacher/proxy-upload-form";
+import { AppShell } from "@/components/ui/app-shell";
+import { PageHeader } from "@/components/ui/page-header";
 import {
-  WorkspaceHeader,
   getDictionary,
   parseLocale,
   requireRolePage,
@@ -17,23 +18,20 @@ export default async function TeacherProxyUploadPage({
   const sp = await searchParams;
   const locale = parseLocale(sp.locale);
   const t = getDictionary(locale);
-  await requireRolePage("TEACHER", locale, `/teacher/exams/${examId}/upload`);
+  const session = await requireRolePage("TEACHER", locale, `/teacher/exams/${examId}/upload`);
 
   return (
-    <div className="flex min-h-full flex-1 flex-col">
-      <WorkspaceHeader
-        locale={locale}
-        t={t}
-        title={t.uploadScriptTitle}
-        basePath={`/teacher/exams/${examId}/upload`}
+    <AppShell user={session.user} locale={locale} t={t}>
+      <PageHeader
+        crumbs={[
+          { label: t.navDashboard, href: `/teacher?locale=${locale}` },
+          { label: t.examDetailTitle, href: `/teacher/exams/${examId}?locale=${locale}` },
+          { label: t.proxyUploadTitle },
+        ]}
+        title={t.proxyUploadTitle}
+        description={t.uploadScriptIntro}
       />
-      <main className="mx-auto flex w-full max-w-5xl flex-1 flex-col px-6 py-12">
-        <h1 className="font-[family-name:var(--font-display)] text-3xl font-semibold">
-          {t.proxyUploadTitle}
-        </h1>
-        <p className="mt-3 text-[var(--muted)]">{t.uploadScriptIntro}</p>
-        <ProxyUploadForm locale={locale} t={t} examId={examId} />
-      </main>
-    </div>
+      <ProxyUploadForm locale={locale} t={t} examId={examId} />
+    </AppShell>
   );
 }

@@ -1,6 +1,7 @@
 import { StudentResultView } from "@/components/student/result-view";
+import { AppShell } from "@/components/ui/app-shell";
+import { PageHeader } from "@/components/ui/page-header";
 import {
-  WorkspaceHeader,
   getDictionary,
   parseLocale,
   requireRolePage,
@@ -17,27 +18,23 @@ export default async function StudentSubmissionPage({
   const sp = await searchParams;
   const locale = parseLocale(sp.locale);
   const t = getDictionary(locale);
-  await requireRolePage(
+  const session = await requireRolePage(
     "STUDENT",
     locale,
     `/student/submissions/${submissionId}`,
   );
 
   return (
-    <div className="flex min-h-full flex-1 flex-col">
-      <WorkspaceHeader
-        locale={locale}
-        t={t}
+    <AppShell user={session.user} locale={locale} t={t}>
+      <PageHeader
+        crumbs={[
+          { label: t.navDashboard, href: `/student?locale=${locale}` },
+          { label: t.resultsTitle },
+        ]}
         title={t.resultsTitle}
-        basePath={`/student/submissions/${submissionId}`}
+        description={t.resultsIntro}
       />
-      <main className="mx-auto flex w-full max-w-5xl flex-1 flex-col px-6 py-12">
-        <h1 className="font-[family-name:var(--font-display)] text-3xl font-semibold">
-          {t.resultsTitle}
-        </h1>
-        <p className="mt-3 text-[var(--muted)]">{t.resultsIntro}</p>
-        <StudentResultView locale={locale} t={t} submissionId={submissionId} />
-      </main>
-    </div>
+      <StudentResultView locale={locale} t={t} submissionId={submissionId} />
+    </AppShell>
   );
 }

@@ -1,9 +1,14 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useEffect, useState, useTransition } from "react";
+import { useCallback, useEffect, useMemo, useState, useTransition } from "react";
 import type { Dictionary, Locale } from "@/lib/i18n/dictionaries";
 import { JobStatusBadge } from "@/components/jobs/job-status-badge";
+import { Alert, EmptyState, LoadingBlock } from "@/components/ui/feedback";
+import { FileField } from "@/components/ui/file-field";
+import { Icon } from "@/components/ui/icons";
+import { SectionHeader } from "@/components/ui/page-header";
+import { StatCard } from "@/components/ui/stat-card";
 
 type ExamRow = {
   id: string;
@@ -46,7 +51,12 @@ export function TeacherExamList({
   const [subjectCode, setSubjectCode] = useState("");
   const [className, setClassName] = useState("");
   const [adding, setAdding] = useState(false);
+  const [showAdd, setShowAdd] = useState(false);
+  const [syllabusReset, setSyllabusReset] = useState(0);
   const [, startTransition] = useTransition();
+
+  const isSuccess = (m: string) =>
+    m === t.syllabusUploaded || m === t.addSubjectSuccess || m === t.distributeSuccess;
 
   const load = useCallback(async () => {
     setError(null);
@@ -70,6 +80,25 @@ export function TeacherExamList({
     void load();
   }, [load]);
 
+  const stats = useMemo(() => {
+    const list = subjects ?? [];
+    let classes = 0;
+    let exams = 0;
+    let submissions = 0;
+    let analysed = 0;
+    for (const s of list) {
+      classes += s.classes.length;
+      for (const c of s.classes) {
+        exams += c.exams.length;
+        for (const e of c.exams) {
+          submissions += e.submissionCount;
+          if (e.latestStructureJob?.status === "SUCCEEDED") analysed += 1;
+        }
+      }
+    }
+    return { subjects: list.length, classes, exams, submissions, analysed };
+  }, [subjects]);
+
   function onAddSubject(e: React.FormEvent) {
     e.preventDefault();
     setNotice(null);
@@ -89,6 +118,7 @@ export function TeacherExamList({
         setSubjectCode("");
         setClassName("");
         setNotice(t.addSubjectSuccess);
+        setShowAdd(false);
         await load();
       } catch {
         setNotice(t.addSubjectError);
@@ -117,6 +147,7 @@ export function TeacherExamList({
         }
         setNotice(t.syllabusUploaded);
         form.reset();
+        setSyllabusReset((n) => n + 1);
         await load();
       } catch {
         setNotice(t.uploadError);
@@ -127,206 +158,351 @@ export function TeacherExamList({
   }
 
   if (subjects === null) {
-    return <p className="mt-8 text-sm text-[var(--muted)]">{t.examsLoading}</p>;
-  }
-
-  if (error) {
     return (
-      <div className="mt-8 rounded-xl border border-[var(--color-error)]/30 bg-[color-mix(in_srgb,var(--color-error)_8%,white)] px-4 py-4 text-sm text-[var(--color-error)]">
-        <p>{error}</p>
-        <button type="button" className="mt-2 underline" onClick={() => void load()}>
-          {t.settingsRetry}
-        </button>
+      <div className="mt-8 space-y-6">
+        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+          {Array.from({ length: 4 }).map((_, i) => (
+            <div key={i} className="skeleton h-24" />
+          ))}
+        </div>
+        <LoadingBlock label={t.examsLoading} />
       </div>
     );
   }
 
+  if (error) {
+    return (
+      <Alert
+        tone="error"
+        className="mt-8"
+        action={
+          <button type="button" className="btn btn-secondary btn-sm" onClick={() => void load()}>
+            <Icon.Refresh size={14} />
+            {t.settingsRetry}
+          </button>
+        }
+      >
+        {error}
+      </Alert>
+    );
+  }
+
+  const addPanelOpen = showAdd || subjects.length === 0;
+
   return (
-    <div className="mt-8 space-y-6">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <h2 className="font-[family-name:var(--font-display)] text-xl font-semibold">
-          {t.examsListTitle}
-        </h2>
-        <Link
-          href={`/teacher/exams/new?locale=${locale}`}
-          className="rounded-lg bg-[var(--brand)] px-4 py-2 text-sm font-semibold text-white shadow-sm transition-transform duration-[var(--motion-fast)] hover:-translate-y-0.5"
-        >
-          {t.examCreate}
-        </Link>
+    <div className="mt-8 space-y-8">
+      <div className="animate-fade-up-delay grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+        <StatCard label={t.statSubjects} value={stats.subjects} icon={<Icon.Layers />} tint="blue" />
+        <StatCard label={t.statClasses} value={stats.classes} icon={<Icon.Users />} tint="violet" />
+        <StatCard
+          label={t.statExams}
+          value={stats.exams}
+          hint={`${stats.analysed} ${t.statAnalysed.toLowerCase()}`}
+          icon={<Icon.FileText />}
+          tint="teal"
+        />
+        <StatCard label={t.statSubmissions} value={stats.submissions} icon={<Icon.Inbox />} tint="amber" />
       </div>
 
       {notice ? (
-        <p
-          className={`text-sm ${
-            notice === t.syllabusUploaded ||
-            notice === t.addSubjectSuccess ||
-            notice === t.distributeSuccess
-              ? "text-[var(--color-success)]"
-              : "text-[var(--color-error)]"
-          }`}
-        >
-          {notice}
-        </p>
+        <Alert tone={isSuccess(notice) ? "success" : "error"}>{notice}</Alert>
       ) : null}
 
-      <form
-        onSubmit={onAddSubject}
-        className="space-y-3 rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-5"
-      >
-        <h3 className="font-semibold text-[var(--ink)]">{t.addSubjectTitle}</h3>
-        <p className="text-sm text-[var(--muted)]">{t.addSubjectHint}</p>
-        <div className="flex flex-wrap items-end gap-3">
-          <label className="space-y-1 text-sm">
-            <span className="font-medium">{t.addSubjectCode}</span>
-            <input
-              required
-              value={subjectCode}
-              onChange={(e) => setSubjectCode(e.target.value)}
-              placeholder="PHY"
-              className="block w-36 rounded-lg border border-[var(--border)] bg-white px-3 py-2"
-            />
-          </label>
-          <label className="space-y-1 text-sm">
-            <span className="font-medium">{t.addSubjectClass}</span>
-            <input
-              required
-              value={className}
-              onChange={(e) => setClassName(e.target.value)}
-              placeholder="3A"
-              className="block w-36 rounded-lg border border-[var(--border)] bg-white px-3 py-2"
-            />
-          </label>
-          <button
-            type="submit"
-            disabled={adding}
-            className="rounded-lg bg-[var(--brand)] px-4 py-2 text-sm font-semibold text-white disabled:opacity-60"
+      <section className="animate-fade-up-delay-2 space-y-4">
+        <SectionHeader
+          title={t.examsListTitle}
+          description={subjects.length > 0 ? t.addSubjectHint : undefined}
+          actions={
+            <>
+              <button
+                type="button"
+                className="btn btn-secondary btn-sm"
+                onClick={() => setShowAdd((v) => !v)}
+                aria-expanded={addPanelOpen}
+              >
+                <Icon.Plus size={14} />
+                {t.addSubjectTitle}
+              </button>
+              <Link href={`/teacher/exams/new?locale=${locale}`} className="btn btn-primary btn-sm">
+                <Icon.FileText size={14} />
+                {t.examCreate}
+              </Link>
+            </>
+          }
+        />
+
+        {addPanelOpen ? (
+          <form onSubmit={onAddSubject} className="card card-pad animate-fade-up">
+            <div className="flex items-start gap-3">
+              <span className="icon-tile">
+                <Icon.Layers size={18} />
+              </span>
+              <div className="flex-1">
+                <h3 className="font-semibold text-[var(--ink)]">{t.addSubjectTitle}</h3>
+                <p className="mt-0.5 text-sm text-[var(--muted)]">{t.addSubjectHint}</p>
+                <div className="mt-4 grid gap-3 sm:grid-cols-[1fr_1fr_auto] sm:items-end">
+                  <div>
+                    <label className="label" htmlFor="subject-code">
+                      {t.addSubjectCode}
+                    </label>
+                    <input
+                      id="subject-code"
+                      required
+                      value={subjectCode}
+                      onChange={(e) => setSubjectCode(e.target.value.toUpperCase())}
+                      placeholder="PHY"
+                      className="input uppercase"
+                    />
+                  </div>
+                  <div>
+                    <label className="label" htmlFor="class-name">
+                      {t.addSubjectClass}
+                    </label>
+                    <input
+                      id="class-name"
+                      required
+                      value={className}
+                      onChange={(e) => setClassName(e.target.value)}
+                      placeholder="3A"
+                      className="input"
+                    />
+                  </div>
+                  <div className="flex gap-2">
+                    <button type="submit" disabled={adding} className="btn btn-primary">
+                      {adding ? <Icon.Loader size={16} /> : <Icon.Plus size={16} />}
+                      {adding ? t.addSubjectSaving : t.addSubjectSubmit}
+                    </button>
+                    {subjects.length > 0 ? (
+                      <button
+                        type="button"
+                        className="btn btn-ghost"
+                        onClick={() => setShowAdd(false)}
+                      >
+                        {t.cancel}
+                      </button>
+                    ) : null}
+                  </div>
+                </div>
+              </div>
+            </div>
+          </form>
+        ) : null}
+
+        {subjects.length === 0 ? (
+          <EmptyState
+            icon={<Icon.Inbox size={22} />}
+            title={t.subjectsEmpty}
+            description={t.addSubjectHint}
+          />
+        ) : (
+          <div className="space-y-6">
+            {subjects.map((subject, i) => (
+              <SubjectCard
+                key={subject.subjectCode}
+                subject={subject}
+                index={i}
+                locale={locale}
+                t={t}
+                pending={pendingCode === subject.subjectCode}
+                syllabusReset={syllabusReset}
+                onSyllabus={(e) => onSyllabus(subject.subjectCode, e)}
+                onNotice={(m) => {
+                  setNotice(m);
+                  if (isSuccess(m)) void load();
+                }}
+              />
+            ))}
+          </div>
+        )}
+      </section>
+    </div>
+  );
+}
+
+const subjectHues = [222, 262, 172, 28, 345, 200];
+
+function SubjectCard({
+  subject,
+  index,
+  locale,
+  t,
+  pending,
+  syllabusReset,
+  onSyllabus,
+  onNotice,
+}: {
+  subject: SubjectGroup;
+  index: number;
+  locale: Locale;
+  t: Dictionary;
+  pending: boolean;
+  syllabusReset: number;
+  onSyllabus: (e: React.FormEvent<HTMLFormElement>) => void;
+  onNotice: (message: string) => void;
+}) {
+  const [toolsOpen, setToolsOpen] = useState(false);
+  const hue = subjectHues[index % subjectHues.length];
+  const examCount = subject.classes.reduce((n, c) => n + c.exams.length, 0);
+
+  return (
+    <section className="card overflow-hidden">
+      <header className="flex flex-wrap items-center justify-between gap-3 border-b border-[var(--border)] px-5 py-4 sm:px-6">
+        <div className="flex items-center gap-3">
+          <span
+            className="display flex h-11 w-11 items-center justify-center rounded-xl text-sm"
+            style={{
+              background: `hsl(${hue} 80% 94%)`,
+              color: `hsl(${hue} 60% 32%)`,
+            }}
           >
-            {adding ? t.addSubjectSaving : t.addSubjectSubmit}
+            {subject.subjectCode.slice(0, 3)}
+          </span>
+          <div>
+            <p className="eyebrow">{t.subjectGroup}</p>
+            <h3 className="text-lg font-bold text-[var(--ink)]">{subject.subjectCode}</h3>
+          </div>
+        </div>
+        <div className="flex flex-wrap items-center gap-2 text-xs text-[var(--muted)]">
+          <span className="badge badge-neutral">
+            {subject.classes.length} {t.classesCount}
+          </span>
+          <span className="badge badge-neutral">
+            {examCount} {t.examsCount}
+          </span>
+          <span className={`badge badge-dot ${subject.syllabus ? "badge-success" : "badge-warn"}`}>
+            {subject.syllabus ? t.syllabusTitle : t.syllabusEmpty}
+          </span>
+          <button
+            type="button"
+            className="btn btn-ghost btn-sm"
+            onClick={() => setToolsOpen((v) => !v)}
+            aria-expanded={toolsOpen}
+          >
+            <Icon.Settings size={14} />
+            {toolsOpen ? t.hideTools : t.showTools}
+            <Icon.ChevronDown
+              size={14}
+              className={`transition-transform ${toolsOpen ? "rotate-180" : ""}`}
+            />
           </button>
         </div>
-      </form>
+      </header>
 
-      {subjects.length === 0 ? (
-        <p className="rounded-xl border border-dashed border-[var(--border)] bg-[var(--surface)] px-4 py-8 text-sm text-[var(--muted)]">
-          {t.subjectsEmpty}
-        </p>
-      ) : (
-        <div className="space-y-8">
-          {subjects.map((subject) => (
-            <section
-              key={subject.subjectCode}
-              className="space-y-4 rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-5"
-            >
-              <div className="flex flex-wrap items-start justify-between gap-3">
-                <div>
-                  <p className="text-xs font-medium uppercase tracking-wide text-[var(--brand)]">
-                    {t.subjectGroup}
-                  </p>
-                  <h3 className="mt-1 text-lg font-semibold text-[var(--ink)]">
-                    {subject.subjectCode}
-                  </h3>
-                </div>
+      {toolsOpen ? (
+        <div className="animate-fade-up grid gap-4 border-b border-[var(--border)] bg-[var(--surface-muted)] px-5 py-5 sm:px-6 lg:grid-cols-2">
+          <form onSubmit={onSyllabus} className="card card-pad space-y-3">
+            <div className="flex items-start gap-3">
+              <span className="icon-tile">
+                <Icon.BookOpen size={18} />
+              </span>
+              <div>
+                <p className="font-semibold text-[var(--ink)]">{t.syllabusTitle}</p>
+                <p className="mt-0.5 text-xs leading-relaxed text-[var(--muted)]">{t.syllabusHint}</p>
               </div>
+            </div>
+            {subject.syllabus ? (
+              <p className="flex items-center gap-2 rounded-lg bg-[var(--color-success-soft)] px-3 py-2 text-xs text-[var(--color-success)]">
+                <Icon.CheckCircle size={14} />
+                <span className="truncate font-medium">
+                  {subject.syllabus.originalName || t.syllabusTitle}
+                </span>
+                <span className="ml-auto shrink-0 opacity-80">{subject.syllabus.updatedAt}</span>
+              </p>
+            ) : null}
+            <FileField
+              required
+              compact
+              accept="application/pdf,image/*,text/plain"
+              title={t.dropzoneTitle}
+              hint={t.dropzoneHint}
+              selectedLabel={t.fileSelected}
+              resetKey={syllabusReset}
+            />
+            <button type="submit" disabled={pending} className="btn btn-secondary btn-sm">
+              {pending ? <Icon.Loader size={14} /> : <Icon.Upload size={14} />}
+              {pending ? t.syllabusUploading : subject.syllabus ? t.syllabusReplace : t.syllabusUpload}
+            </button>
+          </form>
 
-              <form
-                onSubmit={(e) => onSyllabus(subject.subjectCode, e)}
-                className="space-y-2 rounded-xl border border-dashed border-[var(--border)] bg-white/70 px-4 py-3"
-              >
-                <p className="text-sm font-medium text-[var(--ink)]">{t.syllabusTitle}</p>
-                <p className="text-xs leading-relaxed text-[var(--muted)]">{t.syllabusHint}</p>
-                {subject.syllabus ? (
-                  <p className="text-sm text-[var(--ink)]">
-                    {subject.syllabus.originalName || t.syllabusTitle}
-                    <span className="text-[var(--muted)]"> · {subject.syllabus.updatedAt}</span>
-                  </p>
-                ) : (
-                  <p className="text-sm text-[var(--muted)]">{t.syllabusEmpty}</p>
-                )}
-                <div className="flex flex-wrap items-center gap-3">
-                  <input
-                    name="file"
-                    type="file"
-                    required
-                    accept="application/pdf,image/*,text/plain"
-                    className="block text-sm"
-                  />
-                  <button
-                    type="submit"
-                    disabled={pendingCode === subject.subjectCode}
-                    className="rounded-lg bg-[var(--brand)] px-3 py-2 text-sm font-semibold text-white disabled:opacity-60"
-                  >
-                    {pendingCode === subject.subjectCode
-                      ? t.syllabusUploading
-                      : subject.syllabus
-                        ? t.syllabusReplace
-                        : t.syllabusUpload}
-                  </button>
-                </div>
-              </form>
-
-              <DistributeExam
-                subject={subject}
-                t={t}
-                onDone={(message) => {
-                  setNotice(message);
-                  void load();
-                }}
-                onError={setNotice}
-              />
-
-              <div className="space-y-4">
-                {subject.classes.map((cls) => (
-                  <div key={cls.id} className="space-y-2">
-                    <div className="flex flex-wrap items-center justify-between gap-2">
-                      <h4 className="text-sm font-semibold text-[var(--ink)]">
-                        <span className="mr-2 text-[var(--muted)]">{t.classGroup}</span>
-                        {cls.name}
-                      </h4>
-                      <Link
-                        href={`/teacher/exams/new?locale=${locale}&classSubjectId=${cls.id}`}
-                        className="text-sm font-medium text-[var(--brand)] hover:underline"
-                      >
-                        {t.examCreate}
-                      </Link>
-                    </div>
-                    {cls.exams.length === 0 ? (
-                      <p className="text-sm text-[var(--muted)]">{t.examsEmpty}</p>
-                    ) : (
-                      <ul className="space-y-2">
-                        {cls.exams.map((exam) => (
-                          <li key={exam.id}>
-                            <Link
-                              href={`/teacher/exams/${exam.id}?locale=${locale}`}
-                              className="block rounded-xl border border-[var(--border)] bg-white px-4 py-3 transition-[border-color,box-shadow] duration-[var(--motion-fast)] hover:border-[var(--brand-soft)] hover:shadow-sm"
-                            >
-                              <div className="flex flex-wrap items-start justify-between gap-3">
-                                <div>
-                                  <p className="font-semibold text-[var(--ink)]">{exam.title}</p>
-                                  <p className="mt-1 text-sm text-[var(--muted)]">
-                                    {exam.examDate}
-                                    {exam.sourceExamId ? ` · ${t.distributeCopy}` : ""}
-                                  </p>
-                                  <p className="mt-1 text-xs text-[var(--muted)]">
-                                    assets {exam.assetCount} · submissions {exam.submissionCount}
-                                  </p>
-                                </div>
-                                {exam.latestStructureJob ? (
-                                  <JobStatusBadge status={exam.latestStructureJob.status} t={t} />
-                                ) : null}
-                              </div>
-                            </Link>
-                          </li>
-                        ))}
-                      </ul>
-                    )}
-                  </div>
-                ))}
-              </div>
-            </section>
-          ))}
+          <DistributeExam subject={subject} t={t} onDone={onNotice} onError={onNotice} />
         </div>
-      )}
-    </div>
+      ) : null}
+
+      <div className="space-y-5 px-5 py-5 sm:px-6">
+        {subject.classes.map((cls) => (
+          <div key={cls.id}>
+            <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+              <h4 className="flex items-center gap-2 text-sm font-semibold text-[var(--ink)]">
+                <Icon.Users size={15} className="text-[var(--muted)]" />
+                {t.classGroup} {cls.name}
+                <span className="text-xs font-medium text-[var(--muted)]">
+                  · {cls.exams.length} {t.examsCount}
+                </span>
+              </h4>
+              <Link
+                href={`/teacher/exams/new?locale=${locale}&classSubjectId=${cls.id}`}
+                className="link text-sm"
+              >
+                <span className="inline-flex items-center gap-1">
+                  <Icon.Plus size={14} />
+                  {t.examCreate}
+                </span>
+              </Link>
+            </div>
+            {cls.exams.length === 0 ? (
+              <EmptyState compact title={t.examsEmpty} />
+            ) : (
+              <ul className="grid gap-2 md:grid-cols-2">
+                {cls.exams.map((exam) => (
+                  <li key={exam.id}>
+                    <Link
+                      href={`/teacher/exams/${exam.id}?locale=${locale}`}
+                      className="row-link group"
+                    >
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="min-w-0">
+                          <p className="truncate font-semibold text-[var(--ink)]">{exam.title}</p>
+                          <p className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-[var(--muted)]">
+                            <span className="inline-flex items-center gap-1">
+                              <Icon.Calendar size={12} />
+                              {exam.examDate}
+                            </span>
+                            {exam.sourceExamId ? (
+                              <span className="badge badge-violet">{t.distributeCopy}</span>
+                            ) : null}
+                          </p>
+                        </div>
+                        {exam.latestStructureJob ? (
+                          <JobStatusBadge status={exam.latestStructureJob.status} t={t} />
+                        ) : (
+                          <span className="badge badge-neutral">{t.notStarted}</span>
+                        )}
+                      </div>
+                      <div className="mt-3 flex items-center justify-between text-xs text-[var(--muted)]">
+                        <span className="flex gap-3">
+                          <span className="inline-flex items-center gap-1">
+                            <Icon.FileText size={12} />
+                            {exam.assetCount} {t.assetsLabel}
+                          </span>
+                          <span className="inline-flex items-center gap-1">
+                            <Icon.Inbox size={12} />
+                            {exam.submissionCount} {t.submissionsLabel}
+                          </span>
+                        </span>
+                        <span className="inline-flex items-center gap-1 font-semibold text-primary-600 opacity-0 transition-opacity group-hover:opacity-100">
+                          {t.openExamAction}
+                          <Icon.ArrowRight size={12} />
+                        </span>
+                      </div>
+                    </Link>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+        ))}
+      </div>
+    </section>
   );
 }
 
@@ -389,25 +565,31 @@ function DistributeExam({
   }
 
   return (
-    <form
-      onSubmit={onSubmit}
-      className="space-y-3 rounded-xl border border-[var(--border)] bg-white/70 px-4 py-3"
-    >
-      <p className="text-sm font-medium text-[var(--ink)]">{t.distributeTitle}</p>
-      <p className="text-xs leading-relaxed text-[var(--muted)]">{t.distributeHint}</p>
+    <form onSubmit={onSubmit} className="card card-pad space-y-3">
+      <div className="flex items-start gap-3">
+        <span className="icon-tile" style={{ ["--tile-bg" as string]: "#efeafd", ["--tile-fg" as string]: "var(--violet-600)" }}>
+          <Icon.Share size={18} />
+        </span>
+        <div>
+          <p className="font-semibold text-[var(--ink)]">{t.distributeTitle}</p>
+          <p className="mt-0.5 text-xs leading-relaxed text-[var(--muted)]">{t.distributeHint}</p>
+        </div>
+      </div>
       {originals.length === 0 ? (
-        <p className="text-sm text-[var(--muted)]">{t.distributeEmpty}</p>
+        <p className="rounded-lg bg-[var(--surface-sunken)] px-3 py-2 text-xs text-[var(--muted)]">
+          {t.distributeEmpty}
+        </p>
       ) : (
         <>
-          <label className="block space-y-1 text-sm">
-            <span className="font-medium">{t.distributeExam}</span>
+          <div>
+            <label className="label">{t.distributeExam}</label>
             <select
               value={selected?.id ?? ""}
               onChange={(e) => {
                 setExamId(e.target.value);
                 setClassIds([]);
               }}
-              className="block w-full max-w-md rounded-lg border border-[var(--border)] bg-white px-3 py-2"
+              className="select"
             >
               {originals.map((exam) => (
                 <option key={exam.id} value={exam.id}>
@@ -415,17 +597,25 @@ function DistributeExam({
                 </option>
               ))}
             </select>
-          </label>
-          <fieldset className="space-y-1">
-            <legend className="text-sm font-medium">{t.distributeClasses}</legend>
-            <div className="flex flex-wrap gap-3">
+          </div>
+          <fieldset>
+            <legend className="label">{t.distributeClasses}</legend>
+            <div className="flex flex-wrap gap-2">
               {subject.classes.map((cls) => {
                 const held = heldClassIds.has(cls.id);
                 const checked = held || classIds.includes(cls.id);
                 return (
-                  <label key={cls.id} className="flex items-center gap-2 text-sm">
+                  <label
+                    key={cls.id}
+                    className={`inline-flex cursor-pointer items-center gap-2 rounded-lg border px-3 py-1.5 text-sm transition-colors ${
+                      checked
+                        ? "border-primary-300 bg-primary-50 text-primary-800"
+                        : "border-[var(--border)] bg-[var(--surface)]"
+                    } ${held ? "opacity-60" : ""}`}
+                  >
                     <input
                       type="checkbox"
+                      className="checkbox"
                       checked={checked}
                       disabled={held || pending}
                       onChange={(e) => {
@@ -438,7 +628,7 @@ function DistributeExam({
                     />
                     <span>
                       {cls.name}
-                      {held ? `（${t.distributeAlready}）` : ""}
+                      {held ? ` · ${t.distributeAlready}` : ""}
                     </span>
                   </label>
                 );
@@ -448,8 +638,9 @@ function DistributeExam({
           <button
             type="submit"
             disabled={pending || classIds.length === 0}
-            className="rounded-lg bg-[var(--brand)] px-3 py-2 text-sm font-semibold text-white disabled:opacity-60"
+            className="btn btn-secondary btn-sm"
           >
+            {pending ? <Icon.Loader size={14} /> : <Icon.Send size={14} />}
             {pending ? t.distributeSaving : t.distributeSubmit}
           </button>
         </>
