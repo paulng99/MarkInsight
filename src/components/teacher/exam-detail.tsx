@@ -267,7 +267,7 @@ export function TeacherExamDetail({
                     checked={uploadKind === kind}
                     onChange={() => setUploadKind(kind)}
                   />
-                  {kind === "QUESTION_PAPER" ? t.examUploadPaper : t.examUploadKey}
+                  {kind === "QUESTION_PAPER" ? t.assetKindPaper : t.assetKindKey}
                 </label>
               ))}
             </div>
@@ -282,7 +282,11 @@ export function TeacherExamDetail({
             />
             <button type="submit" disabled={pending} className="btn btn-primary w-full sm:w-auto">
               {pending ? <Icon.Loader size={16} /> : <Icon.Upload size={16} />}
-              {pending ? t.uploadUploading : t.uploadSubmit}
+              {pending
+                ? t.uploadUploading
+                : uploadKind === "QUESTION_PAPER"
+                  ? t.examUploadPaper
+                  : t.examUploadKey}
             </button>
           </form>
         </section>
