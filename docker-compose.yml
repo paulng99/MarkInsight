@@ -1,0 +1,39 @@
+services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: markinsight
+      POSTGRES_PASSWORD: markinsight
+      POSTGRES_DB: markinsight
+    volumes:
+      - markinsight_pg:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U markinsight -d markinsight"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  web:
+    build: .
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    env_file:
+      - .env
+    environment:
+      DATABASE_URL: postgresql://markinsight:markinsight@db:5432/markinsight?schema=public
+      DATABASE_HOST: db
+      DATABASE_PORT: "5432"
+      NEXTAUTH_URL: ${NEXTAUTH_URL:-http://localhost:3000}
+      STORAGE_PROVIDER: local
+      STORAGE_LOCAL_DIR: /app/.data/uploads
+    volumes:
+      - markinsight_data:/app/.data
+    depends_on:
+      db:
+        condition: service_healthy
+
+volumes:
+  markinsight_pg:
+  markinsight_data:

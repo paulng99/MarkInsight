@@ -41,6 +41,21 @@ npx prisma db push
 npm run dev
 ```
 
+### Run with Docker (production-like)
+
+Requires Docker Compose and a root `.env` (copy from `.env.example`). Compose starts Postgres and the built Next.js app; it **overrides** `DATABASE_URL` to the Compose `db` service (does not use the optional local `markinsight-db` on port 5434).
+
+```bash
+cp .env.example .env   # if needed; set NEXTAUTH_SECRET / AUTH_SECRET
+docker compose up --build -d
+# App: http://localhost:3000
+docker compose logs -f web
+docker compose down       # keep volumes
+docker compose down -v    # wipe DB + upload volumes
+```
+
+Then verify:
+
 1. (Optional) Admin `admin@example.com` / `password` → School settings → pick analysis model + enable **Allow teachers to upload on behalf of students** → Save
 2. Teacher `teacher@example.com` / `password` → **開卷** → create exam for class → upload question paper (PDF/image) → **Start structure analysis** → watch PENDING→排隊中 / RUNNING→進行中 / SUCCEEDED→成功 (or FAILED→失敗 + retry)
 3. Student `student@example.com` / `password` → **上載答卷** → upload script → poll job states → **分析結果** (chips + expandable scores + chart stub; respects `prefers-reduced-motion`)
