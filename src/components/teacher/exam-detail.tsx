@@ -2,9 +2,13 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useState, useTransition } from "react";
-import type { Dictionary, Locale } from "@/lib/i18n/dictionaries";
+import { countLabel, type Dictionary, type Locale } from "@/lib/i18n/dictionaries";
 import { JobProgressPanel } from "@/components/jobs/job-progress-panel";
 import { JobStatusBadge } from "@/components/jobs/job-status-badge";
+import { Alert, EmptyState, LoadingBlock } from "@/components/ui/feedback";
+import { FileField } from "@/components/ui/file-field";
+import { Icon } from "@/components/ui/icons";
+import { PageHeader, SectionHeader } from "@/components/ui/page-header";
 
 type StructureQuestion = {
   questionKey: string;
@@ -53,6 +57,7 @@ export function TeacherExamDetail({
   const [uploadKind, setUploadKind] = useState<"QUESTION_PAPER" | "ANSWER_KEY">(
     "QUESTION_PAPER",
   );
+  const [fileReset, setFileReset] = useState(0);
 
   const load = useCallback(async () => {
     try {
@@ -101,6 +106,7 @@ export function TeacherExamDetail({
         }
         setBanner(t.uploadSuccess);
         form.reset();
+        setFileReset((n) => n + 1);
         await load();
       } catch {
         setBanner(t.uploadError);
@@ -143,202 +149,297 @@ export function TeacherExamDetail({
 
   if (error && !exam) {
     return (
-      <div className="mt-8 text-sm text-[var(--color-error)]">
-        <p>{error}</p>
-        <button type="button" className="mt-2 underline" onClick={() => void load()}>
-          {t.settingsRetry}
-        </button>
-      </div>
+      <Alert
+        tone="error"
+        action={
+          <button type="button" className="btn btn-secondary btn-sm" onClick={() => void load()}>
+            <Icon.Refresh size={14} />
+            {t.settingsRetry}
+          </button>
+        }
+      >
+        {error}
+      </Alert>
     );
   }
 
   if (!exam) {
-    return <p className="mt-8 text-sm text-[var(--muted)]">{t.stateLoading}</p>;
+    return (
+      <div className="space-y-6">
+        <div className="skeleton h-24" />
+        <LoadingBlock label={t.stateLoading} />
+      </div>
+    );
   }
 
   const questions = exam.structureQuestions ?? [];
-  const jobSucceeded = exam.latestStructureJobs[0]?.status === "SUCCEEDED";
+  const latest = exam.latestStructureJobs[0];
+  const jobSucceeded = latest?.status === "SUCCEEDED";
+  const hasPaper = exam.assets.length > 0;
+  const isSuccessBanner =
+    banner === t.uploadSuccess ||
+    banner === t.examAnalyzeSuccess ||
+    banner === t.examStructureReady;
+
+  const step = !hasPaper ? 0 : !jobSucceeded ? 1 : 2;
+  const nextStepCopy = [t.nextStepUploadPaper, t.nextStepAnalyse, t.nextStepDistribute][step];
 
   return (
-    <div className="mt-8 space-y-8">
-      <div>
-        <p className="text-sm text-[var(--muted)]">
-          {exam.classSubject.name} · {exam.examDate}
-        </p>
-        <h2 className="mt-1 font-[family-name:var(--font-display)] text-2xl font-semibold text-[var(--ink)]">
-          {exam.title}
-        </h2>
-        {exam.structureLlmModel ? (
-          <p className="mt-2 text-xs text-[var(--muted)]">
-            {t.structureModelStored}
-          </p>
-        ) : null}
-      </div>
+    <div className="space-y-8">
+      <PageHeader
+        crumbs={[
+          { label: t.navDashboard, href: `/teacher?locale=${locale}` },
+          { label: exam.classSubject.subjectCode },
+          { label: exam.title },
+        ]}
+        eyebrow={`${exam.classSubject.name} · ${exam.classSubject.subjectCode}`}
+        title={exam.title}
+        description={`${t.dateLabel}: ${exam.examDate}`}
+        actions={
+          <>
+            <Link href={`/teacher/exams/${examId}/upload?locale=${locale}`} className="btn btn-secondary">
+              <Icon.Upload size={16} />
+              {t.proxyUploadTitle}
+            </Link>
+            <Link href={`/teacher/exams/${examId}/results?locale=${locale}`} className="btn btn-primary">
+              <Icon.BarChart size={16} />
+              {t.classResults}
+            </Link>
+          </>
+        }
+      />
 
-      <section className="space-y-3">
-        <h3 className="font-semibold text-[var(--ink)]">{t.examAssetsTitle}</h3>
-        <p className="text-sm text-[var(--muted)]">{t.examUploadHint}</p>
-        {exam.assets.length === 0 ? (
-          <p className="text-sm text-[var(--muted)]">{t.examAssetsEmpty}</p>
-        ) : (
-          <ul className="space-y-2">
-            {exam.assets.map((a) => (
-              <li
-                key={a.id}
-                className="flex items-center justify-between rounded-lg border border-[var(--border)] bg-[var(--surface)] px-3 py-2 text-sm"
-              >
-                <span>
-                  {a.kind}: {a.originalName || a.id}
-                </span>
-              </li>
-            ))}
-          </ul>
-        )}
+      <Stepper
+        step={step}
+        labels={[t.stepUpload, t.stepAnalyse, t.stepReview]}
+        nextStep={nextStepCopy}
+        t={t}
+      />
 
-        <form onSubmit={onUpload} className="flex flex-wrap items-end gap-3">
-          <label className="space-y-1 text-sm">
-            <span className="font-medium">{t.uploadChooseFile}</span>
-            <input
-              name="file"
-              type="file"
+      {banner ? <Alert tone={isSuccessBanner ? "success" : "error"}>{banner}</Alert> : null}
+
+      <div className="grid gap-6 lg:grid-cols-[1.1fr_0.9fr]">
+        {/* Assets */}
+        <section className="card card-pad space-y-4 animate-fade-up-delay">
+          <SectionHeader
+            icon={<Icon.FileText size={18} />}
+            title={t.examAssetsTitle}
+            description={t.examUploadHint}
+          />
+          {exam.assets.length === 0 ? (
+            <EmptyState compact title={t.examAssetsEmpty} />
+          ) : (
+            <ul className="space-y-2">
+              {exam.assets.map((a) => (
+                <li
+                  key={a.id}
+                  className="flex items-center gap-3 rounded-lg border border-[var(--border)] bg-[var(--surface-muted)] px-3 py-2 text-sm"
+                >
+                  <span className="icon-tile !h-8 !w-8">
+                    <Icon.FileText size={14} />
+                  </span>
+                  <span className="min-w-0 flex-1 truncate font-medium text-[var(--ink)]">
+                    {a.originalName || a.id}
+                  </span>
+                  <span className={`badge ${a.kind === "ANSWER_KEY" ? "badge-violet" : "badge-info"}`}>
+                    {a.kind === "ANSWER_KEY" ? t.assetKindKey : t.assetKindPaper}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          )}
+
+          <form onSubmit={onUpload} className="space-y-3 border-t border-[var(--border)] pt-4">
+            <div className="grid grid-cols-2 gap-2">
+              {(["QUESTION_PAPER", "ANSWER_KEY"] as const).map((kind) => (
+                <label
+                  key={kind}
+                  className={`flex cursor-pointer items-center justify-center gap-2 rounded-lg border px-3 py-2 text-sm font-semibold transition-colors ${
+                    uploadKind === kind
+                      ? "border-primary-300 bg-primary-50 text-primary-800"
+                      : "border-[var(--border)] bg-[var(--surface)] text-[var(--ink-secondary)] hover:bg-[var(--surface-muted)]"
+                  }`}
+                >
+                  <input
+                    type="radio"
+                    name="kind-choice"
+                    className="sr-only"
+                    checked={uploadKind === kind}
+                    onChange={() => setUploadKind(kind)}
+                  />
+                  {kind === "QUESTION_PAPER" ? t.examUploadPaper : t.examUploadKey}
+                </label>
+              ))}
+            </div>
+            <FileField
               required
+              compact
               accept="image/*,application/pdf"
-              className="block text-sm"
+              title={t.dropzoneTitle}
+              hint={t.dropzoneHint}
+              selectedLabel={t.fileSelected}
+              resetKey={fileReset}
             />
-          </label>
-          <select
-            value={uploadKind}
-            onChange={(e) =>
-              setUploadKind(e.target.value as "QUESTION_PAPER" | "ANSWER_KEY")
-            }
-            className="rounded-lg border border-[var(--border)] px-2 py-2 text-sm"
-          >
-            <option value="QUESTION_PAPER">{t.examUploadPaper}</option>
-            <option value="ANSWER_KEY">{t.examUploadKey}</option>
-          </select>
-          <button
-            type="submit"
-            disabled={pending}
-            className="rounded-lg bg-[var(--brand)] px-3 py-2 text-sm font-semibold text-white disabled:opacity-60"
-          >
-            {pending ? t.uploadUploading : t.uploadSubmit}
-          </button>
-        </form>
-      </section>
+            <button type="submit" disabled={pending} className="btn btn-primary w-full sm:w-auto">
+              {pending ? <Icon.Loader size={16} /> : <Icon.Upload size={16} />}
+              {pending ? t.uploadUploading : t.uploadSubmit}
+            </button>
+          </form>
+        </section>
 
-      <section className="space-y-3">
-        <div className="flex flex-wrap items-center gap-3">
+        {/* Analysis */}
+        <section className="card card-pad space-y-4 animate-fade-up-delay-2">
+          <SectionHeader
+            icon={<Icon.Sparkles size={18} />}
+            title={t.examAnalyze}
+            description={jobSucceeded ? t.examAnalyzeReadyHint : t.examStructureEmpty}
+            actions={latest ? <JobStatusBadge status={latest.status} t={t} pulse /> : undefined}
+          />
           <button
             type="button"
             onClick={startAnalyze}
-            disabled={pending || exam.assets.length === 0}
-            className="rounded-lg bg-[var(--color-accent)] px-4 py-2 text-sm font-semibold text-white disabled:opacity-60"
+            disabled={pending || !hasPaper}
+            className="btn btn-accent w-full"
           >
-            {pending ? t.examAnalyzing : t.examAnalyze}
+            {pending ? <Icon.Loader size={16} /> : <Icon.Zap size={16} />}
+            {pending ? t.examAnalyzing : jobSucceeded ? t.examReanalyze : t.examAnalyze}
           </button>
-          {exam.latestStructureJobs[0] ? (
-            <JobStatusBadge status={exam.latestStructureJobs[0].status} t={t} pulse />
+          <JobProgressPanel
+            jobId={jobId}
+            t={t}
+            onRetry={() => void retryJob()}
+            successHint={t.examStructureReady}
+            onSucceeded={onStructureSucceeded}
+          />
+          {exam.structureLlmModel ? (
+            <p className="inline-flex items-center gap-1.5 text-xs text-[var(--muted)]">
+              <Icon.CheckCircle size={12} />
+              {t.structureModelStored}
+            </p>
           ) : null}
-        </div>
-        <JobProgressPanel
-          jobId={jobId}
-          t={t}
-          onRetry={() => void retryJob()}
-          successHint={t.examStructureReady}
-          onSucceeded={onStructureSucceeded}
-        />
-      </section>
+        </section>
+      </div>
 
-      <section className="space-y-3">
-        <h3 className="font-semibold text-[var(--ink)]">{t.examStructureTitle}</h3>
+      {/* Structure */}
+      <section className="card overflow-hidden animate-fade-up-delay-3">
+        <div className="border-b border-[var(--border)] px-5 py-4 sm:px-6">
+          <SectionHeader
+            icon={<Icon.Layers size={18} />}
+            title={t.examStructureTitle}
+            description={
+              questions.length > 0
+                ? countLabel(questions.length, t.questionsCount, t.questionsCountOne)
+                : undefined
+            }
+          />
+        </div>
         {questions.length === 0 ? (
-          <p className="text-sm text-[var(--muted)]">{t.examStructureEmpty}</p>
+          <div className="p-5 sm:p-6">
+            <EmptyState icon={<Icon.Scan size={22} />} title={t.examStructureEmpty} compact />
+          </div>
         ) : (
-          <ul className="divide-y divide-[var(--border)] overflow-hidden rounded-xl border border-[var(--border)] bg-[var(--surface)]">
-            {questions.map((q) => (
-              <li key={q.questionKey} className="px-4 py-4">
-                <div className="flex flex-wrap items-baseline justify-between gap-2">
-                  <p className="font-semibold text-[var(--ink)]">
+          <ul className="divide-y divide-[var(--border)]">
+            {questions.map((q, i) => (
+              <li key={q.questionKey} className="px-5 py-4 sm:px-6">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <p className="flex items-center gap-2 font-semibold text-[var(--ink)]">
+                    <span className="flex h-7 min-w-7 items-center justify-center rounded-md bg-primary-50 px-1.5 text-xs font-bold text-primary-700">
+                      {q.questionKey}
+                    </span>
                     {t.examStructureQuestion} {q.questionKey}
                   </p>
                   <p className="text-sm tabular-nums text-[var(--muted)]">
-                    {t.examStructureMaxScore}: {q.maxScore}
+                    {t.examStructureMaxScore}: <span className="font-semibold text-[var(--ink)]">{q.maxScore}</span>
                   </p>
                 </div>
-                <p className="mt-1 text-sm text-[var(--muted)]">
-                  {t.topicChip}: {q.topic}
-                  <span className="mx-2 text-[var(--border)]">·</span>
-                  {t.itemTypeChip}: {q.itemType}
+                <div className="mt-2 flex flex-wrap gap-1.5">
+                  <span className="chip chip--hue" style={{ ["--chip-hue" as string]: 222 + (i % 5) * 28 }}>
+                    {t.topicChip}: {q.topic}
+                  </span>
+                  <span className="chip">
+                    {t.itemTypeChip}: {q.itemType}
+                  </span>
                   {q.questionCategory?.trim() ? (
-                    <>
-                      <span className="mx-2 text-[var(--border)]">·</span>
+                    <span className="chip">
                       {t.examStructureCategory}: {q.questionCategory}
-                    </>
+                    </span>
                   ) : null}
-                </p>
-                <dl className="mt-3 space-y-2 text-sm">
-                  <div>
-                    <dt className="font-medium text-[var(--brand)]">
-                      {t.examStructureObjective}
-                    </dt>
-                    <dd className="mt-0.5 text-[var(--ink)]">
-                      {q.assessmentObjective?.trim() || "—"}
-                    </dd>
+                </div>
+                <dl className="mt-3 grid gap-3 text-sm sm:grid-cols-2">
+                  <div className="rounded-lg bg-[var(--surface-muted)] px-3 py-2">
+                    <dt className="text-xs font-semibold text-primary-700">{t.examStructureObjective}</dt>
+                    <dd className="mt-0.5 text-[var(--ink)]">{q.assessmentObjective?.trim() || "—"}</dd>
                   </div>
-                  <div>
-                    <dt className="font-medium text-[var(--color-accent)]">
-                      {t.examStructureDifficulty}
-                    </dt>
-                    <dd className="mt-0.5 text-[var(--ink)]">
-                      {q.difficultyPoints?.trim() || "—"}
-                    </dd>
+                  <div className="rounded-lg bg-[var(--surface-muted)] px-3 py-2">
+                    <dt className="text-xs font-semibold text-[var(--teal-600)]">{t.examStructureDifficulty}</dt>
+                    <dd className="mt-0.5 text-[var(--ink)]">{q.difficultyPoints?.trim() || "—"}</dd>
                   </div>
                 </dl>
               </li>
             ))}
           </ul>
         )}
-        {jobSucceeded && questions.length > 0 ? (
-          <p className="text-xs text-[var(--muted)]">
-            {questions.length} · {t.examStructureReady}
-          </p>
-        ) : null}
       </section>
 
-      {banner ? (
-        <p
-          className={`text-sm ${
-            banner === t.uploadSuccess ||
-            banner === t.examAnalyzeSuccess ||
-            banner === t.examStructureReady
-              ? "text-[var(--color-success)]"
-              : "text-[var(--color-error)]"
-          }`}
-        >
-          {banner}
-        </p>
-      ) : null}
+      <Link href={`/teacher?locale=${locale}`} className="link-muted inline-flex items-center gap-1 text-sm">
+        <Icon.ArrowLeft size={14} />
+        {t.examBack}
+      </Link>
+    </div>
+  );
+}
 
-      <div className="flex flex-wrap gap-4 text-sm">
-        <Link
-          href={`/teacher/exams/${examId}/upload?locale=${locale}`}
-          className="font-medium text-[var(--brand)] hover:underline"
-        >
-          {t.proxyUploadTitle}
-        </Link>
-        <Link
-          href={`/teacher/exams/${examId}/results?locale=${locale}`}
-          className="font-medium text-[var(--brand)] hover:underline"
-        >
-          {t.classResults}
-        </Link>
-        <Link
-          href={`/teacher?locale=${locale}`}
-          className="font-medium text-[var(--muted)] hover:underline"
-        >
-          {t.examBack}
-        </Link>
-      </div>
+function Stepper({
+  step,
+  labels,
+  nextStep,
+  t,
+}: {
+  step: number;
+  labels: string[];
+  nextStep: string;
+  t: Dictionary;
+}) {
+  return (
+    <div className="card card-pad animate-fade-up">
+      <ol className="grid gap-3 sm:grid-cols-3">
+        {labels.map((label, i) => {
+          const state = i < step ? "done" : i === step ? "current" : "todo";
+          return (
+            <li key={label} className="flex items-center gap-3">
+              <span
+                className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-xs font-bold ${
+                  state === "done"
+                    ? "bg-emerald-500 text-white"
+                    : state === "current"
+                      ? "bg-primary-600 text-white shadow-[var(--shadow-primary)]"
+                      : "bg-[var(--surface-sunken)] text-[var(--muted)]"
+                }`}
+                aria-current={state === "current" ? "step" : undefined}
+              >
+                {state === "done" ? <Icon.Check size={14} strokeWidth={3} /> : i + 1}
+              </span>
+              <span
+                className={`text-sm font-semibold ${
+                  state === "todo" ? "text-[var(--muted)]" : "text-[var(--ink)]"
+                }`}
+              >
+                {label}
+              </span>
+              {i < labels.length - 1 ? (
+                <span className="hidden h-px flex-1 bg-[var(--border)] sm:block" aria-hidden />
+              ) : null}
+            </li>
+          );
+        })}
+      </ol>
+      <p className="mt-4 flex items-center gap-2 rounded-lg bg-primary-50 px-3 py-2 text-sm text-primary-900">
+        <Icon.Info size={16} className="shrink-0 text-primary-600" />
+        <span>
+          <span className="font-semibold">{t.nextStep}: </span>
+          {nextStep}
+        </span>
+      </p>
     </div>
   );
 }

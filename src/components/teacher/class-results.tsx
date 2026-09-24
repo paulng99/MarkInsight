@@ -2,10 +2,14 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
-import type { Dictionary, Locale } from "@/lib/i18n/dictionaries";
+import { countLabel, type Dictionary, type Locale } from "@/lib/i18n/dictionaries";
 import { JobStatusBadge } from "@/components/jobs/job-status-badge";
 import { ExpandableScoreCards } from "@/components/results/expandable-score-cards";
+import { ResultSummary, summarize, topicRatios } from "@/components/results/result-summary";
 import { TopicChartStub } from "@/components/results/topic-chart-stub";
+import { Alert, EmptyState, LoadingBlock } from "@/components/ui/feedback";
+import { Icon } from "@/components/ui/icons";
+import { SectionHeader } from "@/components/ui/page-header";
 
 type StudentRow = {
   studentId: string;
@@ -50,11 +54,12 @@ export function TeacherClassResults({
   examId: string;
   initialSubmissionId?: string;
 }) {
-  const [students, setStudents] = useState<StudentRow[]>([]);
+  const [students, setStudents] = useState<StudentRow[] | null>(null);
   const [selected, setSelected] = useState<string | null>(
     initialSubmissionId ?? null,
   );
   const [detail, setDetail] = useState<SubmissionDetail | null>(null);
+  const [loadingDetail, setLoadingDetail] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const loadStudents = useCallback(async () => {
@@ -62,14 +67,13 @@ export function TeacherClassResults({
     const data = await res.json();
     if (!res.ok) {
       setError(data.error || t.stateError);
+      setStudents([]);
       return;
     }
-    setStudents(data.students ?? []);
-    if (!selected) {
-      const first = (data.students as StudentRow[]).find((s) => s.submission);
-      if (first?.submission) setSelected(first.submission.id);
-    }
-  }, [examId, selected, t.stateError]);
+    const list = (data.students ?? []) as StudentRow[];
+    setStudents(list);
+    setSelected((cur) => cur ?? list.find((s) => s.submission)?.submission?.id ?? null);
+  }, [examId, t.stateError]);
 
   useEffect(() => {
     void loadStudents();
@@ -80,112 +84,157 @@ export function TeacherClassResults({
       setDetail(null);
       return;
     }
+    setLoadingDetail(true);
     void (async () => {
-      const res = await fetch(`/api/submissions/${selected}`);
-      const data = await res.json();
-      if (!res.ok) {
-        setError(data.error || t.stateError);
-        return;
+      try {
+        const res = await fetch(`/api/submissions/${selected}`);
+        const data = await res.json();
+        if (!res.ok) {
+          setError(data.error || t.stateError);
+          return;
+        }
+        setDetail(data.submission);
+        setError(null);
+      } finally {
+        setLoadingDetail(false);
       }
-      setDetail(data.submission);
-      setError(null);
     })();
   }, [selected, t.stateError]);
 
-  const chartData =
-    detail?.aggregates.map((a) => ({
-      topic: `${a.topic}/${a.itemType}`,
-      ratio: a.avgScoreRatio,
-    })) ??
-    detail?.questionScores.reduce<Array<{ topic: string; ratio: number }>>(
-      (acc, q) => {
-        const existing = acc.find((x) => x.topic === q.topic);
-        const ratio = q.maxScore > 0 ? q.score / q.maxScore : 0;
-        if (existing) {
-          existing.ratio = (existing.ratio + ratio) / 2;
-        } else {
-          acc.push({ topic: q.topic, ratio });
-        }
-        return acc;
-      },
-      [],
-    ) ??
-    [];
+  // Chart this attempt's own marks by topic; cross-exam aggregates live on the weakness page.
+  const chartData = detail ? topicRatios(detail.questionScores) : [];
+
+  if (students === null) {
+    return <LoadingBlock label={t.stateLoading} className="mt-8" />;
+  }
+
+  const withScripts = students.filter((s) => s.submission).length;
+  const summary = detail ? summarize(detail.questionScores) : null;
 
   return (
-    <div className="mt-8 space-y-6 teacher-results">
-      {error ? (
-        <p className="text-sm text-[var(--color-error)]">{error}</p>
-      ) : null}
+    <div className="teacher-results mt-8 space-y-6">
+      {error ? <Alert tone="error">{error}</Alert> : null}
 
-      <div className="flex flex-wrap gap-2">
-        {students.map((s) =>
-          s.submission ? (
-            <button
-              key={s.studentId}
-              type="button"
-              onClick={() => setSelected(s.submission!.id)}
-              className={`rounded-lg border px-3 py-1.5 text-sm ${
-                selected === s.submission.id
-                  ? "border-[var(--brand)] bg-[color-mix(in_srgb,var(--brand)_10%,white)]"
-                  : "border-[var(--border)] bg-[var(--surface)]"
-              }`}
-            >
-              <span className="mr-2">{s.name || s.email}</span>
-              <JobStatusBadge status={s.submission.status} t={t} />
-            </button>
-          ) : (
-            <span
-              key={s.studentId}
-              className="rounded-lg border border-dashed border-[var(--border)] px-3 py-1.5 text-sm text-[var(--muted)]"
-            >
-              {s.name || s.email}
-            </span>
-          ),
-        )}
-      </div>
-
-      {!detail ? (
-        <p className="text-sm text-[var(--muted)]">{t.stateEmpty}</p>
-      ) : (
-        <div className="space-y-6">
-          <div className="flex flex-wrap items-center gap-3">
-            <JobStatusBadge status={detail.status} t={t} pulse />
-            {detail.scoringLlmModel ? (
-              <span className="text-xs text-[var(--muted)]">
-                {t.scoringModelStored}
-              </span>
-            ) : null}
-          </div>
-          {detail.status === "FAILED" ? (
-            <p className="text-sm text-[var(--color-error)]">
-              {detail.errorMessage || t.stateError} — {t.checkFile}
+      <div className="grid gap-6 lg:grid-cols-[18rem_minmax(0,1fr)]">
+        {/* Student list */}
+        <aside className="card animate-fade-up-delay self-start overflow-hidden">
+          <div className="border-b border-[var(--border)] px-4 py-3">
+            <p className="eyebrow">{t.studentsWithScripts}</p>
+            <p className="mt-1 text-sm text-[var(--muted)]">
+              <span className="font-bold text-[var(--ink)]">{withScripts}</span> / {students.length}
             </p>
-          ) : null}
-          <TopicChartStub data={chartData} t={t} intensity="medium" />
-          {detail.exam?.classSubject?.id ? (
-            <Link
-              href={`/teacher/class-subjects/${detail.exam.classSubject.id}/students/${detail.student.id}/weakness?locale=${locale}&fromExamId=${examId}`}
-              className="inline-block text-sm font-medium text-[var(--brand)] hover:underline"
-            >
-              {t.teacherStudentWeakness}
-            </Link>
-          ) : null}
-          <div>
-            <h3 className="mb-3 font-semibold">{t.expandScores}</h3>
-            <ExpandableScoreCards
-              scores={detail.questionScores}
-              t={t}
-              colorful={false}
-            />
           </div>
+          {students.length === 0 ? (
+            <div className="p-4">
+              <EmptyState compact title={t.stateEmpty} />
+            </div>
+          ) : (
+            <ul className="max-h-[32rem] overflow-y-auto p-2">
+              {students.map((s) => {
+                const active = s.submission && selected === s.submission.id;
+                return (
+                  <li key={s.studentId}>
+                    {s.submission ? (
+                      <button
+                        type="button"
+                        onClick={() => setSelected(s.submission!.id)}
+                        aria-pressed={Boolean(active)}
+                        className={`flex w-full items-center justify-between gap-2 rounded-lg px-3 py-2.5 text-left text-sm transition-colors ${
+                          active
+                            ? "bg-primary-50 text-primary-900 shadow-[inset_3px_0_0_var(--color-primary)]"
+                            : "hover:bg-[var(--surface-sunken)]"
+                        }`}
+                      >
+                        <span className="min-w-0 truncate font-medium">{s.name || s.email}</span>
+                        <JobStatusBadge status={s.submission.status} t={t} />
+                      </button>
+                    ) : (
+                      <div className="flex items-center justify-between gap-2 rounded-lg px-3 py-2.5 text-sm text-[var(--muted)]">
+                        <span className="min-w-0 truncate">{s.name || s.email}</span>
+                        <span className="badge badge-neutral">{t.statPendingUpload}</span>
+                      </div>
+                    )}
+                  </li>
+                );
+              })}
+            </ul>
+          )}
+        </aside>
+
+        {/* Detail */}
+        <div className="min-w-0 space-y-6 animate-fade-up-delay-2">
+          {!detail ? (
+            loadingDetail ? (
+              <LoadingBlock label={t.stateLoading} />
+            ) : (
+              <EmptyState
+                icon={<Icon.Users size={22} />}
+                title={t.selectStudent}
+                description={withScripts === 0 ? t.stateEmpty : undefined}
+              />
+            )
+          ) : (
+            <>
+              <div className="card card-pad">
+                <div className="flex flex-wrap items-start justify-between gap-3">
+                  <div>
+                    <p className="eyebrow">{t.resultsTitle}</p>
+                    <h2 className="display mt-1 text-xl text-[var(--ink)]">
+                      {detail.student.name || detail.student.email}
+                    </h2>
+                    {detail.scoringLlmModel ? (
+                      <p className="mt-1 inline-flex items-center gap-1 text-xs text-[var(--muted)]">
+                        <Icon.CheckCircle size={12} />
+                        {t.scoringModelStored}
+                      </p>
+                    ) : null}
+                  </div>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <JobStatusBadge status={detail.status} t={t} pulse />
+                    {detail.exam?.classSubject?.id ? (
+                      <Link
+                        href={`/teacher/class-subjects/${detail.exam.classSubject.id}/students/${detail.student.id}/weakness?locale=${locale}&fromExamId=${examId}`}
+                        className="btn btn-secondary btn-sm"
+                      >
+                        <Icon.TrendingUp size={14} />
+                        {t.teacherStudentWeakness}
+                      </Link>
+                    ) : null}
+                  </div>
+                </div>
+                {detail.status === "FAILED" ? (
+                  <Alert tone="error" className="mt-4">
+                    {detail.errorMessage || t.stateError} — {t.checkFile}
+                  </Alert>
+                ) : null}
+                {summary && detail.questionScores.length > 0 ? (
+                  <ResultSummary summary={summary} t={t} className="mt-5" />
+                ) : null}
+              </div>
+
+              <div className="card card-pad">
+                <TopicChartStub data={chartData} t={t} intensity="medium" />
+              </div>
+
+              <div className="card card-pad">
+                <SectionHeader
+                  icon={<Icon.Layers size={18} />}
+                  title={t.expandScores}
+                  description={countLabel(detail.questionScores.length, t.questionsCount, t.questionsCountOne)}
+                  className="mb-4"
+                />
+                <ExpandableScoreCards scores={detail.questionScores} t={t} colorful={false} />
+              </div>
+            </>
+          )}
         </div>
-      )}
+      </div>
 
       <Link
         href={`/teacher/exams/${examId}?locale=${locale}`}
-        className="inline-block text-sm text-[var(--muted)] hover:underline"
+        className="link-muted inline-flex items-center gap-1 text-sm"
       >
+        <Icon.ArrowLeft size={14} />
         {t.examBack}
       </Link>
     </div>

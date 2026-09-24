@@ -2,10 +2,14 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
-import type { Dictionary, Locale } from "@/lib/i18n/dictionaries";
+import { countLabel, type Dictionary, type Locale } from "@/lib/i18n/dictionaries";
 import { JobStatusBadge } from "@/components/jobs/job-status-badge";
 import { ExpandableScoreCards } from "@/components/results/expandable-score-cards";
+import { ResultSummary, summarize, topicRatios } from "@/components/results/result-summary";
 import { TopicChartStub } from "@/components/results/topic-chart-stub";
+import { Alert, EmptyState, LoadingBlock } from "@/components/ui/feedback";
+import { Icon } from "@/components/ui/icons";
+import { SectionHeader } from "@/components/ui/page-header";
 
 type SubmissionDetail = {
   id: string;
@@ -34,6 +38,8 @@ type SubmissionDetail = {
   jobs: Array<{ id: string; status: string; errorMessage: string | null }>;
 };
 
+const liveStatuses = new Set(["QUEUED", "PENDING", "ANALYZING"]);
+
 export function StudentResultView({
   locale,
   t,
@@ -45,41 +51,35 @@ export function StudentResultView({
 }) {
   const [detail, setDetail] = useState<SubmissionDetail | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [uiState, setUiState] = useState<
-    "loading" | "empty" | "error" | "success" | "default"
-  >("loading");
+  const [loading, setLoading] = useState(true);
 
   const load = useCallback(async () => {
-    setUiState("loading");
     try {
       const res = await fetch(`/api/submissions/${submissionId}`);
       const data = await res.json();
       if (!res.ok) {
         setError(data.error || t.stateError);
-        setUiState("error");
         return;
       }
       setDetail(data.submission);
       setError(null);
-      const status = data.submission.status as string;
-      if (status === "DONE") setUiState("success");
-      else if (status === "FAILED") setUiState("error");
-      else if (status === "PENDING" || status === "QUEUED" || status === "ANALYZING")
-        setUiState("default");
-      else setUiState("empty");
     } catch {
       setError(t.stateError);
-      setUiState("error");
+    } finally {
+      setLoading(false);
     }
   }, [submissionId, t.stateError]);
 
+  const live = detail ? liveStatuses.has(detail.status) : true;
+
   useEffect(() => {
     void load();
+    if (!live) return;
     const id = window.setInterval(() => {
       void load();
     }, 2000);
     return () => window.clearInterval(id);
-  }, [load]);
+  }, [load, live]);
 
   async function retry() {
     const res = await fetch(`/api/submissions/${submissionId}/analyze`, {
@@ -88,106 +88,122 @@ export function StudentResultView({
     if (res.ok) await load();
   }
 
-  if (uiState === "loading" && !detail) {
-    return <p className="mt-8 text-sm text-[var(--muted)]">{t.stateLoading}</p>;
-  }
-
-  if (uiState === "error" && !detail) {
+  if (loading && !detail) {
     return (
-      <div className="mt-8 text-sm text-[var(--color-error)]">
-        <p>{error || t.stateError}</p>
-        <button type="button" className="mt-2 underline" onClick={() => void load()}>
-          {t.settingsRetry}
-        </button>
+      <div className="mt-8 space-y-6">
+        <div className="skeleton h-32" />
+        <LoadingBlock label={t.stateLoading} />
       </div>
     );
   }
 
-  if (!detail) {
-    return <p className="mt-8 text-sm text-[var(--muted)]">{t.stateEmpty}</p>;
+  if (error && !detail) {
+    return (
+      <Alert
+        tone="error"
+        className="mt-8"
+        action={
+          <button type="button" className="btn btn-secondary btn-sm" onClick={() => void load()}>
+            <Icon.Refresh size={14} />
+            {t.settingsRetry}
+          </button>
+        }
+      >
+        {error || t.stateError}
+      </Alert>
+    );
   }
 
-  const chartData =
-    detail.aggregates.length > 0
-      ? detail.aggregates.map((a) => ({
-          topic: a.topic,
-          ratio: a.avgScoreRatio,
-        }))
-      : detail.questionScores.reduce<Array<{ topic: string; ratio: number }>>(
-          (acc, q) => {
-            const existing = acc.find((x) => x.topic === q.topic);
-            const ratio = q.maxScore > 0 ? q.score / q.maxScore : 0;
-            if (existing) existing.ratio = (existing.ratio + ratio) / 2;
-            else acc.push({ topic: q.topic, ratio });
-            return acc;
-          },
-          [],
-        );
+  if (!detail) {
+    return <EmptyState className="mt-8" title={t.stateEmpty} />;
+  }
+
+  // Subject aggregates are keyed by topic + item type (and span several exams),
+  // so this attempt's chart is built from its own question scores, weighted by marks.
+  const chartData = topicRatios(detail.questionScores);
+
+  const summary = summarize(detail.questionScores);
+  const done = detail.status === "DONE";
 
   return (
-    <div className="mt-8 space-y-8 student-results">
-      <div className="student-results-hero rounded-2xl px-5 py-6">
-        <p className="text-sm text-[var(--muted)]">
-          {detail.exam.classSubject.name} · {detail.exam.examDate}
-        </p>
-        <h2 className="mt-1 font-[family-name:var(--font-display)] text-2xl font-semibold text-[var(--ink)]">
-          {detail.exam.title}
-        </h2>
-        <div className="mt-3 flex flex-wrap items-center gap-3">
-          <JobStatusBadge status={detail.status} t={t} pulse />
-          {detail.scoringLlmModel ? (
-            <span className="text-xs text-[var(--muted)]">
-              {t.scoringModelStored}
-            </span>
-          ) : null}
+    <div className="student-results mt-8 space-y-6">
+      <section className="role-hero role-hero--student animate-fade-up px-6 py-6 sm:px-8">
+        <div aria-hidden className="hero-grid pointer-events-none absolute inset-0 opacity-40" />
+        <div className="relative flex flex-wrap items-start justify-between gap-4">
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-[0.14em] text-teal-50/90">
+              {detail.exam.classSubject.name} · {detail.exam.examDate}
+            </p>
+            <h2 className="display mt-1.5 text-2xl">{detail.exam.title}</h2>
+            {detail.scoringLlmModel ? (
+              <p className="mt-2 inline-flex items-center gap-1 text-xs text-teal-50/80">
+                <Icon.CheckCircle size={12} />
+                {t.scoringModelStored}
+              </p>
+            ) : null}
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            <JobStatusBadge status={detail.status} t={t} pulse />
+            <Link
+              href={`/student/subjects/${detail.exam.classSubject.id}?locale=${locale}`}
+              className="btn btn-inverse btn-sm"
+            >
+              <Icon.TrendingUp size={14} />
+              {t.crossExamWeaknessNav}
+            </Link>
+          </div>
         </div>
-      </div>
+      </section>
 
       {detail.status === "FAILED" ? (
-        <div className="rounded-xl border border-[var(--color-error)]/30 bg-[color-mix(in_srgb,var(--color-error)_8%,white)] px-4 py-4 text-sm text-[var(--color-error)]">
+        <Alert
+          tone="error"
+          action={
+            <button type="button" onClick={() => void retry()} className="btn btn-primary btn-sm">
+              <Icon.Refresh size={14} />
+              {t.analyzeRetry}
+            </button>
+          }
+        >
           <p>{detail.errorMessage || t.stateError}</p>
-          <p className="mt-1 text-[var(--muted)]">{t.checkFile}</p>
-          <button
-            type="button"
-            onClick={() => void retry()}
-            className="mt-3 rounded-lg bg-[var(--brand)] px-3 py-1.5 font-semibold text-white"
-          >
-            {t.analyzeRetry}
-          </button>
+          <p className="mt-0.5 text-xs opacity-80">{t.checkFile}</p>
+        </Alert>
+      ) : null}
+
+      {live ? (
+        <div className="card flex items-center gap-3 px-5 py-5 animate-fade-up">
+          <Icon.Loader size={20} className="text-[var(--role-student)]" />
+          <div>
+            <p className="font-semibold text-[var(--ink)]">{t.jobStatusRunning}</p>
+            <p className="text-sm text-[var(--muted)]">{t.stateLoading}</p>
+          </div>
         </div>
       ) : null}
 
-      {detail.status === "QUEUED" ||
-      detail.status === "PENDING" ||
-      detail.status === "ANALYZING" ? (
-        <p className="text-sm text-[var(--muted)] animate-fade-up">{t.stateLoading}</p>
-      ) : null}
-
-      {detail.status === "DONE" ? (
+      {done ? (
         <>
-          <TopicChartStub data={chartData} t={t} intensity="high" />
-          <div>
-            <h3 className="mb-3 font-semibold animate-fade-up-delay">
-              {t.expandScores}
-            </h3>
-            <div className="animate-fade-up-delay-2">
-              <ExpandableScoreCards scores={detail.questionScores} t={t} colorful />
+          {detail.questionScores.length > 0 ? (
+            <div className="animate-fade-up-delay">
+              <ResultSummary summary={summary} t={t} />
             </div>
+          ) : null}
+          <div className="card card-pad animate-fade-up-delay-2">
+            <TopicChartStub data={chartData} t={t} intensity="high" />
+          </div>
+          <div className="card card-pad animate-fade-up-delay-3">
+            <SectionHeader
+              icon={<Icon.Layers size={18} />}
+              title={t.expandScores}
+              description={countLabel(detail.questionScores.length, t.questionsCount, t.questionsCountOne)}
+              className="mb-4"
+            />
+            <ExpandableScoreCards scores={detail.questionScores} t={t} colorful />
           </div>
         </>
       ) : null}
 
-      <Link
-        href={`/student/subjects/${detail.exam.classSubject.id}?locale=${locale}`}
-        className="inline-block text-sm font-medium text-[var(--brand)] hover:underline"
-      >
-        {t.crossExamWeaknessNav}
-      </Link>
-
-      <Link
-        href={`/student?locale=${locale}`}
-        className="ml-4 inline-block text-sm text-[var(--muted)] hover:underline"
-      >
+      <Link href={`/student?locale=${locale}`} className="link-muted inline-flex items-center gap-1 text-sm">
+        <Icon.ArrowLeft size={14} />
         {t.studentNavHome}
       </Link>
     </div>

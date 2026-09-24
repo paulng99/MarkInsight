@@ -1,12 +1,14 @@
-import { auth } from "@/auth";
-import { loginAction } from "./actions";
-import {
-  getDictionary,
-  parseLocale,
-  type Locale,
-} from "@/lib/i18n/dictionaries";
+import { Suspense } from "react";
 import Link from "next/link";
 import { redirect } from "next/navigation";
+import { auth } from "@/auth";
+import { loginAction } from "./actions";
+import { getDictionary, parseLocale } from "@/lib/i18n/dictionaries";
+import { homePathForRole } from "@/lib/rbac";
+import { LoginForm } from "@/components/auth/login-form";
+import { BrandLogo } from "@/components/ui/brand-logo";
+import { Icon } from "@/components/ui/icons";
+import { LocaleSwitch } from "@/components/ui/locale-switch";
 
 export default async function LoginPage({
   searchParams,
@@ -19,86 +21,67 @@ export default async function LoginPage({
   const t = getDictionary(locale);
 
   if (session?.user) {
-    redirect(
-      session.user.role === "ADMIN"
-        ? "/admin"
-        : session.user.role === "TEACHER"
-          ? "/teacher"
-          : "/student",
-    );
+    redirect(`${homePathForRole(session.user.role)}?locale=${locale}`);
   }
 
-  return (
-    <div className="flex flex-1 flex-col">
-      <header className="border-b border-[var(--border)] bg-[var(--surface)]/80 backdrop-blur">
-        <div className="mx-auto flex max-w-lg items-center justify-between px-6 py-4">
-          <Link href={`/?locale=${locale}`} className="font-[family-name:var(--font-display)] text-xl font-semibold text-[var(--brand)]">
-            {t.brand}
-          </Link>
-          <LocaleLinks locale={locale} path="/login" />
-        </div>
-      </header>
-      <main className="mx-auto flex w-full max-w-lg flex-1 flex-col justify-center px-6 py-12">
-        <h1 className="font-[family-name:var(--font-display)] text-3xl font-semibold text-[var(--ink)]">
-          {t.signInTitle}
-        </h1>
-        <p className="mt-3 text-sm leading-relaxed text-[var(--muted)]">{t.demoHint}</p>
-        {params.error ? (
-          <p className="mt-4 text-sm text-[var(--danger)]" role="alert">
-            {params.error}
-          </p>
-        ) : null}
-        <form action={loginAction} className="mt-8 flex flex-col gap-4">
-          <input type="hidden" name="locale" value={locale} />
-          <label className="flex flex-col gap-1.5 text-sm font-medium text-[var(--ink)]">
-            {t.email}
-            <input
-              name="email"
-              type="email"
-              required
-              autoComplete="username"
-              className="rounded-md border border-[var(--border)] bg-white px-3 py-2 text-base outline-none ring-[var(--brand)] focus:ring-2"
-              placeholder="teacher@example.com"
-            />
-          </label>
-          <label className="flex flex-col gap-1.5 text-sm font-medium text-[var(--ink)]">
-            {t.password}
-            <input
-              name="password"
-              type="password"
-              required
-              autoComplete="current-password"
-              className="rounded-md border border-[var(--border)] bg-white px-3 py-2 text-base outline-none ring-[var(--brand)] focus:ring-2"
-            />
-          </label>
-          <button
-            type="submit"
-            className="mt-2 rounded-md bg-[var(--brand)] px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-[var(--brand-deep)]"
-          >
-            {t.submit}
-          </button>
-        </form>
-      </main>
-    </div>
-  );
-}
+  const highlights = [t.heroStat1, t.heroStat2, t.heroStat3];
 
-function LocaleLinks({ locale, path }: { locale: Locale; path: string }) {
   return (
-    <div className="flex gap-2 text-sm">
-      <Link
-        href={`${path}?locale=zh-HK`}
-        className={locale === "zh-HK" ? "font-semibold text-[var(--brand)]" : "text-[var(--muted)]"}
-      >
-        繁
-      </Link>
-      <span className="text-[var(--border)]">|</span>
-      <Link
-        href={`${path}?locale=en`}
-        className={locale === "en" ? "font-semibold text-[var(--brand)]" : "text-[var(--muted)]"}
-      >
-        EN
-      </Link>
+    <div className="flex min-h-full flex-1 lg:grid lg:grid-cols-[1fr_1fr]">
+      {/* Brand panel */}
+      <aside className="hero-gradient relative hidden overflow-hidden text-white lg:flex lg:flex-col lg:justify-between lg:p-12">
+        <div aria-hidden className="hero-grid pointer-events-none absolute inset-0 opacity-60" />
+        <div
+          aria-hidden
+          className="pointer-events-none absolute -bottom-32 -left-24 h-96 w-96 rounded-full bg-teal-400/20 blur-3xl"
+        />
+        <div className="relative">
+          <BrandLogo href={`/?locale=${locale}`} inverse />
+        </div>
+        <div className="relative max-w-md">
+          <h2 className="display text-4xl leading-tight">{t.loginSidebarTitle}</h2>
+          <p className="mt-4 text-base leading-relaxed text-blue-50/90">{t.loginSidebarDesc}</p>
+          <ul className="mt-8 space-y-3">
+            {highlights.map((h) => (
+              <li key={h} className="flex items-center gap-3 text-sm">
+                <span className="flex h-6 w-6 items-center justify-center rounded-full bg-white/15">
+                  <Icon.Check size={14} strokeWidth={3} />
+                </span>
+                {h}
+              </li>
+            ))}
+          </ul>
+        </div>
+        <p className="relative text-xs text-blue-100/70">{t.footerNote}</p>
+      </aside>
+
+      {/* Form panel */}
+      <div className="page-bg flex flex-1 flex-col">
+        <header className="flex items-center justify-between px-5 py-4 sm:px-8">
+          <div className="lg:invisible">
+            <BrandLogo href={`/?locale=${locale}`} />
+          </div>
+          <div className="flex items-center gap-2">
+            <Suspense fallback={null}>
+              <LocaleSwitch locale={locale} />
+            </Suspense>
+            <Link href={`/?locale=${locale}`} className="btn btn-ghost btn-sm">
+              <Icon.ArrowLeft size={16} />
+              {t.backHome}
+            </Link>
+          </div>
+        </header>
+        <main className="flex flex-1 items-center justify-center px-5 pb-16 pt-6 sm:px-8">
+          <div className="card animate-fade-up w-full max-w-md p-6 sm:p-8">
+            <p className="eyebrow">{t.brand}</p>
+            <h1 className="display mt-2 text-3xl text-[var(--ink)]">{t.signInTitle}</h1>
+            <p className="mt-2 text-sm text-[var(--muted)]">{t.signInSubtitle}</p>
+            <div className="mt-8">
+              <LoginForm action={loginAction} locale={locale} t={t} error={params.error} />
+            </div>
+          </div>
+        </main>
+      </div>
     </div>
   );
 }

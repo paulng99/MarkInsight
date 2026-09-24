@@ -1,23 +1,35 @@
-import type { Metadata } from "next";
-import { Noto_Sans_HK, Source_Serif_4 } from "next/font/google";
+import type { Metadata, Viewport } from "next";
+import { Noto_Sans_HK, Plus_Jakarta_Sans } from "next/font/google";
 import "./globals.css";
 
 const notoSansHk = Noto_Sans_HK({
   variable: "--font-sans-hk",
   subsets: ["latin"],
   weight: ["400", "500", "600", "700"],
+  display: "swap",
 });
 
-const sourceSerif = Source_Serif_4({
+const displayFont = Plus_Jakarta_Sans({
   variable: "--font-display",
   subsets: ["latin"],
-  weight: ["600", "700"],
+  weight: ["600", "700", "800"],
+  display: "swap",
 });
 
 export const metadata: Metadata = {
-  title: "MarkInsight | 試卷成績分析",
+  title: {
+    default: "MarkInsight | 試卷成績分析",
+    template: "%s · MarkInsight",
+  },
   description:
-    "MarkInsight Web MVP — exam mark insight for teachers and students (scaffold).",
+    "MarkInsight turns exam scripts into topic-level insight for teachers and students. 試卷成績分析，協助教師與學生掌握弱項。",
+  applicationName: "MarkInsight",
+};
+
+export const viewport: Viewport = {
+  themeColor: "#2450e9",
+  width: "device-width",
+  initialScale: 1,
 };
 
 export default function RootLayout({
@@ -28,9 +40,10 @@ export default function RootLayout({
   return (
     <html
       lang="zh-HK"
-      className={`${notoSansHk.variable} ${sourceSerif.variable} h-full antialiased`}
+      data-scroll-behavior="smooth"
+      className={`${notoSansHk.variable} ${displayFont.variable} h-full antialiased`}
     >
-      <body className="min-h-full flex flex-col font-[family-name:var(--font-sans-hk)] text-[var(--ink)]">
+      <body className="min-h-full flex flex-col font-sans text-[var(--ink)]">
         {children}
       </body>
     </html>

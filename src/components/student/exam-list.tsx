@@ -4,6 +4,10 @@ import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type { Dictionary, Locale } from "@/lib/i18n/dictionaries";
 import { JobStatusBadge } from "@/components/jobs/job-status-badge";
+import { Alert, EmptyState, LoadingBlock } from "@/components/ui/feedback";
+import { Icon } from "@/components/ui/icons";
+import { SectionHeader } from "@/components/ui/page-header";
+import { StatCard } from "@/components/ui/stat-card";
 
 type ExamRow = {
   id: string;
@@ -24,6 +28,8 @@ type SubjectRow = {
   succeededExamCount: number;
   ready: boolean;
 };
+
+const subjectHues = [172, 222, 262, 28, 345, 200];
 
 export function StudentExamList({
   locale,
@@ -73,120 +79,188 @@ export function StudentExamList({
     return [...map.values()];
   }, [exams]);
 
-  const subjectCards =
+  const subjectCards: SubjectRow[] =
     subjects.length > 0
       ? subjects
-      : subjectsFromExams.map((s) => ({
-          ...s,
-          succeededExamCount: 0,
-          ready: false,
-        }));
+      : subjectsFromExams.map((s) => ({ ...s, succeededExamCount: 0, ready: false }));
+
+  const stats = useMemo(() => {
+    const list = exams ?? [];
+    const uploaded = list.filter((e) => e.submission).length;
+    const done = list.filter((e) => e.submission?.status === "DONE").length;
+    return {
+      exams: list.length,
+      uploaded,
+      done,
+      pending: list.length - uploaded,
+    };
+  }, [exams]);
 
   if (exams === null) {
-    return <p className="mt-8 text-sm text-[var(--muted)]">{t.examsLoading}</p>;
+    return (
+      <div className="mt-8 space-y-6">
+        <div className="grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-4">
+          {Array.from({ length: 4 }).map((_, i) => (
+            <div key={i} className="skeleton h-24" />
+          ))}
+        </div>
+        <LoadingBlock label={t.examsLoading} />
+      </div>
+    );
   }
 
   if (error) {
     return (
-      <div className="mt-8 text-sm text-[var(--color-error)]">
-        <p>{error}</p>
-        <button type="button" className="mt-2 underline" onClick={() => void load()}>
-          {t.settingsRetry}
-        </button>
-      </div>
+      <Alert
+        tone="error"
+        className="mt-8"
+        action={
+          <button type="button" className="btn btn-secondary btn-sm" onClick={() => void load()}>
+            <Icon.Refresh size={14} />
+            {t.settingsRetry}
+          </button>
+        }
+      >
+        {error}
+      </Alert>
     );
   }
 
   return (
     <div className="mt-8 space-y-10">
-      <section>
-        <h2 className="font-[family-name:var(--font-display)] text-xl font-semibold">
-          {t.subjectsTitle}
-        </h2>
+      <div className="animate-fade-up-delay grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-4">
+        <StatCard label={t.statExams} value={stats.exams} icon={<Icon.FileText />} tint="teal" />
+        <StatCard label={t.uploadedLabel} value={stats.uploaded} icon={<Icon.Upload />} tint="blue" />
+        <StatCard label={t.statResultsReady} value={stats.done} icon={<Icon.Award />} tint="emerald" />
+        <StatCard label={t.statPendingUpload} value={stats.pending} icon={<Icon.Clock />} tint="amber" />
+      </div>
+
+      <section className="animate-fade-up-delay-2 space-y-4">
+        <SectionHeader
+          icon={<Icon.Layers size={18} />}
+          title={t.subjectsTitle}
+          description={t.crossExamWeaknessIntro}
+        />
         {subjectCards.length === 0 ? (
-          <p className="mt-3 rounded-xl border border-dashed border-[var(--border)] px-4 py-8 text-sm text-[var(--muted)]">
-            {t.subjectsEmpty}
-          </p>
+          <EmptyState icon={<Icon.Layers size={22} />} title={t.studentSubjectsEmpty} compact />
         ) : (
-          <ul className="mt-3 space-y-3">
-            {subjectCards.map((s) => (
-              <li
-                key={s.id}
-                className="rounded-xl border border-[var(--border)] bg-[var(--surface)] px-4 py-4 student-exam-card"
-              >
-                <div className="flex flex-wrap items-start justify-between gap-3">
-                  <div>
-                    <p className="font-semibold">{s.name}</p>
-                    <p className="mt-1 text-sm text-[var(--muted)]">
-                      {s.subjectCode}
-                      {"succeededExamCount" in s
-                        ? ` · ${t.crossExamExamCount}: ${s.succeededExamCount}`
-                        : null}
-                    </p>
-                  </div>
+          <ul className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+            {subjectCards.map((s, i) => {
+              const hue = subjectHues[i % subjectHues.length];
+              return (
+                <li key={s.id}>
                   <Link
                     href={`/student/subjects/${s.id}?locale=${locale}`}
-                    className="rounded-lg bg-[var(--brand)] px-3 py-1.5 text-sm font-semibold text-white"
+                    className="card card-hover card-pad group block h-full"
                   >
-                    {t.crossExamWeaknessNav}
+                    <div className="flex items-start justify-between gap-3">
+                      <span
+                        className="display flex h-11 w-11 items-center justify-center rounded-xl text-sm"
+                        style={{
+                          background: `hsl(${hue} 80% 94%)`,
+                          color: `hsl(${hue} 60% 32%)`,
+                        }}
+                      >
+                        {s.subjectCode.slice(0, 3)}
+                      </span>
+                      <span className={`badge ${s.ready ? "badge-success badge-dot" : "badge-neutral"}`}>
+                        {s.ready ? t.crossExamReadyBadge : t.crossExamNotReadyBadge}
+                      </span>
+                    </div>
+                    <p className="mt-4 font-bold text-[var(--ink)]">{s.name}</p>
+                    <p className="mt-0.5 text-xs text-[var(--muted)]">
+                      {s.subjectCode} · {s.succeededExamCount} {t.successfulExams}
+                    </p>
+                    <div className="progress mt-3 !h-1.5" aria-hidden>
+                      <span
+                        style={{
+                          width: `${Math.min(100, (s.succeededExamCount / 2) * 100)}%`,
+                          background: s.ready ? "var(--emerald-500)" : `hsl(${hue} 65% 50%)`,
+                        }}
+                      />
+                    </div>
+                    <p className="mt-3 inline-flex items-center gap-1 text-sm font-semibold text-primary-600">
+                      {t.crossExamWeaknessNav}
+                      <Icon.ArrowRight size={14} className="transition-transform group-hover:translate-x-0.5" />
+                    </p>
                   </Link>
-                </div>
-              </li>
-            ))}
+                </li>
+              );
+            })}
           </ul>
         )}
       </section>
 
-      <section>
-        <h2 className="font-[family-name:var(--font-display)] text-xl font-semibold">
-          {t.studentNavHome}
-        </h2>
+      <section className="animate-fade-up-delay-3 space-y-4">
+        <SectionHeader
+          icon={<Icon.FileText size={18} />}
+          title={t.studentNavHome}
+          description={t.emptyStudent}
+        />
         {exams.length === 0 ? (
-          <p className="mt-3 rounded-xl border border-dashed border-[var(--border)] px-4 py-8 text-sm text-[var(--muted)]">
-            {t.examsEmpty}
-          </p>
+          <EmptyState icon={<Icon.Inbox size={22} />} title={t.examsEmpty} />
         ) : (
-          <ul className="mt-3 space-y-3">
-            {exams.map((exam) => (
-              <li
-                key={exam.id}
-                className="rounded-xl border border-[var(--border)] bg-[var(--surface)] px-4 py-4 student-exam-card"
-              >
-                <div className="flex flex-wrap items-start justify-between gap-3">
-                  <div>
-                    <p className="font-semibold">{exam.title}</p>
-                    <p className="mt-1 text-sm text-[var(--muted)]">
-                      {exam.classSubject.name} · {exam.examDate}
-                    </p>
+          <ul className="grid gap-3 md:grid-cols-2">
+            {exams.map((exam) => {
+              const sub = exam.submission;
+              const done = sub?.status === "DONE";
+              return (
+                <li key={exam.id} className="card card-pad flex flex-col">
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <p className="truncate font-bold text-[var(--ink)]">{exam.title}</p>
+                      <p className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-[var(--muted)]">
+                        <span className="badge badge-neutral">{exam.classSubject.subjectCode}</span>
+                        <span>{exam.classSubject.name}</span>
+                        <span className="inline-flex items-center gap-1">
+                          <Icon.Calendar size={12} />
+                          {exam.examDate}
+                        </span>
+                      </p>
+                    </div>
+                    {sub ? (
+                      <JobStatusBadge status={sub.status} t={t} pulse />
+                    ) : (
+                      <span className="badge badge-neutral">{t.statPendingUpload}</span>
+                    )}
                   </div>
-                  {exam.submission ? (
-                    <JobStatusBadge status={exam.submission.status} t={t} pulse />
-                  ) : null}
-                </div>
-                <div className="mt-3 flex flex-wrap gap-3 text-sm">
-                  <Link
-                    href={`/student/exams/${exam.id}/upload?locale=${locale}`}
-                    className="font-medium text-[var(--brand)] hover:underline"
-                  >
-                    {t.uploadScriptTitle}
-                  </Link>
-                  {exam.submission ? (
+                  <div className="mt-4 flex flex-wrap gap-2 border-t border-[var(--border)] pt-4">
+                    {done && sub ? (
+                      <Link
+                        href={`/student/submissions/${sub.id}?locale=${locale}`}
+                        className="btn btn-primary btn-sm"
+                      >
+                        <Icon.BarChart size={14} />
+                        {t.viewResults}
+                      </Link>
+                    ) : null}
                     <Link
-                      href={`/student/submissions/${exam.submission.id}?locale=${locale}`}
-                      className="font-medium text-[var(--color-accent)] hover:underline"
+                      href={`/student/exams/${exam.id}/upload?locale=${locale}`}
+                      className={`btn btn-sm ${done ? "btn-secondary" : "btn-primary"}`}
                     >
-                      {t.viewResults}
+                      <Icon.Upload size={14} />
+                      {t.uploadScriptTitle}
                     </Link>
-                  ) : null}
-                  <Link
-                    href={`/student/subjects/${exam.classSubject.id}?locale=${locale}`}
-                    className="font-medium text-[var(--muted)] hover:underline"
-                  >
-                    {t.crossExamWeaknessNav}
-                  </Link>
-                </div>
-              </li>
-            ))}
+                    {sub && !done ? (
+                      <Link
+                        href={`/student/submissions/${sub.id}?locale=${locale}`}
+                        className="btn btn-secondary btn-sm"
+                      >
+                        <Icon.Eye size={14} />
+                        {t.viewResults}
+                      </Link>
+                    ) : null}
+                    <Link
+                      href={`/student/subjects/${exam.classSubject.id}?locale=${locale}`}
+                      className="btn btn-ghost btn-sm"
+                    >
+                      <Icon.TrendingUp size={14} />
+                      {t.crossExamWeaknessNav}
+                    </Link>
+                  </div>
+                </li>
+              );
+            })}
           </ul>
         )}
       </section>

@@ -1,8 +1,11 @@
 "use client";
 
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useState, useTransition } from "react";
 import type { Dictionary, Locale } from "@/lib/i18n/dictionaries";
+import { Alert, EmptyState } from "@/components/ui/feedback";
+import { Icon } from "@/components/ui/icons";
 
 type ClassSubject = {
   id: string;
@@ -21,7 +24,7 @@ export function OpenExamForm({
   initialClassSubjectId?: string;
 }) {
   const router = useRouter();
-  const [classes, setClasses] = useState<ClassSubject[]>([]);
+  const [classes, setClasses] = useState<ClassSubject[] | null>(null);
   const [title, setTitle] = useState("");
   const [examDate, setExamDate] = useState(() =>
     new Date().toISOString().slice(0, 10),
@@ -33,15 +36,20 @@ export function OpenExamForm({
 
   useEffect(() => {
     void (async () => {
-      const res = await fetch("/api/workspace");
-      const data = await res.json();
-      if (res.ok) {
-        setClasses(data.classSubjects ?? []);
-        const preferred = (data.classSubjects ?? []).find(
-          (c: ClassSubject) => c.id === initialClassSubjectId,
-        );
-        const first = preferred ?? data.classSubjects?.[0];
-        if (first) setClassSubjectId(first.id);
+      try {
+        const res = await fetch("/api/workspace");
+        const data = await res.json();
+        if (res.ok) {
+          const list: ClassSubject[] = data.classSubjects ?? [];
+          setClasses(list);
+          const preferred = list.find((c) => c.id === initialClassSubjectId);
+          const first = preferred ?? list[0];
+          if (first) setClassSubjectId(first.id);
+        } else {
+          setClasses([]);
+        }
+      } catch {
+        setClasses([]);
       }
     })();
   }, [initialClassSubjectId]);
@@ -70,64 +78,131 @@ export function OpenExamForm({
     });
   }
 
+  const selected = classes?.find((c) => c.id === classSubjectId);
+
   return (
-    <form
-      onSubmit={onSubmit}
-      className="mt-8 max-w-xl space-y-5 rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-6 shadow-[0_12px_40px_rgba(15,63,134,0.06)]"
-    >
-      <label className="block space-y-1.5">
-        <span className="text-sm font-medium text-[var(--ink)]">{t.examTitle}</span>
-        <input
-          required
-          value={title}
-          onChange={(e) => setTitle(e.target.value)}
-          className="w-full rounded-lg border border-[var(--border)] bg-white px-3 py-2 text-sm outline-none focus:border-[var(--brand)]"
-        />
-      </label>
+    <div className="mt-8 grid gap-6 lg:grid-cols-[minmax(0,1fr)_20rem]">
+      <form onSubmit={onSubmit} className="card card-pad animate-fade-up-delay space-y-5">
+        {classes !== null && classes.length === 0 ? (
+          <EmptyState
+            icon={<Icon.Layers size={22} />}
+            title={t.subjectsEmpty}
+            description={t.addSubjectHint}
+            action={
+              <Link href={`/teacher?locale=${locale}`} className="btn btn-primary btn-sm">
+                <Icon.Plus size={14} />
+                {t.addSubjectTitle}
+              </Link>
+            }
+          />
+        ) : null}
 
-      <label className="block space-y-1.5">
-        <span className="text-sm font-medium text-[var(--ink)]">{t.examDate}</span>
-        <input
-          required
-          type="date"
-          value={examDate}
-          onChange={(e) => setExamDate(e.target.value)}
-          className="w-full rounded-lg border border-[var(--border)] bg-white px-3 py-2 text-sm outline-none focus:border-[var(--brand)]"
-        />
-      </label>
+        <div>
+          <label className="label" htmlFor="exam-title">
+            {t.examTitle}
+          </label>
+          <input
+            id="exam-title"
+            required
+            value={title}
+            onChange={(e) => setTitle(e.target.value)}
+            className="input"
+            placeholder={locale === "en" ? "e.g. Mid-term Test 1" : "例如：上學期測驗一"}
+          />
+        </div>
 
-      <label className="block space-y-1.5">
-        <span className="text-sm font-medium text-[var(--ink)]">{t.examClass}</span>
-        <select
-          required
-          value={classSubjectId}
-          onChange={(e) => setClassSubjectId(e.target.value)}
-          className="w-full rounded-lg border border-[var(--border)] bg-white px-3 py-2 text-sm outline-none focus:border-[var(--brand)]"
-        >
-          {classes.map((c) => (
-            <option key={c.id} value={c.id}>
-              {c.name} ({c.subjectCode}) · {c.schoolYearName}
-            </option>
-          ))}
-        </select>
-      </label>
+        <div className="grid gap-5 sm:grid-cols-2">
+          <div>
+            <label className="label" htmlFor="exam-date">
+              {t.examDate}
+            </label>
+            <input
+              id="exam-date"
+              required
+              type="date"
+              value={examDate}
+              onChange={(e) => setExamDate(e.target.value)}
+              className="input"
+            />
+          </div>
+          <div>
+            <label className="label" htmlFor="exam-class">
+              {t.examClass}
+            </label>
+            <select
+              id="exam-class"
+              required
+              value={classSubjectId}
+              onChange={(e) => setClassSubjectId(e.target.value)}
+              className="select"
+              disabled={classes === null || classes.length === 0}
+            >
+              {(classes ?? []).map((c) => (
+                <option key={c.id} value={c.id}>
+                  {c.name} ({c.subjectCode}) · {c.schoolYearName}
+                </option>
+              ))}
+            </select>
+          </div>
+        </div>
 
-      {error ? (
-        <p className="text-sm text-[var(--color-error)]">{error}</p>
-      ) : null}
-      {success ? (
-        <p className="text-sm text-[var(--color-success)] animate-success-pop">
-          {success}
-        </p>
-      ) : null}
+        {error ? <Alert tone="error">{error}</Alert> : null}
+        {success ? <Alert tone="success">{success}</Alert> : null}
 
-      <button
-        type="submit"
-        disabled={pending || !classSubjectId}
-        className="rounded-lg bg-[var(--brand)] px-4 py-2.5 text-sm font-semibold text-white disabled:opacity-60"
-      >
-        {pending ? t.examCreating : t.examCreateSubmit}
-      </button>
-    </form>
+        <div className="flex flex-wrap items-center gap-3 border-t border-[var(--border)] pt-5">
+          <button type="submit" disabled={pending || !classSubjectId} className="btn btn-primary">
+            {pending ? <Icon.Loader size={16} /> : <Icon.Plus size={16} />}
+            {pending ? t.examCreating : t.examCreateSubmit}
+          </button>
+          <Link href={`/teacher?locale=${locale}`} className="btn btn-ghost">
+            {t.cancel}
+          </Link>
+        </div>
+      </form>
+
+      <aside className="space-y-4 animate-fade-up-delay-2">
+        <div className="card card-pad">
+          <p className="eyebrow">{t.examInfo}</p>
+          <dl className="mt-3 space-y-3 text-sm">
+            <div className="flex items-start gap-3">
+              <span className="icon-tile !h-8 !w-8">
+                <Icon.FileText size={14} />
+              </span>
+              <div className="min-w-0">
+                <dt className="text-xs text-[var(--muted)]">{t.examTitle}</dt>
+                <dd className="truncate font-semibold text-[var(--ink)]">{title || "—"}</dd>
+              </div>
+            </div>
+            <div className="flex items-start gap-3">
+              <span className="icon-tile !h-8 !w-8">
+                <Icon.Calendar size={14} />
+              </span>
+              <div>
+                <dt className="text-xs text-[var(--muted)]">{t.dateLabel}</dt>
+                <dd className="font-semibold tabular-nums text-[var(--ink)]">{examDate}</dd>
+              </div>
+            </div>
+            <div className="flex items-start gap-3">
+              <span className="icon-tile !h-8 !w-8">
+                <Icon.Users size={14} />
+              </span>
+              <div>
+                <dt className="text-xs text-[var(--muted)]">{t.examClass}</dt>
+                <dd className="font-semibold text-[var(--ink)]">
+                  {selected ? `${selected.name} · ${selected.subjectCode}` : "—"}
+                </dd>
+              </div>
+            </div>
+          </dl>
+        </div>
+        <div className="rounded-2xl border border-primary-100 bg-primary-50 p-5 text-sm text-primary-900">
+          <p className="flex items-center gap-2 font-semibold">
+            <Icon.Info size={16} className="text-primary-600" />
+            {t.nextStep}
+          </p>
+          <p className="mt-1.5 leading-relaxed">{t.nextStepUploadPaper}</p>
+        </div>
+      </aside>
+    </div>
   );
 }
