@@ -9,12 +9,14 @@ import type {
 } from "@/lib/llm/types";
 import { parseOpenRouterModelAllowlist } from "@/lib/config/openrouter-model-allowlist";
 import {
+  ANALYSIS_BUSY,
   ANALYSIS_FAILED_GENERIC,
   ANALYSIS_NOT_CONFIGURED,
+  ANALYSIS_UNSUPPORTED_FILE,
   AppError,
   sanitizeVendorLeak,
 } from "@/lib/errors";
-import { isImageMime, toDataUrl } from "@/lib/storage";
+import { getObjectBytes, isImageMime, isPdfMime, toDataUrl } from "@/lib/storage";
 
 /**
  * OpenRouter-backed LLM client.
@@ -62,6 +64,48 @@ export function loadOpenRouterConfigFromEnv(): OpenRouterClientConfig {
   };
 }
 
+function sleep(ms: number) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+/**
+ * Large multimodal requests often hit provider rate limits (429).
+ * Retry those, and brief 503s, before failing the job.
+ */
+async function fetchChatWithRetry(
+  url: string,
+  headers: Record<string, string>,
+  body: string,
+  model: string,
+): Promise<Response> {
+  const waitsMs = [0, 12_000, 30_000, 45_000];
+  let last: Response | null = null;
+
+  for (let attempt = 0; attempt < waitsMs.length; attempt++) {
+    if (waitsMs[attempt] > 0) {
+      await sleep(waitsMs[attempt]);
+    }
+    const response = await fetch(url, { method: "POST", headers, body });
+    if (response.ok) return response;
+    last = response;
+    const retryable = response.status === 429 || response.status === 503;
+    console.error(
+      "[llm] chat HTTP",
+      response.status,
+      "model=",
+      model,
+      "attempt=",
+      attempt + 1,
+    );
+    if (!retryable) return response;
+  }
+
+  if (!last) {
+    throw new AppError(ANALYSIS_FAILED_GENERIC, 502, "llm_network_error");
+  }
+  return last;
+}
+
 function extractJsonObject(text: string): unknown {
   const trimmed = text.trim();
   try {
@@ -91,32 +135,38 @@ export class OpenRouterLlmClient implements LlmClient {
     if (this.config.siteUrl) headers["HTTP-Referer"] = this.config.siteUrl;
     if (this.config.siteName) headers["X-Title"] = this.config.siteName;
 
+    const payload = JSON.stringify({
+      model: request.model,
+      messages: request.messages,
+      temperature: request.temperature ?? 0.2,
+      ...(request.responseFormat === "json_object"
+        ? { response_format: { type: "json_object" } }
+        : {}),
+    });
+
     let response: Response;
     try {
-      response = await fetch(`${this.config.baseUrl}/chat/completions`, {
-        method: "POST",
+      response = await fetchChatWithRetry(
+        `${this.config.baseUrl}/chat/completions`,
         headers,
-        body: JSON.stringify({
-          model: request.model,
-          messages: request.messages,
-          temperature: request.temperature ?? 0.2,
-          ...(request.responseFormat === "json_object"
-            ? { response_format: { type: "json_object" } }
-            : {}),
-        }),
-      });
-    } catch {
+        payload,
+        request.model,
+      );
+    } catch (error) {
+      if (error instanceof AppError) throw error;
       throw new AppError(ANALYSIS_FAILED_GENERIC, 502, "llm_network_error");
     }
 
     if (!response.ok) {
       // Never surface provider body (may contain vendor names) to clients.
       console.error("[llm] chat HTTP", response.status, "model=", request.model);
-      throw new AppError(
-        "Analysis failed. The file format may not be supported by the selected model. Try PDF via a vision-capable model, or upload JPEG/PNG.",
-        502,
-        "llm_http_error",
-      );
+      if (response.status === 429 || response.status === 503) {
+        throw new AppError(ANALYSIS_BUSY, 503, "llm_busy");
+      }
+      if (response.status === 400 || response.status === 415 || response.status === 413) {
+        throw new AppError(ANALYSIS_UNSUPPORTED_FILE, 502, "llm_http_error");
+      }
+      throw new AppError(ANALYSIS_FAILED_GENERIC, 502, "llm_http_error");
     }
 
     const data = (await response.json()) as {
@@ -163,6 +213,15 @@ export class OpenRouterLlmClient implements LlmClient {
         text: `Asset kind: ${ref.kind}; key: ${ref.storageKey}`,
       });
       try {
+        if ((ref.mimeType || "").startsWith("text/")) {
+          const text = (await getObjectBytes(ref.storageKey)).toString("utf8").slice(0, 80_000);
+          parts.push({
+            type: "text",
+            text: `Syllabus / text content:\n${text}`,
+          });
+          continue;
+        }
+
         if (isImageMime(ref.mimeType)) {
           const url = await toDataUrl(ref.storageKey, ref.mimeType);
           parts.push({ type: "image_url", image_url: { url } });
@@ -171,7 +230,7 @@ export class OpenRouterLlmClient implements LlmClient {
 
         // PDFs must use OpenRouter `file` parts — many vision models reject
         // application/pdf when sent as image_url (only png/jpeg/webp/gif).
-        if (ref.mimeType === "application/pdf" || ref.storageKey.toLowerCase().endsWith(".pdf")) {
+        if (isPdfMime(ref.mimeType) || ref.storageKey.toLowerCase().endsWith(".pdf")) {
           const url = await toDataUrl(ref.storageKey, "application/pdf");
           const filename =
             ref.storageKey.split("/").pop()?.replace(/[^\w.\-]+/g, "_") ||
@@ -209,6 +268,7 @@ export class OpenRouterLlmClient implements LlmClient {
     }
 
     const parts = await this.assetParts(input.assetRefs);
+    const hasSyllabus = input.assetRefs.some((ref) => ref.kind === "SYLLABUS");
 
     const chat = await this.chat({
       model: llmModel,
@@ -217,16 +277,31 @@ export class OpenRouterLlmClient implements LlmClient {
         {
           role: "system",
           content:
-            "You analyze exam papers. Reply with JSON only: " +
-            '{"questions":[{"questionKey":"string","topic":"string","itemType":"string","maxScore":number}]}. ' +
-            "itemType examples: mcq, short, essay, calculation. No markdown.",
+            "You are an experienced Hong Kong secondary-school exam analyst. " +
+            "Analyze EVERY question on the paper. Reply with JSON only: " +
+            '{"questions":[{"questionKey":"string","topic":"string","itemType":"string","questionCategory":"string","maxScore":number,' +
+            '"assessmentObjective":"string","difficultyPoints":"string"}]}. ' +
+            "Rules: (1) One object per question / numbered part (e.g. 1a, 1b) when marks differ. " +
+            "(2) itemType = 題型, examples: mcq, short, essay, calculation. " +
+            "(3) questionCategory = 題目種類 from the syllabus when provided (e.g. 概念、應用、實驗、數據分析); otherwise infer from the paper. " +
+            "(4) assessmentObjective = 考核要求 — the skill or learning outcome this item assesses. " +
+            "(5) difficultyPoints = 難點 — key hard points, traps, or common student mistakes. " +
+            (hasSyllabus
+              ? "(6) A SYLLABUS asset is attached. Use its topics, outcomes, and wording to classify 題型, 題目種類, 考核要求, and 難點. Do not invent requirements that contradict the syllabus. "
+              : "(6) No syllabus was attached; infer from the paper only. ") +
+            "(7) Write questionCategory, assessmentObjective, and difficultyPoints in Traditional Chinese (Hong Kong) " +
+            "if the paper or syllabus is Chinese; otherwise match that language. Be concrete, 1–3 sentences for 考核要求 and 難點. " +
+            "(8) No markdown.",
         },
         {
           role: "user",
           content: [
             {
               type: "text",
-              text: `Extract question structure for exam ${input.examId}.`,
+              text:
+                `Extract full question structure for exam ${input.examId}. ` +
+                "For each question include 題型 (itemType), 題目種類 (questionCategory), 考核要求 (assessmentObjective), and 難點 (difficultyPoints)." +
+                (hasSyllabus ? " Follow the attached syllabus." : ""),
             },
             ...parts,
           ],
@@ -240,7 +315,14 @@ export class OpenRouterLlmClient implements LlmClient {
           questionKey?: string;
           topic?: string;
           itemType?: string;
+          questionCategory?: string;
           maxScore?: number;
+          assessmentObjective?: string;
+          difficultyPoints?: string;
+          /** Accept alternate keys some models invent. */
+          objective?: string;
+          difficulty?: string;
+          hardPoints?: string;
         }>;
       };
       const questions = (parsed.questions ?? [])
@@ -249,7 +331,14 @@ export class OpenRouterLlmClient implements LlmClient {
           questionKey: String(q.questionKey),
           topic: String(q.topic),
           itemType: String(q.itemType),
+          questionCategory: String(q.questionCategory || "").trim(),
           maxScore: Number(q.maxScore) || 1,
+          assessmentObjective: String(
+            q.assessmentObjective || q.objective || "",
+          ).trim(),
+          difficultyPoints: String(
+            q.difficultyPoints || q.difficulty || q.hardPoints || "",
+          ).trim(),
         }));
       if (questions.length === 0) {
         throw new AppError(ANALYSIS_FAILED_GENERIC, 502, "llm_no_questions");
@@ -292,7 +381,9 @@ export class OpenRouterLlmClient implements LlmClient {
           content:
             "You score a student exam script. Reply with JSON only: " +
             '{"scores":[{"questionKey":"string","topic":"string","itemType":"string","score":number,"maxScore":number,"feedback":"string"}]}. ' +
-            "Use the provided question list. No markdown.",
+            "Use the provided question list. When assessmentObjective / difficultyPoints are present, " +
+            "judge whether the student met the objective and whether they stumbled on the hard points; " +
+            "reflect that briefly in feedback (Traditional Chinese Hong Kong if the script is Chinese). No markdown.",
         },
         {
           role: "user",
@@ -301,7 +392,7 @@ export class OpenRouterLlmClient implements LlmClient {
               type: "text",
               text:
                 `Score submission ${input.submissionId} for exam ${input.examId}. ` +
-                `Questions: ${JSON.stringify(input.questions)}`,
+                `Questions (with 考核目的 / 難點 when available): ${JSON.stringify(input.questions)}`,
             },
             ...parts,
           ],
@@ -357,19 +448,28 @@ function demoStructureResult(llmModel: string): AnalyzeExamStructureResult {
         questionKey: "Q1",
         topic: "algebra",
         itemType: "mcq",
+        questionCategory: "概念題",
         maxScore: 2,
+        assessmentObjective: "考核能否正確應用一次方程求解。",
+        difficultyPoints: "易忽略單位換算或符號錯誤。",
       },
       {
         questionKey: "Q2",
         topic: "geometry",
         itemType: "short",
+        questionCategory: "應用題",
         maxScore: 4,
+        assessmentObjective: "考核平面幾何推理與定理應用。",
+        difficultyPoints: "需正確選用相似／全等條件，步驟易缺漏。",
       },
       {
         questionKey: "Q3",
         topic: "algebra",
         itemType: "calculation",
+        questionCategory: "計算題",
         maxScore: 6,
+        assessmentObjective: "考核多步驟代數運算與檢驗答案。",
+        difficultyPoints: "展開與因式分解易出錯；未驗算。",
       },
     ],
     rawModelText: '{"demo":true}',

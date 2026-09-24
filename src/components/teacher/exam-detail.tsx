@@ -10,7 +10,10 @@ type StructureQuestion = {
   questionKey: string;
   topic: string;
   itemType: string;
+  questionCategory?: string;
   maxScore: number;
+  assessmentObjective?: string;
+  difficultyPoints?: string;
 };
 
 type ExamDetail = {
@@ -251,35 +254,49 @@ export function TeacherExamDetail({
         {questions.length === 0 ? (
           <p className="text-sm text-[var(--muted)]">{t.examStructureEmpty}</p>
         ) : (
-          <div className="overflow-x-auto rounded-xl border border-[var(--border)] bg-[var(--surface)]">
-            <table className="min-w-full text-left text-sm">
-              <thead className="border-b border-[var(--border)] text-[var(--muted)]">
-                <tr>
-                  <th className="px-4 py-3 font-medium">{t.examStructureQuestion}</th>
-                  <th className="px-4 py-3 font-medium">{t.topicChip}</th>
-                  <th className="px-4 py-3 font-medium">{t.itemTypeChip}</th>
-                  <th className="px-4 py-3 font-medium">{t.examStructureMaxScore}</th>
-                </tr>
-              </thead>
-              <tbody>
-                {questions.map((q) => (
-                  <tr
-                    key={q.questionKey}
-                    className="border-b border-[var(--border)] last:border-0"
-                  >
-                    <td className="px-4 py-3 font-medium text-[var(--ink)]">
-                      {q.questionKey}
-                    </td>
-                    <td className="px-4 py-3 text-[var(--ink)]">{q.topic}</td>
-                    <td className="px-4 py-3 text-[var(--muted)]">{q.itemType}</td>
-                    <td className="px-4 py-3 tabular-nums text-[var(--ink)]">
-                      {q.maxScore}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+          <ul className="divide-y divide-[var(--border)] overflow-hidden rounded-xl border border-[var(--border)] bg-[var(--surface)]">
+            {questions.map((q) => (
+              <li key={q.questionKey} className="px-4 py-4">
+                <div className="flex flex-wrap items-baseline justify-between gap-2">
+                  <p className="font-semibold text-[var(--ink)]">
+                    {t.examStructureQuestion} {q.questionKey}
+                  </p>
+                  <p className="text-sm tabular-nums text-[var(--muted)]">
+                    {t.examStructureMaxScore}: {q.maxScore}
+                  </p>
+                </div>
+                <p className="mt-1 text-sm text-[var(--muted)]">
+                  {t.topicChip}: {q.topic}
+                  <span className="mx-2 text-[var(--border)]">·</span>
+                  {t.itemTypeChip}: {q.itemType}
+                  {q.questionCategory?.trim() ? (
+                    <>
+                      <span className="mx-2 text-[var(--border)]">·</span>
+                      {t.examStructureCategory}: {q.questionCategory}
+                    </>
+                  ) : null}
+                </p>
+                <dl className="mt-3 space-y-2 text-sm">
+                  <div>
+                    <dt className="font-medium text-[var(--brand)]">
+                      {t.examStructureObjective}
+                    </dt>
+                    <dd className="mt-0.5 text-[var(--ink)]">
+                      {q.assessmentObjective?.trim() || "—"}
+                    </dd>
+                  </div>
+                  <div>
+                    <dt className="font-medium text-[var(--color-accent)]">
+                      {t.examStructureDifficulty}
+                    </dt>
+                    <dd className="mt-0.5 text-[var(--ink)]">
+                      {q.difficultyPoints?.trim() || "—"}
+                    </dd>
+                  </div>
+                </dl>
+              </li>
+            ))}
+          </ul>
         )}
         {jobSucceeded && questions.length > 0 ? (
           <p className="text-xs text-[var(--muted)]">

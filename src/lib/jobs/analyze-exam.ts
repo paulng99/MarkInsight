@@ -15,6 +15,7 @@ import { AppError, ANALYSIS_FAILED_GENERIC, sanitizeVendorLeak } from "@/lib/err
 import { createLlmClient } from "@/lib/llm";
 import { prisma } from "@/lib/prisma";
 import { resolveAnalysisLlmModelForNewJob } from "@/lib/school-settings";
+import { getSubjectSyllabus } from "@/lib/subjects/syllabus";
 
 export type EnqueueResult = {
   jobId: string;
@@ -238,16 +239,35 @@ async function runExamStructure(
     throw new AppError("請檢查檔案", 400, "missing_assets");
   }
 
+  const examRow = await prisma.exam.findFirst({
+    where: { id: examId, schoolId },
+    include: { classSubject: { select: { subjectCode: true } } },
+  });
+  const syllabus = examRow
+    ? await getSubjectSyllabus(schoolId, examRow.classSubject.subjectCode)
+    : null;
+
   const llm = createLlmClient();
   const result = await llm.analyzeExamStructure({
     schoolId,
     examId,
     modelOverride: llmModel,
-    assetRefs: assets.map((a) => ({
-      kind: a.kind,
-      storageKey: a.storageKey,
-      mimeType: a.mimeType,
-    })),
+    assetRefs: [
+      ...assets.map((a) => ({
+        kind: a.kind,
+        storageKey: a.storageKey,
+        mimeType: a.mimeType,
+      })),
+      ...(syllabus
+        ? [
+            {
+              kind: "SYLLABUS",
+              storageKey: syllabus.storageKey,
+              mimeType: syllabus.mimeType,
+            },
+          ]
+        : []),
+    ],
   });
 
   // Schema has no ExamStructure table — cache questions on disk for scoring.
@@ -309,16 +329,34 @@ async function runSubmissionScoring(
         kind: { in: ["QUESTION_PAPER", "ANSWER_KEY"] },
       },
     });
+    const examWithSubject = await prisma.exam.findFirst({
+      where: { id: examId, schoolId },
+      include: { classSubject: { select: { subjectCode: true } } },
+    });
+    const syllabus = examWithSubject
+      ? await getSubjectSyllabus(schoolId, examWithSubject.classSubject.subjectCode)
+      : null;
     const llmRecover = createLlmClient();
     const recovered = await llmRecover.analyzeExamStructure({
       schoolId,
       examId,
       modelOverride: exam.structureLlmModel,
-      assetRefs: assets.map((a) => ({
-        kind: a.kind,
-        storageKey: a.storageKey,
-        mimeType: a.mimeType,
-      })),
+      assetRefs: [
+        ...assets.map((a) => ({
+          kind: a.kind,
+          storageKey: a.storageKey,
+          mimeType: a.mimeType,
+        })),
+        ...(syllabus
+          ? [
+              {
+                kind: "SYLLABUS",
+                storageKey: syllabus.storageKey,
+                mimeType: syllabus.mimeType,
+              },
+            ]
+          : []),
+      ],
     });
     questions = recovered.questions;
     await structureCache.set(examId, questions);
@@ -386,7 +424,10 @@ type QuestionShape = {
   questionKey: string;
   topic: string;
   itemType: string;
+  questionCategory: string;
   maxScore: number;
+  assessmentObjective: string;
+  difficultyPoints: string;
 };
 
 /**
@@ -414,7 +455,19 @@ const structureCache = {
         path.join(process.cwd(), ".data", "exam-structure", `${examId}.json`),
         "utf8",
       );
-      return JSON.parse(raw) as QuestionShape[];
+      const parsed = JSON.parse(raw) as Array<Partial<QuestionShape>>;
+      if (!Array.isArray(parsed)) return null;
+      return parsed
+        .filter((q) => q.questionKey && q.topic && q.itemType)
+        .map((q) => ({
+          questionKey: String(q.questionKey),
+          topic: String(q.topic),
+          itemType: String(q.itemType),
+          questionCategory: String(q.questionCategory ?? "").trim(),
+          maxScore: Number(q.maxScore) || 1,
+          assessmentObjective: String(q.assessmentObjective ?? "").trim(),
+          difficultyPoints: String(q.difficultyPoints ?? "").trim(),
+        }));
     } catch {
       return null;
     }

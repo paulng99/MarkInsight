@@ -14,9 +14,11 @@ type ClassSubject = {
 export function OpenExamForm({
   locale,
   t,
+  initialClassSubjectId,
 }: {
   locale: Locale;
   t: Dictionary;
+  initialClassSubjectId?: string;
 }) {
   const router = useRouter();
   const [classes, setClasses] = useState<ClassSubject[]>([]);
@@ -35,12 +37,14 @@ export function OpenExamForm({
       const data = await res.json();
       if (res.ok) {
         setClasses(data.classSubjects ?? []);
-        if (data.classSubjects?.[0]) {
-          setClassSubjectId(data.classSubjects[0].id);
-        }
+        const preferred = (data.classSubjects ?? []).find(
+          (c: ClassSubject) => c.id === initialClassSubjectId,
+        );
+        const first = preferred ?? data.classSubjects?.[0];
+        if (first) setClassSubjectId(first.id);
       }
     })();
-  }, []);
+  }, [initialClassSubjectId]);
 
   function onSubmit(e: React.FormEvent) {
     e.preventDefault();

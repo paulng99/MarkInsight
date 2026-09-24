@@ -67,6 +67,7 @@ model User {
   enrollments       Enrollment[]
   createdExams      Exam[]             @relation("ExamCreatedBy")
   uploadedAssets    Asset[]            @relation("AssetUploadedBy")
+  uploadedSyllabi   SubjectSyllabus[]  @relation("SyllabusUploadedBy")
   submissions       Submission[]       @relation("SubmissionStudent")
   analysisJobs      AnalysisJob[]      @relation("AnalysisJobCreatedBy")
 
@@ -91,6 +92,7 @@ model School {
   questionScores    QuestionScore[]
   subjectAggregates SubjectAggregate[]
   analysisJobs      AnalysisJob[]
+  subjectSyllabi    SubjectSyllabus[]
 }
 
 /// Admin-managed school settings (1:1 with School). API keys never stored here.
@@ -159,6 +161,25 @@ model ClassSubject {
 
   @@index([schoolId])
   @@index([schoolYearId])
+  @@index([schoolId, subjectCode])
+}
+
+/// One syllabus per subject code, shared by every class of that subject.
+model SubjectSyllabus {
+  id           String   @id @default(cuid())
+  schoolId     String
+  school       School   @relation(fields: [schoolId], references: [id], onDelete: Cascade)
+  subjectCode  String
+  storageKey   String
+  mimeType     String?
+  originalName String?
+  uploadedById String?
+  uploadedBy   User?    @relation("SyllabusUploadedBy", fields: [uploadedById], references: [id], onDelete: SetNull)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@unique([schoolId, subjectCode])
+  @@index([schoolId])
 }
 
 /// Links a teacher or student user to a ClassSubject (tenant-scoped).

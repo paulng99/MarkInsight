@@ -59,7 +59,13 @@ export type AnalyzeExamStructureResult = {
     questionKey: string;
     topic: string;
     itemType: string;
+    /** Syllabus-aligned category (題目種類), e.g. 概念題 / 應用題. */
+    questionCategory: string;
     maxScore: number;
+    /** What the question is designed to assess (考核要求). */
+    assessmentObjective: string;
+    /** Key hard points / common pitfalls for this question (難點). */
+    difficultyPoints: string;
   }>;
   rawModelText?: string;
 };

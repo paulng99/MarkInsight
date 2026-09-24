@@ -54,3 +54,9 @@ export const ANALYSIS_NOT_CONFIGURED =
 
 export const ANALYSIS_FAILED_GENERIC =
   "Analysis failed. Please check the file and try again.";
+
+export const ANALYSIS_BUSY =
+  "分析服務繁忙，請稍候再試。";
+
+export const ANALYSIS_UNSUPPORTED_FILE =
+  "分析失敗。檔案格式可能不受支援，請上載 PDF、JPEG 或 PNG。";

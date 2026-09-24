@@ -10,7 +10,7 @@ import Link from "next/link";
 export default async function TeacherOpenExamPage({
   searchParams,
 }: {
-  searchParams: Promise<{ locale?: string }>;
+  searchParams: Promise<{ locale?: string; classSubjectId?: string }>;
 }) {
   const params = await searchParams;
   const locale = parseLocale(params.locale);
@@ -32,7 +32,11 @@ export default async function TeacherOpenExamPage({
         <p className="mt-3 max-w-2xl text-base text-[var(--muted)]">
           {t.openExamIntro}
         </p>
-        <OpenExamForm locale={locale} t={t} />
+        <OpenExamForm
+          locale={locale}
+          t={t}
+          initialClassSubjectId={params.classSubjectId}
+        />
         <Link
           href={`/teacher?locale=${locale}`}
           className="mt-10 text-sm text-[var(--muted)] hover:underline"
