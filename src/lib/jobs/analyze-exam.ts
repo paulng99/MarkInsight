@@ -421,4 +421,11 @@ const structureCache = {
   },
 };
 
+/** Read persisted exam structure questions (filesystem cache). */
+export async function getExamStructureQuestions(
+  examId: string,
+): Promise<QuestionShape[] | null> {
+  return structureCache.get(examId);
+}
+
 export type { Prisma };

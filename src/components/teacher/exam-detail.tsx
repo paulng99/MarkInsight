@@ -6,12 +6,20 @@ import type { Dictionary, Locale } from "@/lib/i18n/dictionaries";
 import { JobProgressPanel } from "@/components/jobs/job-progress-panel";
 import { JobStatusBadge } from "@/components/jobs/job-status-badge";
 
+type StructureQuestion = {
+  questionKey: string;
+  topic: string;
+  itemType: string;
+  maxScore: number;
+};
+
 type ExamDetail = {
   id: string;
   title: string;
   examDate: string;
   classSubject: { id: string; name: string; subjectCode: string };
   structureLlmModel: string | null;
+  structureQuestions: StructureQuestion[];
   assets: Array<{
     id: string;
     kind: string;
@@ -51,7 +59,10 @@ export function TeacherExamDetail({
         setError(data.error || t.stateError);
         return;
       }
-      setExam(data.exam);
+      setExam({
+        ...data.exam,
+        structureQuestions: data.exam.structureQuestions ?? [],
+      });
       setJobId(data.exam.latestStructureJobs?.[0]?.id ?? null);
       setError(null);
     } catch {
@@ -62,6 +73,11 @@ export function TeacherExamDetail({
   useEffect(() => {
     void load();
   }, [load]);
+
+  const onStructureSucceeded = useCallback(() => {
+    setBanner(t.examStructureReady);
+    void load();
+  }, [load, t.examStructureReady]);
 
   function onUpload(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
@@ -136,6 +152,9 @@ export function TeacherExamDetail({
   if (!exam) {
     return <p className="mt-8 text-sm text-[var(--muted)]">{t.stateLoading}</p>;
   }
+
+  const questions = exam.structureQuestions ?? [];
+  const jobSucceeded = exam.latestStructureJobs[0]?.status === "SUCCEEDED";
 
   return (
     <div className="mt-8 space-y-8">
@@ -222,14 +241,59 @@ export function TeacherExamDetail({
           jobId={jobId}
           t={t}
           onRetry={() => void retryJob()}
-          successHint={t.examAnalyzeSuccess}
+          successHint={t.examStructureReady}
+          onSucceeded={onStructureSucceeded}
         />
+      </section>
+
+      <section className="space-y-3">
+        <h3 className="font-semibold text-[var(--ink)]">{t.examStructureTitle}</h3>
+        {questions.length === 0 ? (
+          <p className="text-sm text-[var(--muted)]">{t.examStructureEmpty}</p>
+        ) : (
+          <div className="overflow-x-auto rounded-xl border border-[var(--border)] bg-[var(--surface)]">
+            <table className="min-w-full text-left text-sm">
+              <thead className="border-b border-[var(--border)] text-[var(--muted)]">
+                <tr>
+                  <th className="px-4 py-3 font-medium">{t.examStructureQuestion}</th>
+                  <th className="px-4 py-3 font-medium">{t.topicChip}</th>
+                  <th className="px-4 py-3 font-medium">{t.itemTypeChip}</th>
+                  <th className="px-4 py-3 font-medium">{t.examStructureMaxScore}</th>
+                </tr>
+              </thead>
+              <tbody>
+                {questions.map((q) => (
+                  <tr
+                    key={q.questionKey}
+                    className="border-b border-[var(--border)] last:border-0"
+                  >
+                    <td className="px-4 py-3 font-medium text-[var(--ink)]">
+                      {q.questionKey}
+                    </td>
+                    <td className="px-4 py-3 text-[var(--ink)]">{q.topic}</td>
+                    <td className="px-4 py-3 text-[var(--muted)]">{q.itemType}</td>
+                    <td className="px-4 py-3 tabular-nums text-[var(--ink)]">
+                      {q.maxScore}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+        {jobSucceeded && questions.length > 0 ? (
+          <p className="text-xs text-[var(--muted)]">
+            {questions.length} · {t.examStructureReady}
+          </p>
+        ) : null}
       </section>
 
       {banner ? (
         <p
           className={`text-sm ${
-            banner === t.uploadSuccess || banner === t.examAnalyzeSuccess
+            banner === t.uploadSuccess ||
+            banner === t.examAnalyzeSuccess ||
+            banner === t.examStructureReady
               ? "text-[var(--color-success)]"
               : "text-[var(--color-error)]"
           }`}

@@ -111,7 +111,12 @@ export class OpenRouterLlmClient implements LlmClient {
 
     if (!response.ok) {
       // Never surface provider body (may contain vendor names) to clients.
-      throw new AppError(ANALYSIS_FAILED_GENERIC, 502, "llm_http_error");
+      console.error("[llm] chat HTTP", response.status, "model=", request.model);
+      throw new AppError(
+        "Analysis failed. The file format may not be supported by the selected model. Try PDF via a vision-capable model, or upload JPEG/PNG.",
+        502,
+        "llm_http_error",
+      );
     }
 
     const data = (await response.json()) as {
@@ -125,7 +130,12 @@ export class OpenRouterLlmClient implements LlmClient {
 
     const content = data.choices?.[0]?.message?.content ?? "";
     if (!content) {
-      throw new AppError(ANALYSIS_FAILED_GENERIC, 502, "llm_empty_response");
+      console.error("[llm] empty content model=", request.model);
+      throw new AppError(
+        "Analysis failed. The selected model returned no result for this file. Try another analysis model or re-upload as JPEG/PNG.",
+        502,
+        "llm_empty_response",
+      );
     }
 
     return {
@@ -144,6 +154,7 @@ export class OpenRouterLlmClient implements LlmClient {
     const parts: Array<
       | { type: "text"; text: string }
       | { type: "image_url"; image_url: { url: string } }
+      | { type: "file"; file: { filename: string; file_data: string } }
     > = [];
 
     for (const ref of assetRefs) {
@@ -151,29 +162,35 @@ export class OpenRouterLlmClient implements LlmClient {
         type: "text",
         text: `Asset kind: ${ref.kind}; key: ${ref.storageKey}`,
       });
-      if (isImageMime(ref.mimeType)) {
-        const url = await toDataUrl(ref.storageKey, ref.mimeType);
-        parts.push({ type: "image_url", image_url: { url } });
-      } else {
-        // PDF / other: attach as data URL text note — models that accept file URLs
-        // via image_url may still ingest; otherwise text context remains.
-        try {
-          const url = await toDataUrl(
-            ref.storageKey,
-            ref.mimeType || "application/octet-stream",
-          );
-          parts.push({
-            type: "text",
-            text: `File data URL (may be truncated in logs): ${url.slice(0, 120)}…`,
-          });
-          if ((ref.mimeType || "").startsWith("image/") || ref.mimeType === "application/pdf") {
-            parts.push({ type: "image_url", image_url: { url } });
-          }
-        } catch (error) {
-          throw error instanceof AppError
-            ? error
-            : new AppError("請檢查檔案", 400, "asset_read_error");
+      try {
+        if (isImageMime(ref.mimeType)) {
+          const url = await toDataUrl(ref.storageKey, ref.mimeType);
+          parts.push({ type: "image_url", image_url: { url } });
+          continue;
         }
+
+        // PDFs must use OpenRouter `file` parts — many vision models reject
+        // application/pdf when sent as image_url (only png/jpeg/webp/gif).
+        if (ref.mimeType === "application/pdf" || ref.storageKey.toLowerCase().endsWith(".pdf")) {
+          const url = await toDataUrl(ref.storageKey, "application/pdf");
+          const filename =
+            ref.storageKey.split("/").pop()?.replace(/[^\w.\-]+/g, "_") ||
+            "document.pdf";
+          parts.push({
+            type: "file",
+            file: { filename, file_data: url },
+          });
+          continue;
+        }
+
+        parts.push({
+          type: "text",
+          text: `Unsupported asset mime ${ref.mimeType || "unknown"}; upload PDF or image.`,
+        });
+      } catch (error) {
+        throw error instanceof AppError
+          ? error
+          : new AppError("請檢查檔案", 400, "asset_read_error");
       }
     }
     return parts;

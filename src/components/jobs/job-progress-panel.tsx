@@ -55,13 +55,27 @@ export function JobProgressPanel({
   t,
   onRetry,
   successHint,
+  onSucceeded,
 }: {
   jobId: string | null;
   t: Dictionary;
   onRetry?: () => void;
   successHint?: string;
+  /** Fired once when the polled job reaches SUCCEEDED. */
+  onSucceeded?: () => void;
 }) {
   const { job, error, refresh } = useJobPoll(jobId);
+  const [notifiedSuccess, setNotifiedSuccess] = useState(false);
+
+  useEffect(() => {
+    setNotifiedSuccess(false);
+  }, [jobId]);
+
+  useEffect(() => {
+    if (!job || job.status !== "SUCCEEDED" || notifiedSuccess) return;
+    setNotifiedSuccess(true);
+    onSucceeded?.();
+  }, [job, notifiedSuccess, onSucceeded]);
 
   if (!jobId) {
     return (

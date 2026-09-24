@@ -11,7 +11,12 @@
 
 export type LlmContentPart =
   | { type: "text"; text: string }
-  | { type: "image_url"; image_url: { url: string } };
+  | { type: "image_url"; image_url: { url: string } }
+  /** OpenRouter / OpenAI-compatible PDF (and other file) attachment. */
+  | {
+      type: "file";
+      file: { filename: string; file_data: string };
+    };
 
 export type LlmChatMessage = {
   role: "system" | "user" | "assistant";

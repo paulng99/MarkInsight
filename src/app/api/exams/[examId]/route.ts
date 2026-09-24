@@ -6,6 +6,7 @@ import {
   formatDateYmd,
   listExamsForStudent,
 } from "@/lib/exams/service";
+import { getExamStructureQuestions } from "@/lib/jobs/analyze-exam";
 import { prisma } from "@/lib/prisma";
 
 type Ctx = { params: Promise<{ examId: string }> };
@@ -17,6 +18,8 @@ export async function GET(_request: Request, context: Ctx) {
 
     if (user.role === "TEACHER" || user.role === "ADMIN") {
       const exam = await assertTeacherOwnsExam(user, examId);
+      const structureQuestions =
+        (await getExamStructureQuestions(examId)) ?? [];
       return NextResponse.json({
         exam: {
           id: exam.id,
@@ -29,6 +32,7 @@ export async function GET(_request: Request, context: Ctx) {
             subjectCode: exam.classSubject.subjectCode,
           },
           structureLlmModel: exam.structureLlmModel,
+          structureQuestions,
           assets: exam.assets.map((a) => ({
             id: a.id,
             kind: a.kind,

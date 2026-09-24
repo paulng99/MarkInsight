@@ -8,10 +8,15 @@
  * API keys (OPENROUTER_API_KEY / JINA_API_KEY) stay env-only — never in UI or DB.
  */
 
-/** Fallback allowlist when env is empty — placeholders until product locks models. */
+/**
+ * Fallback allowlist when env is empty.
+ * Prefer multimodal models that accept PDF `file` parts and are available in HK
+ * (Gemini / GPT often geo-blocked via OpenRouter from Hong Kong).
+ */
 export const DEFAULT_OPENROUTER_MODEL_ALLOWLIST = [
-  "google/gemini-2.5-flash",
-  "openai/gpt-4o-mini",
+  "qwen/qwen2.5-vl-72b-instruct",
+  "mistralai/mistral-small-3.1-24b-instruct",
+  "deepseek/deepseek-v4-pro-0813",
   "openrouter/auto",
 ] as const;
 

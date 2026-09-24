@@ -15,6 +15,18 @@ export type StoredObject = {
   byteLength: number;
 };
 
+/** Default 100MB — scanned multi-page exam PDFs often exceed the old 25MB soft cap. */
+const DEFAULT_UPLOAD_MAX_BYTES = 100 * 1024 * 1024;
+
+export function uploadMaxBytes(): number {
+  const raw = process.env.UPLOAD_MAX_BYTES?.trim();
+  if (raw) {
+    const n = Number(raw);
+    if (Number.isFinite(n) && n > 0) return Math.floor(n);
+  }
+  return DEFAULT_UPLOAD_MAX_BYTES;
+}
+
 function localRoot(): string {
   const fromEnv = process.env.STORAGE_LOCAL_DIR?.trim();
   if (fromEnv) {
@@ -47,9 +59,14 @@ export async function putObject(input: {
   if (!input.bytes.length) {
     throw new AppError("請檢查檔案 — empty upload", 400, "empty_upload");
   }
-  // Soft 25MB cap for MVP
-  if (input.bytes.length > 25 * 1024 * 1024) {
-    throw new AppError("請檢查檔案 — file too large", 400, "file_too_large");
+  const maxBytes = uploadMaxBytes();
+  if (input.bytes.length > maxBytes) {
+    const maxMb = Math.round(maxBytes / (1024 * 1024));
+    throw new AppError(
+      `請檢查檔案 — file too large (max ${maxMb}MB)`,
+      400,
+      "file_too_large",
+    );
   }
 
   const provider = (process.env.STORAGE_PROVIDER || "local").toLowerCase();
