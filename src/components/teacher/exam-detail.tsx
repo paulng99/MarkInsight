@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useState, useTransition } from "react";
-import type { Dictionary, Locale } from "@/lib/i18n/dictionaries";
+import { countLabel, type Dictionary, type Locale } from "@/lib/i18n/dictionaries";
 import { JobProgressPanel } from "@/components/jobs/job-progress-panel";
 import { JobStatusBadge } from "@/components/jobs/job-status-badge";
 import { Alert, EmptyState, LoadingBlock } from "@/components/ui/feedback";
@@ -242,7 +242,7 @@ export function TeacherExamDetail({
                     {a.originalName || a.id}
                   </span>
                   <span className={`badge ${a.kind === "ANSWER_KEY" ? "badge-violet" : "badge-info"}`}>
-                    {a.kind === "ANSWER_KEY" ? t.examUploadKey : t.examUploadPaper}
+                    {a.kind === "ANSWER_KEY" ? t.assetKindKey : t.assetKindPaper}
                   </span>
                 </li>
               ))}
@@ -292,7 +292,7 @@ export function TeacherExamDetail({
           <SectionHeader
             icon={<Icon.Sparkles size={18} />}
             title={t.examAnalyze}
-            description={t.examStructureEmpty}
+            description={jobSucceeded ? t.examAnalyzeReadyHint : t.examStructureEmpty}
             actions={latest ? <JobStatusBadge status={latest.status} t={t} pulse /> : undefined}
           />
           <button
@@ -302,7 +302,7 @@ export function TeacherExamDetail({
             className="btn btn-accent w-full"
           >
             {pending ? <Icon.Loader size={16} /> : <Icon.Zap size={16} />}
-            {pending ? t.examAnalyzing : t.examAnalyze}
+            {pending ? t.examAnalyzing : jobSucceeded ? t.examReanalyze : t.examAnalyze}
           </button>
           <JobProgressPanel
             jobId={jobId}
@@ -327,7 +327,9 @@ export function TeacherExamDetail({
             icon={<Icon.Layers size={18} />}
             title={t.examStructureTitle}
             description={
-              questions.length > 0 ? `${questions.length} ${t.questionsCount}` : undefined
+              questions.length > 0
+                ? countLabel(questions.length, t.questionsCount, t.questionsCountOne)
+                : undefined
             }
           />
         </div>

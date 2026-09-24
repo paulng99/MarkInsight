@@ -2,10 +2,10 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
-import type { Dictionary, Locale } from "@/lib/i18n/dictionaries";
+import { countLabel, type Dictionary, type Locale } from "@/lib/i18n/dictionaries";
 import { JobStatusBadge } from "@/components/jobs/job-status-badge";
 import { ExpandableScoreCards } from "@/components/results/expandable-score-cards";
-import { ResultSummary, summarize } from "@/components/results/result-summary";
+import { ResultSummary, summarize, topicRatios } from "@/components/results/result-summary";
 import { TopicChartStub } from "@/components/results/topic-chart-stub";
 import { Alert, EmptyState, LoadingBlock } from "@/components/ui/feedback";
 import { Icon } from "@/components/ui/icons";
@@ -101,25 +101,8 @@ export function TeacherClassResults({
     })();
   }, [selected, t.stateError]);
 
-  const chartData =
-    detail?.aggregates && detail.aggregates.length > 0
-      ? detail.aggregates.map((a) => ({
-          topic: `${a.topic}/${a.itemType}`,
-          ratio: a.avgScoreRatio,
-        }))
-      : (detail?.questionScores ?? []).reduce<Array<{ topic: string; ratio: number }>>(
-          (acc, q) => {
-            const existing = acc.find((x) => x.topic === q.topic);
-            const ratio = q.maxScore > 0 ? q.score / q.maxScore : 0;
-            if (existing) {
-              existing.ratio = (existing.ratio + ratio) / 2;
-            } else {
-              acc.push({ topic: q.topic, ratio });
-            }
-            return acc;
-          },
-          [],
-        );
+  // Chart this attempt's own marks by topic; cross-exam aggregates live on the weakness page.
+  const chartData = detail ? topicRatios(detail.questionScores) : [];
 
   if (students === null) {
     return <LoadingBlock label={t.stateLoading} className="mt-8" />;
@@ -237,7 +220,7 @@ export function TeacherClassResults({
                 <SectionHeader
                   icon={<Icon.Layers size={18} />}
                   title={t.expandScores}
-                  description={`${detail.questionScores.length} ${t.questionsCount}`}
+                  description={countLabel(detail.questionScores.length, t.questionsCount, t.questionsCountOne)}
                   className="mb-4"
                 />
                 <ExpandableScoreCards scores={detail.questionScores} t={t} colorful={false} />

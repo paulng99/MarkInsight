@@ -2,10 +2,10 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
-import type { Dictionary, Locale } from "@/lib/i18n/dictionaries";
+import { countLabel, type Dictionary, type Locale } from "@/lib/i18n/dictionaries";
 import { JobStatusBadge } from "@/components/jobs/job-status-badge";
 import { ExpandableScoreCards } from "@/components/results/expandable-score-cards";
-import { ResultSummary, summarize } from "@/components/results/result-summary";
+import { ResultSummary, summarize, topicRatios } from "@/components/results/result-summary";
 import { TopicChartStub } from "@/components/results/topic-chart-stub";
 import { Alert, EmptyState, LoadingBlock } from "@/components/ui/feedback";
 import { Icon } from "@/components/ui/icons";
@@ -118,16 +118,9 @@ export function StudentResultView({
     return <EmptyState className="mt-8" title={t.stateEmpty} />;
   }
 
-  const chartData =
-    detail.aggregates.length > 0
-      ? detail.aggregates.map((a) => ({ topic: a.topic, ratio: a.avgScoreRatio }))
-      : detail.questionScores.reduce<Array<{ topic: string; ratio: number }>>((acc, q) => {
-          const existing = acc.find((x) => x.topic === q.topic);
-          const ratio = q.maxScore > 0 ? q.score / q.maxScore : 0;
-          if (existing) existing.ratio = (existing.ratio + ratio) / 2;
-          else acc.push({ topic: q.topic, ratio });
-          return acc;
-        }, []);
+  // Subject aggregates are keyed by topic + item type (and span several exams),
+  // so this attempt's chart is built from its own question scores, weighted by marks.
+  const chartData = topicRatios(detail.questionScores);
 
   const summary = summarize(detail.questionScores);
   const done = detail.status === "DONE";
@@ -201,7 +194,7 @@ export function StudentResultView({
             <SectionHeader
               icon={<Icon.Layers size={18} />}
               title={t.expandScores}
-              description={`${detail.questionScores.length} ${t.questionsCount}`}
+              description={countLabel(detail.questionScores.length, t.questionsCount, t.questionsCountOne)}
               className="mb-4"
             />
             <ExpandableScoreCards scores={detail.questionScores} t={t} colorful />

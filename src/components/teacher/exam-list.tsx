@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState, useTransition } from "react";
-import type { Dictionary, Locale } from "@/lib/i18n/dictionaries";
+import { countLabel, type Dictionary, type Locale } from "@/lib/i18n/dictionaries";
 import { JobStatusBadge } from "@/components/jobs/job-status-badge";
 import { Alert, EmptyState, LoadingBlock } from "@/components/ui/feedback";
 import { FileField } from "@/components/ui/file-field";
@@ -364,10 +364,10 @@ function SubjectCard({
         </div>
         <div className="flex flex-wrap items-center gap-2 text-xs text-[var(--muted)]">
           <span className="badge badge-neutral">
-            {subject.classes.length} {t.classesCount}
+            {countLabel(subject.classes.length, t.classesCount, t.classesCountOne)}
           </span>
           <span className="badge badge-neutral">
-            {examCount} {t.examsCount}
+            {countLabel(examCount, t.examsCount, t.examsCountOne)}
           </span>
           <span className={`badge badge-dot ${subject.syllabus ? "badge-success" : "badge-warn"}`}>
             {subject.syllabus ? t.syllabusTitle : t.syllabusEmpty}
@@ -436,7 +436,7 @@ function SubjectCard({
                 <Icon.Users size={15} className="text-[var(--muted)]" />
                 {t.classGroup} {cls.name}
                 <span className="text-xs font-medium text-[var(--muted)]">
-                  · {cls.exams.length} {t.examsCount}
+                  · {countLabel(cls.exams.length, t.examsCount, t.examsCountOne)}
                 </span>
               </h4>
               <Link
@@ -482,11 +482,11 @@ function SubjectCard({
                         <span className="flex gap-3">
                           <span className="inline-flex items-center gap-1">
                             <Icon.FileText size={12} />
-                            {exam.assetCount} {t.assetsLabel}
+                            {countLabel(exam.assetCount, t.assetsLabel, t.assetsLabelOne)}
                           </span>
                           <span className="inline-flex items-center gap-1">
                             <Icon.Inbox size={12} />
-                            {exam.submissionCount} {t.submissionsLabel}
+                            {countLabel(exam.submissionCount, t.submissionsLabel, t.submissionsLabelOne)}
                           </span>
                         </span>
                         <span className="inline-flex items-center gap-1 font-semibold text-primary-600 opacity-0 transition-opacity group-hover:opacity-100">

@@ -94,9 +94,13 @@ const dictionaries = {
     showTools: "Show tools",
     hideTools: "Hide tools",
     examsCount: "exams",
+    examsCountOne: "exam",
     classesCount: "classes",
+    classesCountOne: "class",
     assetsLabel: "assets",
+    assetsLabelOne: "asset",
     submissionsLabel: "submissions",
+    submissionsLabelOne: "submission",
     notStarted: "Not started",
     openExamAction: "Open",
     uploadedLabel: "Uploaded",
@@ -118,6 +122,7 @@ const dictionaries = {
     dropzoneHint: "PDF or image · up to 100MB",
     fileSelected: "Selected",
     questionsCount: "questions",
+    questionsCountOne: "question",
     overallScore: "Overall",
     strongestTopic: "Strongest topic",
     weakestTopic: "Needs attention",
@@ -232,8 +237,13 @@ const dictionaries = {
     examAssetsTitle: "Paper assets",
     examUploadPaper: "Upload question paper",
     examUploadKey: "Upload answer key",
+    assetKindPaper: "Question paper",
+    assetKindKey: "Answer key",
     examUploadHint: "PDF or image, max 100MB. If upload fails, please check the file.",
     examAnalyze: "Start structure analysis",
+    examReanalyze: "Re-run structure analysis",
+    examAnalyzeReadyHint:
+      "The question structure is ready and students can upload their scripts. Re-run the analysis if you replace the paper.",
     examAnalyzing: "Starting…",
     examAnalyzeSuccess: "Analysis queued.",
     examStructureReady: "Structure analysis complete.",
@@ -391,9 +401,13 @@ const dictionaries = {
     showTools: "顯示工具",
     hideTools: "收起工具",
     examsCount: "份試卷",
+    examsCountOne: "份試卷",
     classesCount: "個班別",
+    classesCountOne: "個班別",
     assetsLabel: "資產",
+    assetsLabelOne: "資產",
     submissionsLabel: "答卷",
+    submissionsLabelOne: "答卷",
     notStarted: "未開始",
     openExamAction: "開啟",
     uploadedLabel: "已上載",
@@ -415,6 +429,7 @@ const dictionaries = {
     dropzoneHint: "PDF 或圖片 · 上限 100MB",
     fileSelected: "已選擇",
     questionsCount: "題",
+    questionsCountOne: "題",
     overallScore: "總分",
     strongestTopic: "最強課題",
     weakestTopic: "需要留意",
@@ -524,8 +539,12 @@ const dictionaries = {
     examAssetsTitle: "試卷資產",
     examUploadPaper: "上載試題紙",
     examUploadKey: "上載答案",
+    assetKindPaper: "試題紙",
+    assetKindKey: "答案",
     examUploadHint: "PDF 或圖片，上限 100MB。若上載失敗，請檢查檔案。",
     examAnalyze: "開始結構分析",
+    examReanalyze: "重新執行結構分析",
+    examAnalyzeReadyHint: "題目結構已就緒，學生可以上載答卷。若更換試題紙，請重新執行分析。",
     examAnalyzing: "啟動中…",
     examAnalyzeSuccess: "分析已排隊。",
     examStructureReady: "結構分析完成。",
@@ -607,6 +626,11 @@ export type Dictionary = (typeof dictionaries)[Locale];
 
 export function getDictionary(locale: Locale): Dictionary {
   return dictionaries[locale] ?? dictionaries["zh-HK"];
+}
+
+/** "1 exam" / "3 exams" — zh-HK dictionaries repeat the same unit for both forms. */
+export function countLabel(n: number, many: string, one: string): string {
+  return `${n} ${n === 1 ? one : many}`;
 }
 
 export function parseLocale(value: string | undefined | null): Locale {

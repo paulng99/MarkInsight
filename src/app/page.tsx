@@ -267,7 +267,7 @@ function ProductPreview({ t }: { t: Dictionary }) {
     { label: "E", v: 57, c: "var(--chart-4)" },
   ];
   return (
-    <div className="animate-fade-up-delay-2 relative mx-auto w-full max-w-md lg:max-w-none" aria-hidden>
+    <div className="animate-fade-up-delay-2 relative mx-auto w-full max-w-md pb-14 lg:max-w-none" aria-hidden>
       <div className="animate-float rounded-2xl border border-white/30 bg-white/95 p-5 text-[var(--ink)] shadow-[0_30px_80px_-20px_rgba(15,23,42,0.5)] backdrop-blur">
         <div className="flex items-center justify-between">
           <div>
@@ -306,7 +306,7 @@ function ProductPreview({ t }: { t: Dictionary }) {
           ))}
         </div>
       </div>
-      <div className="absolute -bottom-6 -left-4 hidden rounded-xl border border-white/30 bg-white/95 px-4 py-3 text-[var(--ink)] shadow-lg backdrop-blur sm:block">
+      <div className="absolute bottom-0 -left-6 hidden rounded-xl border border-white/30 bg-white/95 px-4 py-3 text-[var(--ink)] shadow-lg backdrop-blur sm:block">
         <p className="text-[10px] font-bold uppercase tracking-wider text-[var(--muted)]">
           {t.crossExamWeaknessTitle}
         </p>

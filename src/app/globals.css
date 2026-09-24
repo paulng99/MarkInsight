@@ -649,9 +649,10 @@ body {
   /* Decorative surfaces */
   .hero-gradient {
     background:
-      radial-gradient(60% 80% at 100% 0%, rgba(124, 92, 240, 0.18), transparent 60%),
-      radial-gradient(50% 60% at 0% 100%, rgba(18, 165, 148, 0.16), transparent 60%),
-      linear-gradient(135deg, var(--blue-700) 0%, var(--blue-600) 45%, #2f6df0 100%);
+      radial-gradient(55% 75% at 100% 0%, rgba(139, 105, 255, 0.55), transparent 65%),
+      radial-gradient(45% 55% at 0% 100%, rgba(20, 184, 166, 0.45), transparent 65%),
+      radial-gradient(35% 45% at 85% 100%, rgba(56, 189, 248, 0.35), transparent 70%),
+      linear-gradient(135deg, var(--blue-800) 0%, var(--blue-600) 50%, #3b7bff 100%);
   }
   .hero-grid {
     background-image:

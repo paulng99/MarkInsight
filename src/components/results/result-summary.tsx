@@ -10,22 +10,28 @@ export type Summary = {
   weakest: { topic: string; ratio: number } | null;
 };
 
-export function summarize(scores: ScoreRow[]): Summary {
-  let score = 0;
-  let maxScore = 0;
+/** Mark-weighted score ratio per topic, in first-seen order (one entry per topic). */
+export function topicRatios(scores: ScoreRow[]): Array<{ topic: string; ratio: number }> {
   const byTopic = new Map<string, { score: number; max: number }>();
   for (const s of scores) {
-    score += s.score;
-    maxScore += s.maxScore;
     const cur = byTopic.get(s.topic) ?? { score: 0, max: 0 };
     cur.score += s.score;
     cur.max += s.maxScore;
     byTopic.set(s.topic, cur);
   }
-  const topics = [...byTopic.entries()]
+  return [...byTopic.entries()]
     .filter(([, v]) => v.max > 0)
-    .map(([topic, v]) => ({ topic, ratio: v.score / v.max }))
-    .sort((a, b) => b.ratio - a.ratio);
+    .map(([topic, v]) => ({ topic, ratio: v.score / v.max }));
+}
+
+export function summarize(scores: ScoreRow[]): Summary {
+  let score = 0;
+  let maxScore = 0;
+  for (const s of scores) {
+    score += s.score;
+    maxScore += s.maxScore;
+  }
+  const topics = [...topicRatios(scores)].sort((a, b) => b.ratio - a.ratio);
   return {
     score,
     maxScore,
