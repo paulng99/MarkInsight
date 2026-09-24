@@ -217,12 +217,16 @@ model Exam {
   /// Model id/name used for the latest successful exam-structure analysis (persist always when analyzed).
   /// Store the provider model id string only (e.g. `google/gemini-2.5-flash`). Product UI must not show vendor names.
   structureLlmModel String?
-  createdAt      DateTime     @default(now())
-  updatedAt      DateTime     @updatedAt
+  /// Set when this row is a class copy of a prepared paper.
+  sourceExamId String?
+  sourceExam   Exam?  @relation("DistributedExams", fields: [sourceExamId], references: [id], onDelete: SetNull)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
 
   assets       Asset[]
   submissions  Submission[]
   analysisJobs AnalysisJob[]
+  distributed  Exam[] @relation("DistributedExams")
 
   @@index([schoolId])
   @@index([classSubjectId])

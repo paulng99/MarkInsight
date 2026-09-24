@@ -3,7 +3,10 @@ import { jsonError } from "@/lib/errors";
 import { requireSessionUser } from "@/lib/api/session";
 import { ensureTeacherWorkspace } from "@/lib/demo-bootstrap";
 import { DEMO_SCHOOL_ID } from "@/lib/school-settings";
-import { listTeacherSubjectGroups } from "@/lib/subjects/syllabus";
+import {
+  createTeacherClassSubject,
+  listTeacherSubjectGroups,
+} from "@/lib/subjects/syllabus";
 
 export async function GET() {
   try {
@@ -27,6 +30,40 @@ export async function GET() {
     return NextResponse.json({ subjects });
   } catch (error) {
     const { body, status } = jsonError(error, "Could not list subjects", 500);
+    return NextResponse.json(body, { status });
+  }
+}
+
+export async function POST(request: Request) {
+  try {
+    const user = await requireSessionUser();
+    if (user.role !== "TEACHER") {
+      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+    }
+    const schoolId = user.schoolId ?? DEMO_SCHOOL_ID;
+    const body = (await request.json()) as {
+      subjectCode?: string;
+      className?: string;
+    };
+    if (!body.subjectCode || !body.className) {
+      return NextResponse.json(
+        { error: "subjectCode and className are required" },
+        { status: 400 },
+      );
+    }
+    const row = await createTeacherClassSubject(
+      { ...user, schoolId: user.schoolId ?? schoolId },
+      { subjectCode: body.subjectCode, className: body.className },
+    );
+    return NextResponse.json({
+      classSubject: {
+        id: row.id,
+        name: row.name,
+        subjectCode: row.subjectCode,
+      },
+    });
+  } catch (error) {
+    const { body, status } = jsonError(error, "Could not create subject", 500);
     return NextResponse.json(body, { status });
   }
 }

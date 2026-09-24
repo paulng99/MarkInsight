@@ -86,6 +86,100 @@ export async function assertTeacherOwnsExam(
   return exam;
 }
 
+/** Copy a prepared paper onto other classes of the same subject. */
+export async function distributeExamToClasses(
+  user: SessionUser,
+  examId: string,
+  classSubjectIds: string[],
+) {
+  const exam = await assertTeacherOwnsExam(user, examId);
+  const sourceId = exam.sourceExamId ?? exam.id;
+  const source =
+    sourceId === exam.id
+      ? exam
+      : await assertTeacherOwnsExam(user, sourceId);
+  const targets = [...new Set(classSubjectIds.filter(Boolean))];
+  if (targets.length === 0) {
+    throw new AppError("請選擇班別", 400, "class_required");
+  }
+
+  const created: Array<{ id: string; classSubjectId: string; title: string }> = [];
+  for (const classSubjectId of targets) {
+    await assertTeacherOwnsClass(user, classSubjectId);
+    const target = await prisma.classSubject.findFirst({
+      where: { id: classSubjectId, schoolId: source.schoolId },
+    });
+    if (!target || target.subjectCode !== source.classSubject.subjectCode) {
+      throw new AppError("只能分發到同一科目的班別", 400, "subject_mismatch");
+    }
+    if (target.id === source.classSubjectId) continue;
+
+    const existing = await prisma.exam.findFirst({
+      where: { schoolId: source.schoolId, sourceExamId: source.id, classSubjectId: target.id },
+    });
+    if (existing) {
+      created.push({
+        id: existing.id,
+        classSubjectId: existing.classSubjectId,
+        title: existing.title,
+      });
+      continue;
+    }
+
+    const copy = await prisma.exam.create({
+      data: {
+        schoolId: source.schoolId,
+        classSubjectId: target.id,
+        title: source.title,
+        examDate: source.examDate,
+        createdById: user.id,
+        structureLlmModel: source.structureLlmModel,
+        sourceExamId: source.id,
+      },
+    });
+    const papers = await prisma.asset.findMany({
+      where: {
+        examId: source.id,
+        kind: { in: ["QUESTION_PAPER", "ANSWER_KEY", "OTHER"] },
+      },
+    });
+    if (papers.length > 0) {
+      await prisma.asset.createMany({
+        data: papers.map((a) => ({
+          schoolId: source.schoolId,
+          examId: copy.id,
+          kind: a.kind,
+          storageKey: a.storageKey,
+          mimeType: a.mimeType,
+          originalName: a.originalName,
+          uploadedById: user.id,
+        })),
+      });
+    }
+    await copyExamStructure(source.id, copy.id);
+    created.push({ id: copy.id, classSubjectId: copy.classSubjectId, title: copy.title });
+  }
+
+  if (created.length === 0) {
+    throw new AppError("所選班別已有這份試卷", 400, "already_distributed");
+  }
+  return created;
+}
+
+async function copyExamStructure(fromExamId: string, toExamId: string) {
+  const { copyFile, mkdir } = await import("fs/promises");
+  const path = await import("path");
+  const dir = path.join(process.cwd(), ".data", "exam-structure");
+  const from = path.join(dir, `${fromExamId}.json`);
+  const to = path.join(dir, `${toExamId}.json`);
+  try {
+    await mkdir(dir, { recursive: true });
+    await copyFile(from, to);
+  } catch {
+    // Source paper may not have a structure analysis yet.
+  }
+}
+
 export async function assertStudentOwnsSubmission(
   user: SessionUser,
   submissionId: string,

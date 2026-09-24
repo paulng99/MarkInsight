@@ -96,56 +96,6 @@ export async function ensureDemoTeachingWorkspace(
     schoolId,
   });
 
-  const classSubject = await prisma.classSubject.upsert({
-    where: { id: DEMO_CLASS_SUBJECT_ID },
-    create: {
-      id: DEMO_CLASS_SUBJECT_ID,
-      schoolId,
-      schoolYearId: year.id,
-      name: "3A Mathematics",
-      subjectCode: "MATH",
-      gradeLevel: "S3",
-    },
-    update: {
-      schoolId,
-      schoolYearId: year.id,
-      name: "3A Mathematics",
-      subjectCode: "MATH",
-    },
-  });
-
-  await prisma.enrollment.upsert({
-    where: {
-      classSubjectId_userId: {
-        classSubjectId: classSubject.id,
-        userId: DEMO_TEACHER_ID,
-      },
-    },
-    create: {
-      schoolId,
-      classSubjectId: classSubject.id,
-      userId: DEMO_TEACHER_ID,
-      role: "TEACHER",
-    },
-    update: { role: "TEACHER", schoolId },
-  });
-
-  await prisma.enrollment.upsert({
-    where: {
-      classSubjectId_userId: {
-        classSubjectId: classSubject.id,
-        userId: DEMO_STUDENT_ID,
-      },
-    },
-    create: {
-      schoolId,
-      classSubjectId: classSubject.id,
-      userId: DEMO_STUDENT_ID,
-      role: "STUDENT",
-    },
-    update: { role: "STUDENT", schoolId },
-  });
-
   const classSubjects = await prisma.classSubject.findMany({
     where: {
       schoolId,
@@ -199,25 +149,6 @@ export async function ensureTeacherWorkspace(input: {
     },
   });
 
-  const existingEnrollment = await prisma.enrollment.findFirst({
-    where: {
-      userId: input.userId,
-      role: "TEACHER",
-      schoolId: input.schoolId,
-    },
-  });
-
-  if (!existingEnrollment) {
-    await prisma.enrollment.create({
-      data: {
-        schoolId: input.schoolId,
-        classSubjectId: DEMO_CLASS_SUBJECT_ID,
-        userId: input.userId,
-        role: "TEACHER",
-      },
-    });
-  }
-
   const classSubjects = await prisma.classSubject.findMany({
     where: {
       schoolId: input.schoolId,
@@ -266,21 +197,4 @@ export async function ensureStudentWorkspace(input: {
     },
   });
 
-  const enrollment = await prisma.enrollment.findFirst({
-    where: {
-      userId: input.userId,
-      role: "STUDENT",
-      schoolId: input.schoolId,
-    },
-  });
-  if (!enrollment) {
-    await prisma.enrollment.create({
-      data: {
-        schoolId: input.schoolId,
-        classSubjectId: DEMO_CLASS_SUBJECT_ID,
-        userId: input.userId,
-        role: "STUDENT",
-      },
-    });
-  }
 }

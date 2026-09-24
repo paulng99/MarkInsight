@@ -5,6 +5,7 @@
 import { AppError } from "@/lib/errors";
 import { prisma } from "@/lib/prisma";
 import type { SessionUser } from "@/lib/rbac";
+import { ensureSchoolBootstrap } from "@/lib/school-settings";
 import { putObject } from "@/lib/storage";
 
 function formatDateYmd(d: Date): string {
@@ -18,7 +19,7 @@ function requireSchoolId(user: SessionUser): string {
   return user.schoolId;
 }
 
-const SUBJECT_CODE = /^[A-Za-z0-9._-]{1,32}$/;
+const SUBJECT_CODE = /^[\p{L}\p{N}._-]{1,32}$/u;
 
 export function assertSubjectCode(raw: string): string {
   const code = raw.trim();
@@ -79,6 +80,68 @@ export async function assertTeacherTeachesSubject(
   return { schoolId, subjectCode: code };
 }
 
+export async function createTeacherClassSubject(
+  user: SessionUser,
+  input: { subjectCode: string; className: string },
+) {
+  const schoolId = requireSchoolId(user);
+  if (user.role !== "TEACHER") {
+    throw new AppError("Forbidden", 403, "forbidden");
+  }
+  const subjectCode = assertSubjectCode(input.subjectCode);
+  const className = input.className.trim();
+  if (!className || className.length > 40 || /[\\/]/.test(className)) {
+    throw new AppError("請填寫班別", 400, "invalid_class");
+  }
+
+  await ensureSchoolBootstrap(schoolId);
+  const settings = await prisma.schoolSettings.findUniqueOrThrow({
+    where: { schoolId },
+  });
+  const year =
+    (settings.defaultSchoolYearId
+      ? await prisma.schoolYear.findUnique({
+          where: { id: settings.defaultSchoolYearId },
+        })
+      : null) ??
+    (await prisma.schoolYear.findFirst({
+      where: { schoolId },
+      orderBy: { startsOn: "desc" },
+    }));
+  if (!year) {
+    throw new AppError("No school year available", 400, "no_school_year");
+  }
+
+  const existing = await prisma.classSubject.findFirst({
+    where: { schoolId, schoolYearId: year.id, subjectCode, name: className },
+  });
+  const row =
+    existing ??
+    (await prisma.classSubject.create({
+      data: {
+        schoolId,
+        schoolYearId: year.id,
+        subjectCode,
+        name: className,
+      },
+    }));
+
+  await prisma.enrollment.upsert({
+    where: {
+      classSubjectId_userId: { classSubjectId: row.id, userId: user.id },
+    },
+    create: {
+      schoolId,
+      classSubjectId: row.id,
+      userId: user.id,
+      role: "TEACHER",
+    },
+    update: { role: "TEACHER", schoolId },
+  });
+
+  return row;
+}
+
 export async function listTeacherSubjectGroups(user: SessionUser) {
   const schoolId = requireSchoolId(user);
   const classes = await teacherClasses(user, schoolId);
@@ -105,6 +168,7 @@ export async function listTeacherSubjectGroups(user: SessionUser) {
           id: string;
           title: string;
           examDate: string;
+          sourceExamId: string | null;
           assetCount: number;
           submissionCount: number;
           latestStructureJob: { id: string; status: string } | null;
@@ -135,10 +199,11 @@ export async function listTeacherSubjectGroups(user: SessionUser) {
       name: cs.name,
       gradeLevel: cs.gradeLevel,
       exams: cs.exams.map((e) => ({
-        id: e.id,
-        title: e.title,
-        examDate: formatDateYmd(e.examDate),
-        assetCount: e._count.assets,
+          id: e.id,
+          title: e.title,
+          examDate: formatDateYmd(e.examDate),
+          sourceExamId: e.sourceExamId,
+          assetCount: e._count.assets,
         submissionCount: e._count.submissions,
         latestStructureJob: e.analysisJobs[0]
           ? { id: e.analysisJobs[0].id, status: e.analysisJobs[0].status }
