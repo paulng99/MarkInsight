@@ -41,7 +41,7 @@ export function PageHeader({
 }: {
   title: string;
   description?: string;
-  eyebrow?: string;
+  eyebrow?: ReactNode;
   crumbs?: Crumb[];
   actions?: ReactNode;
   className?: string;

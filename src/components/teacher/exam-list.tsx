@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState, useTransition } from "react";
 import { countLabel, type Dictionary, type Locale } from "@/lib/i18n/dictionaries";
+import { syllabusAssetTitle, uploadExtension } from "@/lib/files/display-name";
 import { JobStatusBadge } from "@/components/jobs/job-status-badge";
 import { Alert, EmptyState, LoadingBlock } from "@/components/ui/feedback";
 import { FileField } from "@/components/ui/file-field";
@@ -475,7 +476,11 @@ function SubjectCard({
               <p className="flex items-center gap-2 rounded-lg bg-[var(--color-success-soft)] px-3 py-2 text-xs text-[var(--color-success)]">
                 <Icon.CheckCircle size={14} />
                 <span className="truncate font-medium">
-                  {subject.syllabus.originalName || t.syllabusTitle}
+                  {syllabusAssetTitle(
+                    subject.subjectCode,
+                    t.syllabusTitle,
+                    uploadExtension(subject.syllabus.originalName, subject.syllabus.mimeType),
+                  )}
                 </span>
                 <span className="ml-auto shrink-0 opacity-80">{subject.syllabus.updatedAt}</span>
               </p>

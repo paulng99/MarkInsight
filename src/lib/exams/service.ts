@@ -6,7 +6,7 @@ import type { AssetKind, Role } from "@prisma/client";
 import { AppError } from "@/lib/errors";
 import { prisma } from "@/lib/prisma";
 import type { SessionUser } from "@/lib/rbac";
-import { putObject } from "@/lib/storage";
+import { deleteObject, putObject } from "@/lib/storage";
 import {
   enqueueAnalyzeExam,
   enqueueAnalyzeSubmission,
@@ -372,14 +372,14 @@ export async function listClassStudentsForExam(
   });
 }
 
+const MAX_SCRIPT_PAGES = 20;
+
 export async function uploadSubmissionScript(input: {
   actor: SessionUser;
   examId: string;
   /** Target student — required for teacher proxy; ignored for student self-upload. */
   studentId?: string;
-  fileName: string;
-  mimeType: string;
-  bytes: Buffer;
+  files: Array<{ fileName: string; mimeType: string; bytes: Buffer }>;
   startAnalysis?: boolean;
 }) {
   const { actor, examId } = input;
@@ -433,35 +433,69 @@ export async function uploadSubmissionScript(input: {
     throw new AppError("Forbidden", 403, "forbidden");
   }
 
+  const files = input.files.filter((file) => file.bytes.length > 0);
+  if (files.length === 0) {
+    throw new AppError("請檢查檔案", 400, "missing_file");
+  }
+  if (files.length > MAX_SCRIPT_PAGES) {
+    throw new AppError("Too many files", 400, "too_many_files");
+  }
+
   const studentLabel =
     enrollment.user.name?.trim() ||
     enrollment.user.email.split("@")[0] ||
     studentId;
-  const stored = await putObject({
-    schoolId,
-    schoolYear: exam.classSubject.schoolYear.name,
-    subjectCode: exam.classSubject.subjectCode,
-    className: exam.classSubject.name,
-    examDate: formatDateYmd(exam.examDate),
-    examTitle: exam.title,
-    studentName: studentLabel,
-    kind: "STUDENT_SCRIPT",
-    fileName: input.fileName,
-    mimeType: input.mimeType,
-    bytes: input.bytes,
-  });
 
-  const asset = await prisma.asset.create({
-    data: {
-      schoolId,
-      examId,
-      kind: "STUDENT_SCRIPT",
-      storageKey: stored.storageKey,
-      mimeType: stored.mimeType,
-      originalName: stored.originalName,
-      uploadedById: actor.id,
+  const prior = await prisma.submission.findUnique({
+    where: {
+      examId_enrollmentId: { examId, enrollmentId: enrollment.id },
     },
   });
+  if (prior) {
+    await prisma.asset.deleteMany({
+      where: {
+        schoolId,
+        kind: "STUDENT_SCRIPT",
+        OR: [
+          { submissionId: prior.id },
+          ...(prior.assetId ? [{ id: prior.assetId }] : []),
+        ],
+      },
+    });
+  }
+
+  const created = [];
+  for (let pageIndex = 0; pageIndex < files.length; pageIndex += 1) {
+    const file = files[pageIndex]!;
+    const stored = await putObject({
+      schoolId,
+      schoolYear: exam.classSubject.schoolYear.name,
+      subjectCode: exam.classSubject.subjectCode,
+      className: exam.classSubject.name,
+      examDate: formatDateYmd(exam.examDate),
+      examTitle: exam.title,
+      studentName: studentLabel,
+      kind: "STUDENT_SCRIPT",
+      fileName: file.fileName,
+      mimeType: file.mimeType,
+      bytes: file.bytes,
+    });
+    created.push(
+      await prisma.asset.create({
+        data: {
+          schoolId,
+          examId,
+          kind: "STUDENT_SCRIPT",
+          storageKey: stored.storageKey,
+          mimeType: stored.mimeType,
+          originalName: stored.originalName,
+          uploadedById: actor.id,
+          pageIndex,
+        },
+      }),
+    );
+  }
+  const asset = created[0]!;
 
   const submission = await prisma.submission.upsert({
     where: {
@@ -486,6 +520,10 @@ export async function uploadSubmissionScript(input: {
       analyzedAt: null,
       scoringLlmModel: null,
     },
+  });
+  await prisma.asset.updateMany({
+    where: { id: { in: created.map((row) => row.id) } },
+    data: { submissionId: submission.id },
   });
 
   let job = null;
@@ -526,6 +564,31 @@ export async function getJobForUser(user: SessionUser, jobId: string) {
   }
 
   return job;
+}
+
+export async function deleteExamAsset(
+  user: SessionUser,
+  examId: string,
+  assetId: string,
+) {
+  if (user.role !== "TEACHER" && user.role !== "ADMIN") {
+    throw new AppError("Forbidden", 403, "forbidden");
+  }
+  const exam = await assertTeacherOwnsExam(user, examId);
+  const asset = exam.assets.find((row) => row.id === assetId);
+  if (!asset) {
+    throw new AppError("File not found", 404, "file_not_found");
+  }
+  if (asset.kind === "STUDENT_SCRIPT") {
+    throw new AppError("Forbidden", 403, "forbidden");
+  }
+  await prisma.asset.delete({ where: { id: asset.id } });
+  const stillUsed = await prisma.asset.count({
+    where: { storageKey: asset.storageKey },
+  });
+  if (stillUsed === 0) {
+    await deleteObject(asset.storageKey);
+  }
 }
 
 export function formatDateYmd(d: Date): string {

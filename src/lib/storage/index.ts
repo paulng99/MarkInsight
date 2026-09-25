@@ -4,7 +4,7 @@
  */
 
 import { createHash } from "crypto";
-import { mkdir, readFile, writeFile } from "fs/promises";
+import { mkdir, readFile, unlink, writeFile } from "fs/promises";
 import path from "path";
 import { AppError } from "@/lib/errors";
 
@@ -191,6 +191,17 @@ export async function putObject(input: {
     originalName: input.fileName || "upload",
     byteLength: input.bytes.length,
   };
+}
+
+export async function deleteObject(storageKey: string): Promise<void> {
+  const key = assertSafeRelativeKey(storageKey);
+  const abs = path.join(/*turbopackIgnore: true*/ localRoot(), key);
+  try {
+    await unlink(/*turbopackIgnore: true*/ abs);
+  } catch (error) {
+    const code = error && typeof error === "object" && "code" in error ? String(error.code) : "";
+    if (code !== "ENOENT") throw error;
+  }
 }
 
 export async function getObjectBytes(storageKey: string): Promise<Buffer> {

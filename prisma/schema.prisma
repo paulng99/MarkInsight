@@ -263,6 +263,11 @@ model Asset {
   originalName String?
   uploadedById String?
   uploadedBy   User?     @relation("AssetUploadedBy", fields: [uploadedById], references: [id], onDelete: SetNull)
+  /// Set for student answer pages. Null for question papers and answer keys.
+  submissionId String?
+  submission   Submission? @relation("SubmissionPages", fields: [submissionId], references: [id], onDelete: Cascade)
+  /// Order of a multi-photo answer. 0 is the first page.
+  pageIndex    Int       @default(0)
   createdAt    DateTime  @default(now())
   updatedAt    DateTime  @updatedAt
 
@@ -270,6 +275,7 @@ model Asset {
 
   @@index([schoolId])
   @@index([examId])
+  @@index([submissionId])
 }
 
 /// One student's script/result for an exam; drives the analysis pipeline.
@@ -296,6 +302,7 @@ model Submission {
 
   questionScores QuestionScore[]
   analysisJobs   AnalysisJob[]
+  pages          Asset[]         @relation("SubmissionPages")
 
   @@unique([examId, enrollmentId])
   @@index([schoolId])

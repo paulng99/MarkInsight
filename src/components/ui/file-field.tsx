@@ -17,6 +17,7 @@ export function FileField({
   name = "file",
   accept,
   required,
+  multiple = false,
   title,
   hint,
   selectedLabel,
@@ -26,6 +27,7 @@ export function FileField({
   name?: string;
   accept?: string;
   required?: boolean;
+  multiple?: boolean;
   title: string;
   hint?: string;
   selectedLabel: string;
@@ -34,18 +36,19 @@ export function FileField({
   resetKey?: string | number;
 }) {
   const id = useId();
-  const [file, setFile] = useState<{ name: string; size: number } | null>(null);
+  const [files, setFiles] = useState<Array<{ name: string; size: number }>>([]);
   const [active, setActive] = useState(false);
   const [lastReset, setLastReset] = useState(resetKey);
 
   if (resetKey !== lastReset) {
     setLastReset(resetKey);
-    setFile(null);
+    setFiles([]);
   }
 
   function onChange(e: ChangeEvent<HTMLInputElement>) {
-    const f = e.target.files?.[0];
-    setFile(f ? { name: f.name, size: f.size } : null);
+    setFiles(
+      [...(e.target.files ?? [])].map((file) => ({ name: file.name, size: file.size })),
+    );
   }
 
   function onDrag(e: DragEvent, state: boolean) {
@@ -68,18 +71,21 @@ export function FileField({
         type="file"
         accept={accept}
         required={required}
+        multiple={multiple}
         onChange={onChange}
         aria-describedby={hint ? `${id}-hint` : undefined}
       />
       <span className="icon-tile pointer-events-none !h-11 !w-11 !rounded-2xl">
-        {file ? <Icon.FileText size={20} /> : <Icon.Upload size={20} />}
+        {files.length > 0 ? <Icon.FileText size={20} /> : <Icon.Upload size={20} />}
       </span>
-      {file ? (
+      {files.length > 0 ? (
         <p className="pointer-events-none text-sm font-semibold text-[var(--ink)]">
           <span className="text-[var(--muted)]">{selectedLabel}: </span>
-          {file.name}
+          {files.length === 1
+            ? files[0]?.name
+            : files.map((file) => file.name).join(", ")}
           <span className="ml-1.5 text-xs font-medium text-[var(--muted)]">
-            ({formatBytes(file.size)})
+            ({formatBytes(files.reduce((sum, file) => sum + file.size, 0))})
           </span>
         </p>
       ) : (

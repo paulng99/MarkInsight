@@ -305,7 +305,21 @@ async function runSubmissionScoring(
     where: { id: submissionId, schoolId },
     include: { asset: true },
   });
-  if (!submission.asset) {
+  const pages = await prisma.asset.findMany({
+    where: {
+      schoolId,
+      kind: "STUDENT_SCRIPT",
+      OR: [
+        { submissionId },
+        ...(submission.assetId ? [{ id: submission.assetId }] : []),
+      ],
+    },
+    orderBy: [{ pageIndex: "asc" }, { createdAt: "asc" }],
+  });
+  const scripts = [
+    ...new Map(pages.map((page) => [page.id, page])).values(),
+  ];
+  if (scripts.length === 0) {
     throw new AppError("請檢查檔案", 400, "missing_script");
   }
 
@@ -369,13 +383,11 @@ async function runSubmissionScoring(
     submissionId,
     modelOverride: llmModel,
     questions,
-    assetRefs: [
-      {
-        kind: submission.asset.kind,
-        storageKey: submission.asset.storageKey,
-        mimeType: submission.asset.mimeType,
-      },
-    ],
+    assetRefs: scripts.map((page) => ({
+      kind: page.kind,
+      storageKey: page.storageKey,
+      mimeType: page.mimeType,
+    })),
   });
 
   await prisma.$transaction(async (tx) => {

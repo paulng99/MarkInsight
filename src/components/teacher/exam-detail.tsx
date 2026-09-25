@@ -3,7 +3,9 @@
 import Link from "next/link";
 import { useCallback, useEffect, useState, useTransition } from "react";
 import { countLabel, type Dictionary, type Locale } from "@/lib/i18n/dictionaries";
+import { examAssetTitle, scriptAssetTitle, uploadExtension } from "@/lib/files/display-name";
 import { JobProgressPanel } from "@/components/jobs/job-progress-panel";
+import { PdfPreview } from "@/components/teacher/pdf-preview";
 import { JobStatusBadge } from "@/components/jobs/job-status-badge";
 import { Alert, EmptyState, LoadingBlock } from "@/components/ui/feedback";
 import { FileField } from "@/components/ui/file-field";
@@ -32,6 +34,8 @@ type ExamDetail = {
     kind: string;
     originalName: string | null;
     mimeType: string | null;
+    createdAt: string;
+    studentName: string | null;
   }>;
   latestStructureJobs: Array<{
     id: string;
@@ -39,6 +43,66 @@ type ExamDetail = {
     errorMessage: string | null;
   }>;
 };
+
+function studentAnswerGroups(exam: ExamDetail) {
+  const groups = new Map<string, ExamDetail["assets"]>();
+  for (const asset of exam.assets) {
+    if (asset.kind !== "STUDENT_SCRIPT") continue;
+    const name = asset.studentName?.trim() || asset.id;
+    const list = groups.get(name) ?? [];
+    list.push(asset);
+    groups.set(name, list);
+  }
+  return [...groups.entries()]
+    .map(([name, pages]) => ({
+      name,
+      pages: pages.slice().sort((a, b) => a.createdAt.localeCompare(b.createdAt)),
+    }))
+    .sort((a, b) => a.name.localeCompare(b.name));
+}
+
+function kindLabel(kind: string, t: Dictionary): string {
+  if (kind === "ANSWER_KEY") return t.fileNameKey;
+  if (kind === "STUDENT_SCRIPT") return t.fileNameScript;
+  if (kind === "QUESTION_PAPER") return t.fileNamePaper;
+  return t.fileNameOther;
+}
+
+function assetTitle(
+  exam: ExamDetail,
+  asset: ExamDetail["assets"][number],
+  t: Dictionary,
+): string {
+  const sameKind = exam.assets
+    .filter((item) =>
+      asset.kind === "STUDENT_SCRIPT"
+        ? item.kind === "STUDENT_SCRIPT" && item.studentName === asset.studentName
+        : item.kind === asset.kind,
+    )
+    .slice()
+    .sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+  const index = Math.max(1, sameKind.findIndex((item) => item.id === asset.id) + 1);
+  const extension = uploadExtension(asset.originalName, asset.mimeType);
+  if (asset.kind === "STUDENT_SCRIPT") {
+    return scriptAssetTitle({
+      examDate: exam.examDate,
+      className: exam.classSubject.name,
+      examTitle: exam.title,
+      studentName: asset.studentName?.trim() || t.fileNameScript,
+      index,
+      extension,
+    });
+  }
+  return examAssetTitle({
+    examDate: exam.examDate,
+    subjectCode: exam.classSubject.subjectCode,
+    className: exam.classSubject.name,
+    examTitle: exam.title,
+    kindLabel: kindLabel(asset.kind, t),
+    index,
+    extension,
+  });
+}
 
 export function TeacherExamDetail({
   locale,
@@ -58,6 +122,13 @@ export function TeacherExamDetail({
     "QUESTION_PAPER",
   );
   const [fileReset, setFileReset] = useState(0);
+  const [selectedStudent, setSelectedStudent] = useState("");
+  const [preview, setPreview] = useState<{
+    id: string;
+    title: string;
+    mimeType: string | null;
+  } | null>(null);
+  const [pendingDelete, setPendingDelete] = useState<{ id: string; title: string } | null>(null);
 
   const load = useCallback(async () => {
     try {
@@ -189,10 +260,17 @@ export function TeacherExamDetail({
       <PageHeader
         crumbs={[
           { label: t.navDashboard, href: `/teacher?locale=${locale}` },
-          { label: exam.classSubject.subjectCode },
+          {
+            label: exam.classSubject.subjectCode,
+            href: `/teacher?locale=${locale}`,
+          },
           { label: exam.title },
         ]}
-        eyebrow={`${exam.classSubject.name} · ${exam.classSubject.subjectCode}`}
+        eyebrow={
+          <Link href={`/teacher?locale=${locale}`} className="hover:underline">
+            {exam.classSubject.name} · {exam.classSubject.subjectCode}
+          </Link>
+        }
         title={exam.title}
         description={`${t.dateLabel}: ${exam.examDate}`}
         actions={
@@ -226,11 +304,13 @@ export function TeacherExamDetail({
             title={t.examAssetsTitle}
             description={t.examUploadHint}
           />
-          {exam.assets.length === 0 ? (
+          {exam.assets.filter((a) => a.kind !== "STUDENT_SCRIPT").length === 0 ? (
             <EmptyState compact title={t.examAssetsEmpty} />
           ) : (
             <ul className="space-y-2">
-              {exam.assets.map((a) => (
+              {exam.assets
+                .filter((a) => a.kind !== "STUDENT_SCRIPT")
+                .map((a) => (
                 <li
                   key={a.id}
                   className="flex items-center gap-3 rounded-lg border border-[var(--border)] bg-[var(--surface-muted)] px-3 py-2 text-sm"
@@ -238,9 +318,43 @@ export function TeacherExamDetail({
                   <span className="icon-tile !h-8 !w-8">
                     <Icon.FileText size={14} />
                   </span>
-                  <span className="min-w-0 flex-1 truncate font-medium text-[var(--ink)]">
-                    {a.originalName || a.id}
-                  </span>
+                  <button
+                    type="button"
+                    className="min-w-0 flex-1 truncate text-left font-medium text-[var(--ink)] hover:text-primary-700"
+                    onClick={() =>
+                      setPreview({
+                        id: a.id,
+                        title: assetTitle(exam, a, t),
+                        mimeType: a.mimeType,
+                      })
+                    }
+                  >
+                    {assetTitle(exam, a, t)}
+                  </button>
+                  <button
+                    type="button"
+                    className="btn btn-ghost btn-sm"
+                    onClick={() =>
+                      setPreview({
+                        id: a.id,
+                        title: assetTitle(exam, a, t),
+                        mimeType: a.mimeType,
+                      })
+                    }
+                  >
+                    <Icon.Eye size={14} />
+                    {t.previewFile}
+                  </button>
+                  <button
+                    type="button"
+                    className="btn btn-ghost btn-sm"
+                    onClick={() =>
+                      setPendingDelete({ id: a.id, title: assetTitle(exam, a, t) })
+                    }
+                  >
+                    <Icon.X size={14} />
+                    {t.deleteAsset}
+                  </button>
                   <span className={`badge ${a.kind === "ANSWER_KEY" ? "badge-violet" : "badge-info"}`}>
                     {a.kind === "ANSWER_KEY" ? t.assetKindKey : t.assetKindPaper}
                   </span>
@@ -248,6 +362,76 @@ export function TeacherExamDetail({
               ))}
             </ul>
           )}
+
+          <div className="space-y-3 border-t border-[var(--border)] pt-4">
+            <h3 className="text-sm font-semibold text-[var(--ink)]">{t.studentAnswersTitle}</h3>
+            {studentAnswerGroups(exam).length === 0 ? (
+              <p className="text-sm text-[var(--muted)]">{t.studentAnswersEmpty}</p>
+            ) : (
+              <>
+                <label className="label" htmlFor="student-answer-select">
+                  {t.studentAnswersSelect}
+                </label>
+                <select
+                  id="student-answer-select"
+                  className="select"
+                  value={
+                    studentAnswerGroups(exam).some((group) => group.name === selectedStudent)
+                      ? selectedStudent
+                      : ""
+                  }
+                  onChange={(event) => setSelectedStudent(event.target.value)}
+                >
+                  <option value="">{t.studentAnswersSelect}</option>
+                  {studentAnswerGroups(exam).map((group) => (
+                    <option key={group.name} value={group.name}>
+                      {group.name}
+                    </option>
+                  ))}
+                </select>
+                {studentAnswerGroups(exam)
+                  .filter((group) => group.name === selectedStudent)
+                  .map((group) => (
+                    <ul key={group.name} className="flex gap-2 overflow-x-auto pb-1">
+                      {group.pages.map((a) => (
+                        <li
+                          key={a.id}
+                          className="flex w-56 shrink-0 flex-col gap-2 rounded-lg border border-[var(--border)] bg-[var(--surface-muted)] px-3 py-2 text-sm"
+                        >
+                          <button
+                            type="button"
+                            className="truncate text-left font-medium text-[var(--ink)] hover:text-primary-700"
+                            onClick={() =>
+                              setPreview({
+                                id: a.id,
+                                title: assetTitle(exam, a, t),
+                                mimeType: a.mimeType,
+                              })
+                            }
+                          >
+                            {assetTitle(exam, a, t)}
+                          </button>
+                          <button
+                            type="button"
+                            className="btn btn-ghost btn-sm self-start"
+                            onClick={() =>
+                              setPreview({
+                                id: a.id,
+                                title: assetTitle(exam, a, t),
+                                mimeType: a.mimeType,
+                              })
+                            }
+                          >
+                            <Icon.Eye size={14} />
+                            {t.previewFile}
+                          </button>
+                        </li>
+                      ))}
+                    </ul>
+                  ))}
+              </>
+            )}
+          </div>
 
           <form onSubmit={onUpload} className="space-y-3 border-t border-[var(--border)] pt-4">
             <div className="grid grid-cols-2 gap-2">
@@ -389,6 +573,133 @@ export function TeacherExamDetail({
         <Icon.ArrowLeft size={14} />
         {t.examBack}
       </Link>
+
+      {pendingDelete ? (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/55 p-4"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="delete-asset-title"
+        >
+          <div className="card w-full max-w-md p-6">
+            <h2 id="delete-asset-title" className="text-lg font-semibold text-[var(--ink)]">
+              {t.deleteAssetConfirm}
+            </h2>
+            <p className="mt-2 break-all text-sm text-[var(--muted)]">{pendingDelete.title}</p>
+            <div className="mt-5 flex justify-end gap-2">
+              <button
+                type="button"
+                className="btn btn-ghost"
+                onClick={() => setPendingDelete(null)}
+              >
+                {t.cancel}
+              </button>
+              <button
+                type="button"
+                className="btn btn-primary"
+                disabled={pending}
+                onClick={() => {
+                  const target = pendingDelete;
+                  startTransition(async () => {
+                    try {
+                      const res = await fetch(
+                        `/api/exams/${examId}/assets/${target.id}`,
+                        { method: "DELETE" },
+                      );
+                      const data = await res.json();
+                      if (!res.ok) {
+                        setBanner(data.error || t.stateError);
+                        setPendingDelete(null);
+                        return;
+                      }
+                      setPreview((current) => (current?.id === target.id ? null : current));
+                      setPendingDelete(null);
+                      setBanner(null);
+                      await load();
+                    } catch {
+                      setBanner(t.stateError);
+                      setPendingDelete(null);
+                    }
+                  });
+                }}
+              >
+                {pending ? <Icon.Loader size={16} /> : <Icon.X size={16} />}
+                {t.deleteAsset}
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+      {preview ? (
+        <FilePreview
+          title={preview.title}
+          src={`/api/exams/${examId}/assets/${preview.id}`}
+          mimeType={preview.mimeType}
+          closeLabel={t.closePreview}
+          loadingLabel={t.previewLoading}
+          errorLabel={t.previewError}
+          onClose={() => setPreview(null)}
+        />
+      ) : null}
+    </div>
+  );
+}
+
+function FilePreview({
+  title,
+  src,
+  mimeType,
+  closeLabel,
+  loadingLabel,
+  errorLabel,
+  onClose,
+}: {
+  title: string;
+  src: string;
+  mimeType: string | null;
+  closeLabel: string;
+  loadingLabel: string;
+  errorLabel: string;
+  onClose: () => void;
+}) {
+  useEffect(() => {
+    function onKey(event: KeyboardEvent) {
+      if (event.key === "Escape") onClose();
+    }
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onClose]);
+
+  const image = mimeType?.startsWith("image/") ?? false;
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/55 p-4"
+      role="dialog"
+      aria-modal="true"
+      aria-label={title}
+      onClick={onClose}
+    >
+      <div
+        className="flex h-[min(86vh,820px)] w-full max-w-4xl flex-col overflow-hidden rounded-2xl bg-[var(--surface)] shadow-xl"
+        onClick={(event) => event.stopPropagation()}
+      >
+        <header className="flex items-center gap-3 border-b border-[var(--border)] px-4 py-3">
+          <p className="min-w-0 flex-1 truncate font-semibold text-[var(--ink)]">{title}</p>
+          <button type="button" className="btn btn-ghost btn-sm" onClick={onClose}>
+            <Icon.X size={16} />
+            {closeLabel}
+          </button>
+        </header>
+        <div className="min-h-0 flex-1 bg-[var(--surface-muted)]">
+          {image ? (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img src={src} alt={title} className="h-full w-full object-contain" />
+          ) : (
+            <PdfPreview src={src} loadingLabel={loadingLabel} errorLabel={errorLabel} />
+          )}
+        </div>
+      </div>
     </div>
   );
 }

@@ -20,6 +20,22 @@ export async function GET(_request: Request, context: Ctx) {
       const exam = await assertTeacherOwnsExam(user, examId);
       const structureQuestions =
         (await getExamStructureQuestions(examId)) ?? [];
+      const scriptIds = exam.assets
+        .filter((asset) => asset.kind === "STUDENT_SCRIPT")
+        .map((asset) => asset.id);
+      const scripts =
+        scriptIds.length === 0
+          ? []
+          : await prisma.submission.findMany({
+              where: { assetId: { in: scriptIds }, schoolId: exam.schoolId },
+              include: { student: { select: { name: true, email: true } } },
+            });
+      const studentByAsset = new Map(
+        scripts.map((row) => [
+          row.assetId,
+          row.student.name?.trim() || row.student.email.split("@")[0] || null,
+        ]),
+      );
       return NextResponse.json({
         exam: {
           id: exam.id,
@@ -39,6 +55,7 @@ export async function GET(_request: Request, context: Ctx) {
             originalName: a.originalName,
             mimeType: a.mimeType,
             createdAt: a.createdAt.toISOString(),
+            studentName: studentByAsset.get(a.id) ?? null,
           })),
           latestStructureJobs: exam.analysisJobs.map((j) => ({
             id: j.id,

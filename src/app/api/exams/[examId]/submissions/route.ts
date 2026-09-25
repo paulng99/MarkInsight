@@ -60,8 +60,10 @@ export async function POST(request: Request, context: Ctx) {
     const user = await requireSessionUser();
     const { examId } = await context.params;
     const form = await request.formData();
-    const file = form.get("file");
-    if (!(file instanceof File)) {
+    const files = form
+      .getAll("file")
+      .filter((item): item is File => item instanceof File && item.size > 0);
+    if (files.length === 0) {
       throw new AppError("請檢查檔案", 400, "missing_file");
     }
     const studentId = form.get("studentId")
@@ -69,14 +71,17 @@ export async function POST(request: Request, context: Ctx) {
       : undefined;
     const startAnalysis = form.get("analyze") !== "false";
 
-    const bytes = Buffer.from(await file.arrayBuffer());
     const result = await uploadSubmissionScript({
       actor: user,
       examId,
       studentId,
-      fileName: file.name || "script",
-      mimeType: file.type || "application/octet-stream",
-      bytes,
+      files: await Promise.all(
+        files.map(async (file) => ({
+          fileName: file.name || "script",
+          mimeType: file.type || "application/octet-stream",
+          bytes: Buffer.from(await file.arrayBuffer()),
+        })),
+      ),
       startAnalysis,
     });
 

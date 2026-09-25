@@ -94,9 +94,10 @@ export function StudentUploadForm({
 
         <FileField
           required
+          multiple
           accept="image/*,application/pdf"
           title={t.dropzoneTitle}
-          hint={t.dropzoneHint}
+          hint={t.uploadMultipleHint}
           selectedLabel={t.fileSelected}
           resetKey={fileReset}
         />
