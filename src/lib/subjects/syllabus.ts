@@ -235,9 +235,25 @@ export async function uploadSubjectSyllabus(input: {
     throw new AppError("請檢查檔案 — PDF、圖片或純文字", 400, "unsupported_syllabus");
   }
 
+  const settings = await prisma.schoolSettings.findUnique({ where: { schoolId } });
+  const year =
+    (settings?.defaultSchoolYearId
+      ? await prisma.schoolYear.findUnique({
+          where: { id: settings.defaultSchoolYearId },
+        })
+      : null) ??
+    (await prisma.schoolYear.findFirst({
+      where: { schoolId },
+      orderBy: { startsOn: "desc" },
+    }));
+  if (!year) {
+    throw new AppError("No school year available", 400, "no_school_year");
+  }
+
   const stored = await putObject({
     schoolId,
-    examId: `syllabus-${subjectCode}`,
+    schoolYear: year.name,
+    subjectCode,
     kind: "SYLLABUS",
     fileName: input.fileName,
     mimeType: mime,

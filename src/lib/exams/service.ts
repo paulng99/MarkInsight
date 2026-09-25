@@ -56,7 +56,7 @@ export async function assertTeacherOwnsExam(
   const exam = await prisma.exam.findFirst({
     where: { id: examId, schoolId },
     include: {
-      classSubject: true,
+      classSubject: { include: { schoolYear: true } },
       assets: { orderBy: { createdAt: "desc" } },
       analysisJobs: {
         where: { kind: "EXAM_STRUCTURE" },
@@ -314,7 +314,11 @@ export async function uploadExamAsset(
 
   const stored = await putObject({
     schoolId: exam.schoolId,
-    examId,
+    schoolYear: exam.classSubject.schoolYear.name,
+    subjectCode: exam.classSubject.subjectCode,
+    className: exam.classSubject.name,
+    examDate: formatDateYmd(exam.examDate),
+    examTitle: exam.title,
     kind: input.kind,
     fileName: input.fileName,
     mimeType: input.mimeType,
@@ -383,6 +387,7 @@ export async function uploadSubmissionScript(input: {
 
   const exam = await prisma.exam.findFirst({
     where: { id: examId, schoolId },
+    include: { classSubject: { include: { schoolYear: true } } },
   });
   if (!exam) {
     throw new AppError("Exam not found", 404, "exam_not_found");
@@ -418,6 +423,7 @@ export async function uploadSubmissionScript(input: {
       schoolId,
       role: "STUDENT",
     },
+    include: { user: { select: { name: true, email: true } } },
   });
   if (!enrollment) {
     throw new AppError("Student is not in this class", 404, "not_enrolled");
@@ -427,9 +433,18 @@ export async function uploadSubmissionScript(input: {
     throw new AppError("Forbidden", 403, "forbidden");
   }
 
+  const studentLabel =
+    enrollment.user.name?.trim() ||
+    enrollment.user.email.split("@")[0] ||
+    studentId;
   const stored = await putObject({
     schoolId,
-    examId,
+    schoolYear: exam.classSubject.schoolYear.name,
+    subjectCode: exam.classSubject.subjectCode,
+    className: exam.classSubject.name,
+    examDate: formatDateYmd(exam.examDate),
+    examTitle: exam.title,
+    studentName: studentLabel,
     kind: "STUDENT_SCRIPT",
     fileName: input.fileName,
     mimeType: input.mimeType,
