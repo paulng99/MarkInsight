@@ -94,6 +94,25 @@ model School {
   subjectAggregates SubjectAggregate[]
   analysisJobs      AnalysisJob[]
   subjectSyllabi    SubjectSyllabus[]
+  systemPrompts     SystemPrompt[]
+}
+
+/// Admin-edited system prompts for this school's analysis jobs.
+/// Missing rows fall back to built-in defaults. API keys are never stored here.
+model SystemPrompt {
+  id        String   @id @default(cuid())
+  schoolId  String
+  school    School   @relation(fields: [schoolId], references: [id], onDelete: Cascade)
+  /// Stable key: exam_structure | submission_scoring
+  key       String
+  /// Instruction text. The required JSON shape is stored separately.
+  body      String   @db.Text
+  /// Required model output shape. Composed onto the prompt at analysis time.
+  outputSchema String? @db.Text
+  updatedAt DateTime @updatedAt
+
+  @@unique([schoolId, key])
+  @@index([schoolId])
 }
 
 /// Admin-managed school settings (1:1 with School). API keys never stored here.

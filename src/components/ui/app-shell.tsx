@@ -23,7 +23,9 @@ function navFor(role: Role, t: Dictionary): NavItem[] {
   switch (role) {
     case "TEACHER":
       return [
-        { href: "/teacher", label: t.navDashboard, icon: <Icon.Home /> },
+        { href: "/teacher", label: t.navDashboard, icon: <Icon.Home />, exact: true },
+        { href: "/teacher/classes", label: t.navClasses, icon: <Icon.Users /> },
+        { href: "/teacher/syllabus", label: t.syllabusTitle, icon: <Icon.BookOpen /> },
         { href: "/teacher/exams/new", label: t.examCreate, icon: <Icon.Plus /> },
       ];
     case "STUDENT":
@@ -31,7 +33,8 @@ function navFor(role: Role, t: Dictionary): NavItem[] {
     case "ADMIN":
     default:
       return [
-        { href: "/admin", label: t.navOverview, icon: <Icon.Home /> },
+        { href: "/admin", label: t.navOverview, icon: <Icon.Home />, exact: true },
+        { href: "/admin/prompts", label: t.settingsSectionPrompts, icon: <Icon.Sparkles /> },
         { href: "/admin/settings", label: t.settingsTitle, icon: <Icon.Settings /> },
       ];
   }

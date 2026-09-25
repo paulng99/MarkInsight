@@ -1,4 +1,5 @@
 import { auth } from "@/auth";
+import { listSystemPrompts } from "@/lib/llm/system-prompts";
 import {
   assertCanAccessSchoolSettings,
   getSchoolSettingsPage,
@@ -62,7 +63,8 @@ export async function PUT(request: Request) {
 
   try {
     const settings = await upsertSchoolSettings({ ...body, schoolId });
-    return NextResponse.json({ ok: true, settings });
+    const systemPrompts = await listSystemPrompts(schoolId);
+    return NextResponse.json({ ok: true, settings, systemPrompts });
   } catch (error) {
     const message = error instanceof Error ? error.message : "validation_failed";
     return NextResponse.json({ error: message }, { status: 400 });

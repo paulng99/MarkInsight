@@ -10,6 +10,7 @@ import {
   assertAllowedAnalysisModel,
   getOpenRouterModelAllowlist,
 } from "@/lib/config/openrouter-model-allowlist";
+import { listSystemPrompts, saveSystemPrompts } from "@/lib/llm/system-prompts";
 import { prisma } from "@/lib/prisma";
 import type {
   CreateSchoolYearInput,
@@ -17,6 +18,7 @@ import type {
   SchoolSettingsDto,
   SchoolSettingsPageDto,
   SchoolYearDto,
+  SystemPromptSettingDto,
   TeacherAccountDto,
   UpsertSchoolSettingsInput,
 } from "@/lib/school-settings/types";
@@ -217,6 +219,7 @@ export async function getSchoolSettingsPage(
     schoolYears: schoolYears.map(toSchoolYearDto),
     teachers: teachers as TeacherAccountDto[],
     analysisModelAllowlist: listAnalysisModelChoices(),
+    systemPrompts: await listSystemPrompts(schoolId),
   };
 }
 
@@ -288,6 +291,10 @@ export async function upsertSchoolSettings(
     where: { id: validated.schoolId },
     data: { name: validated.displayName },
   });
+
+  if (validated.systemPrompts) {
+    await saveSystemPrompts(validated.schoolId, validated.systemPrompts);
+  }
 
   return toSettingsDto(row);
 }
@@ -414,6 +421,7 @@ export type {
   SchoolYearDto,
   TeacherAccountDto,
   UpsertSchoolSettingsInput,
+  SystemPromptSettingDto,
   CreateTeacherInput,
   CreateSchoolYearInput,
 };

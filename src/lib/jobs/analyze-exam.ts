@@ -13,6 +13,7 @@ import type { AnalysisJobKind, Prisma } from "@prisma/client";
 import { refreshSubjectAggregates } from "@/lib/aggregates/weakness";
 import { AppError, ANALYSIS_FAILED_GENERIC, sanitizeVendorLeak } from "@/lib/errors";
 import { createLlmClient } from "@/lib/llm";
+import { resolveSystemPrompt } from "@/lib/llm/system-prompts";
 import { prisma } from "@/lib/prisma";
 import { resolveAnalysisLlmModelForNewJob } from "@/lib/school-settings";
 import { getSubjectSyllabus } from "@/lib/subjects/syllabus";
@@ -248,10 +249,12 @@ async function runExamStructure(
     : null;
 
   const llm = createLlmClient();
+  const structurePrompt = await resolveSystemPrompt(schoolId, "exam_structure");
   const result = await llm.analyzeExamStructure({
     schoolId,
     examId,
     modelOverride: llmModel,
+    systemPrompt: structurePrompt,
     assetRefs: [
       ...assets.map((a) => ({
         kind: a.kind,
@@ -351,10 +354,12 @@ async function runSubmissionScoring(
       ? await getSubjectSyllabus(schoolId, examWithSubject.classSubject.subjectCode)
       : null;
     const llmRecover = createLlmClient();
+    const structurePrompt = await resolveSystemPrompt(schoolId, "exam_structure");
     const recovered = await llmRecover.analyzeExamStructure({
       schoolId,
       examId,
       modelOverride: exam.structureLlmModel,
+      systemPrompt: structurePrompt,
       assetRefs: [
         ...assets.map((a) => ({
           kind: a.kind,
@@ -377,11 +382,13 @@ async function runSubmissionScoring(
   }
 
   const llm = createLlmClient();
+  const scoringPrompt = await resolveSystemPrompt(schoolId, "submission_scoring");
   const result = await llm.scoreSubmission({
     schoolId,
     examId,
     submissionId,
     modelOverride: llmModel,
+    systemPrompt: scoringPrompt,
     questions,
     assetRefs: scripts.map((page) => ({
       kind: page.kind,

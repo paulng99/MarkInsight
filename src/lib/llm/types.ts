@@ -50,6 +50,8 @@ export type AnalyzeExamStructureInput = {
   assetRefs: Array<{ kind: string; storageKey: string; mimeType?: string | null }>;
   /** Allowlisted model id from SchoolSettings for this run. */
   modelOverride?: string;
+  /** Admin-configured system prompt. Falls back to the built-in default when omitted. */
+  systemPrompt?: string;
 };
 
 export type AnalyzeExamStructureResult = {
@@ -81,6 +83,8 @@ export type ScoreSubmissionInput = {
   questions: AnalyzeExamStructureResult["questions"];
   /** Allowlisted model id from SchoolSettings for this run. */
   modelOverride?: string;
+  /** Admin-configured system prompt. Falls back to the built-in default when omitted. */
+  systemPrompt?: string;
 };
 
 export type ScoreSubmissionResult = {

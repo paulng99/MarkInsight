@@ -36,6 +36,9 @@ const dictionaries = {
     emptyStudent: "Upload your answer script and review personal analysis results.",
     // --- Navigation / shell ---
     navDashboard: "Dashboard",
+    navClasses: "Classes",
+    classesIntro:
+      "See each class, add students by email, and open a student's cross-exam weak points.",
     navOverview: "Overview",
     navSectionWorkspace: "Workspace",
     roleAdminLabel: "Admin",
@@ -145,6 +148,23 @@ const dictionaries = {
     settingsSectionSchool: "School profile",
     settingsSectionYear: "Default school year",
     settingsSectionModel: "Analysis model",
+    settingsSectionPrompts: "System prompts",
+    settingsSectionPromptsHelp:
+      "These prompts are used by every analysis in this app. Changes apply only to analysis jobs started after you save.",
+    settingsPromptExamStructure: "Exam structure analysis",
+    settingsPromptExamStructureHelp:
+      "Used when reading the question paper and answer key. Write the instructions here; put the required JSON below.",
+    settingsPromptScoring: "Answer script scoring",
+    settingsPromptScoringHelp:
+      "Used when scoring a student script. Write the instructions here; put the required JSON below.",
+    settingsPromptOutputSchema: "Required JSON",
+    settingsPromptOutputSchemaHelp:
+      "The model must reply with this JSON only. Keep every required field.",
+    settingsPromptImprove: "Improve this prompt with AI",
+    settingsPromptImproving: "Improving…",
+    settingsPromptImproved: "Prompt updated. Save settings to use it on new analysis jobs.",
+    settingsPromptImproveError: "Could not improve this prompt.",
+    settingsPromptImproveEmpty: "Enter a prompt first.",
     settingsSectionPermissions: "Teacher permissions",
     settingsSectionTeachers: "Teacher accounts",
     settingsFieldDisplayName: "School display name",
@@ -403,6 +423,8 @@ const dictionaries = {
     emptyStudent: "上載答卷並查看個人分析結果。",
     // --- Navigation / shell ---
     navDashboard: "主頁",
+    navClasses: "班別",
+    classesIntro: "查看各班別、以電郵加入學生，並開啟學生的跨卷薄弱點。",
     navOverview: "總覽",
     navSectionWorkspace: "工作區",
     roleAdminLabel: "管理員",
@@ -506,6 +528,23 @@ const dictionaries = {
     settingsSectionSchool: "學校資料",
     settingsSectionYear: "預設學年",
     settingsSectionModel: "分析模型",
+    settingsSectionPrompts: "系統提示",
+    settingsSectionPromptsHelp:
+      "這些提示會用於本應用的所有分析。儲存後只影響之後開始的分析工作。",
+    settingsPromptExamStructure: "試卷結構分析",
+    settingsPromptExamStructureHelp:
+      "閱讀試題紙與答案時使用。指示寫在這裡；必須回傳的 JSON 請填在下方。",
+    settingsPromptScoring: "答卷評分",
+    settingsPromptScoringHelp:
+      "評分學生答卷時使用。指示寫在這裡；必須回傳的 JSON 請填在下方。",
+    settingsPromptOutputSchema: "必須回傳的 JSON",
+    settingsPromptOutputSchemaHelp:
+      "模型只可回傳此 JSON。請保留所有必須欄位。",
+    settingsPromptImprove: "以 AI 完善此提示",
+    settingsPromptImproving: "完善中…",
+    settingsPromptImproved: "已更新此提示。請儲存設定，新的分析工作才會使用。",
+    settingsPromptImproveError: "無法完善此提示。",
+    settingsPromptImproveEmpty: "請先輸入提示內容。",
     settingsSectionPermissions: "教師權限",
     settingsSectionTeachers: "教師帳戶",
     settingsFieldDisplayName: "學校顯示名稱",

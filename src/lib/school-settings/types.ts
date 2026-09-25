@@ -37,6 +37,13 @@ export type SchoolSettingsDto = {
   allowTeacherUploadOnBehalf: boolean;
 };
 
+export type SystemPromptSettingDto = {
+  key: "exam_structure" | "submission_scoring";
+  body: string;
+  /** Required JSON the model must return. Edited separately from the prompt text. */
+  outputSchema: string;
+};
+
 export type UpsertSchoolSettingsInput = {
   schoolId: string;
   displayName: string;
@@ -45,6 +52,7 @@ export type UpsertSchoolSettingsInput = {
   analysisLlmModel: string;
   allowTeacherCreateStudents: boolean;
   allowTeacherUploadOnBehalf: boolean;
+  systemPrompts?: SystemPromptSettingDto[];
 };
 
 /** Full admin settings page payload (GET). */
@@ -55,6 +63,7 @@ export type SchoolSettingsPageDto = {
   schoolYears: SchoolYearDto[];
   teachers: TeacherAccountDto[];
   analysisModelAllowlist: string[];
+  systemPrompts: SystemPromptSettingDto[];
 };
 
 export type CreateTeacherInput = {

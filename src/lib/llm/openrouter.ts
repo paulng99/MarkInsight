@@ -16,6 +16,7 @@ import {
   AppError,
   sanitizeVendorLeak,
 } from "@/lib/errors";
+import { DEFAULT_SYSTEM_PROMPTS } from "@/lib/llm/system-prompts";
 import { getObjectBytes, isImageMime, isPdfMime, toDataUrl } from "@/lib/storage";
 
 /**
@@ -276,22 +277,7 @@ export class OpenRouterLlmClient implements LlmClient {
       messages: [
         {
           role: "system",
-          content:
-            "You are an experienced Hong Kong secondary-school exam analyst. " +
-            "Analyze EVERY question on the paper. Reply with JSON only: " +
-            '{"questions":[{"questionKey":"string","topic":"string","itemType":"string","questionCategory":"string","maxScore":number,' +
-            '"assessmentObjective":"string","difficultyPoints":"string"}]}. ' +
-            "Rules: (1) One object per question / numbered part (e.g. 1a, 1b) when marks differ. " +
-            "(2) itemType = 題型, examples: mcq, short, essay, calculation. " +
-            "(3) questionCategory = 題目種類 from the syllabus when provided (e.g. 概念、應用、實驗、數據分析); otherwise infer from the paper. " +
-            "(4) assessmentObjective = 考核要求 — the skill or learning outcome this item assesses. " +
-            "(5) difficultyPoints = 難點 — key hard points, traps, or common student mistakes. " +
-            (hasSyllabus
-              ? "(6) A SYLLABUS asset is attached. Use its topics, outcomes, and wording to classify 題型, 題目種類, 考核要求, and 難點. Do not invent requirements that contradict the syllabus. "
-              : "(6) No syllabus was attached; infer from the paper only. ") +
-            "(7) Write questionCategory, assessmentObjective, and difficultyPoints in Traditional Chinese (Hong Kong) " +
-            "if the paper or syllabus is Chinese; otherwise match that language. Be concrete, 1–3 sentences for 考核要求 and 難點. " +
-            "(8) No markdown.",
+          content: input.systemPrompt?.trim() || DEFAULT_SYSTEM_PROMPTS.exam_structure,
         },
         {
           role: "user",
@@ -378,12 +364,7 @@ export class OpenRouterLlmClient implements LlmClient {
       messages: [
         {
           role: "system",
-          content:
-            "You score a student exam script. Reply with JSON only: " +
-            '{"scores":[{"questionKey":"string","topic":"string","itemType":"string","score":number,"maxScore":number,"feedback":"string"}]}. ' +
-            "Use the provided question list. When assessmentObjective / difficultyPoints are present, " +
-            "judge whether the student met the objective and whether they stumbled on the hard points; " +
-            "reflect that briefly in feedback (Traditional Chinese Hong Kong if the script is Chinese). No markdown.",
+          content: input.systemPrompt?.trim() || DEFAULT_SYSTEM_PROMPTS.submission_scoring,
         },
         {
           role: "user",

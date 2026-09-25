@@ -1,7 +1,8 @@
 "use client";
 
+import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
-import type { Dictionary } from "@/lib/i18n/dictionaries";
+import type { Dictionary, Locale } from "@/lib/i18n/dictionaries";
 import type { RosterAddResult } from "@/lib/enrollments/roster";
 import { Alert } from "@/components/ui/feedback";
 import { Icon } from "@/components/ui/icons";
@@ -22,12 +23,16 @@ export function ClassRoster({
   classSubjectId,
   className,
   t,
+  locale,
+  initialOpen = false,
 }: {
   classSubjectId: string;
   className: string;
   t: Dictionary;
+  locale?: Locale;
+  initialOpen?: boolean;
 }) {
-  const [open, setOpen] = useState(false);
+  const [open, setOpen] = useState(initialOpen);
   const [emails, setEmails] = useState("");
   const [students, setStudents] = useState<StudentRow[]>([]);
   const [pending, setPending] = useState<PendingRow[]>([]);
@@ -164,6 +169,14 @@ export function ClassRoster({
                     <li key={student.id} className="text-[var(--ink)]">
                       <span className="font-medium">{student.name || student.email}</span>
                       <span className="ml-2 text-[var(--muted)]">{student.email}</span>
+                      {locale ? (
+                        <Link
+                          href={`/teacher/class-subjects/${classSubjectId}/students/${student.id}/weakness?locale=${locale}`}
+                          className="mt-0.5 block text-xs font-semibold text-primary-700"
+                        >
+                          {t.crossExamWeaknessTitle}
+                        </Link>
+                      ) : null}
                     </li>
                   ))}
                 </ul>
