@@ -3,7 +3,8 @@ FROM node:20-alpine AS deps
 WORKDIR /app
 RUN apk add --no-cache libc6-compat
 COPY package.json package-lock.json ./
-RUN npm ci
+# Host lockfile is npm 11 (Windows); node:20-alpine ships npm 10, which rejects it.
+RUN npm install -g npm@11.6.1 && npm ci
 
 FROM node:20-alpine AS builder
 WORKDIR /app
@@ -37,7 +38,8 @@ COPY --from=builder --chown=nextjs:nodejs /app/.next/standalone ./
 COPY --from=builder --chown=nextjs:nodejs /app/.next/static ./.next/static
 COPY docker/entrypoint.sh /app/entrypoint.sh
 
-RUN chmod +x /app/entrypoint.sh \
+RUN sed -i 's/\r$//' /app/entrypoint.sh \
+  && chmod +x /app/entrypoint.sh \
   && mkdir -p /app/.data \
   && chown -R nextjs:nodejs /app/.data /app/prisma /app/public
 
