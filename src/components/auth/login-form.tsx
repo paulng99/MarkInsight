@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useState } from "react";
 import { useFormStatus } from "react-dom";
 import type { Dictionary, Locale } from "@/lib/i18n/dictionaries";
@@ -94,6 +95,13 @@ export function LoginForm({
         </div>
         <SubmitButton t={t} />
       </form>
+
+      <p className="text-center text-sm text-[var(--muted)]">
+        {t.registerNeedAccount}{" "}
+        <Link href={`/register?locale=${locale}`} className="link font-semibold">
+          {t.registerLink}
+        </Link>
+      </p>
 
       <div>
         <div className="flex items-center gap-3">

@@ -4,48 +4,9 @@ import type { Role } from "@/lib/roles";
 import { homePathForRole } from "@/lib/rbac";
 
 /**
- * Auth shell — credentials stub for local/demo.
- *
- * TODO: Replace DEMO_USERS with Prisma User + passwordHash (bcrypt).
- * TODO: Optionally add email magic-link / OAuth; not required for MVP scaffold.
- * TODO: Persist sessions / link schoolId from DB for real RBAC.
+ * Credentials auth. Registered users are checked against Prisma passwordHash.
+ * Demo accounts still sign in with password "password" before the database row exists.
  */
-
-type DemoUser = {
-  id: string;
-  email: string;
-  name: string;
-  password: string;
-  role: Role;
-  schoolId: string | null;
-};
-
-const DEMO_USERS: DemoUser[] = [
-  {
-    id: "demo_admin",
-    email: "admin@example.com",
-    name: "Demo Admin",
-    password: "password",
-    role: "ADMIN",
-    schoolId: null,
-  },
-  {
-    id: "demo_teacher",
-    email: "teacher@example.com",
-    name: "Demo Teacher",
-    password: "password",
-    role: "TEACHER",
-    schoolId: "demo_school",
-  },
-  {
-    id: "demo_student",
-    email: "student@example.com",
-    name: "Demo Student",
-    password: "password",
-    role: "STUDENT",
-    schoolId: "demo_school",
-  },
-];
 
 declare module "next-auth" {
   interface User {
@@ -86,19 +47,15 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
         password: { label: "Password", type: "password" },
       },
       async authorize(credentials) {
-        const email = credentials?.email?.toString().toLowerCase().trim();
+        const email = credentials?.email?.toString() ?? "";
         const password = credentials?.password?.toString() ?? "";
-        if (!email || !password) return null;
-
-        const match = DEMO_USERS.find(
-          (u) => u.email === email && u.password === password,
-        );
+        const { authorizeCredentials } = await import("@/lib/auth/credentials");
+        const match = await authorizeCredentials(email, password);
         if (!match) return null;
-
         return {
           id: match.id,
           email: match.email,
-          name: match.name,
+          name: match.name ?? undefined,
           role: match.role,
           schoolId: match.schoolId,
         };

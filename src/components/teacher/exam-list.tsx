@@ -9,6 +9,7 @@ import { FileField } from "@/components/ui/file-field";
 import { Icon } from "@/components/ui/icons";
 import { SectionHeader } from "@/components/ui/page-header";
 import { StatCard } from "@/components/ui/stat-card";
+import { ClassRoster } from "@/components/teacher/class-roster";
 
 type ExamRow = {
   id: string;
@@ -449,6 +450,7 @@ function SubjectCard({
                 </span>
               </Link>
             </div>
+            <ClassRoster classSubjectId={cls.id} className={cls.name} t={t} />
             {cls.exams.length === 0 ? (
               <EmptyState compact title={t.examsEmpty} />
             ) : (
