@@ -37,6 +37,18 @@ type SubjectGroup = {
   classes: ClassGroup[];
 };
 
+const NEW_SUBJECT_VALUE = "__new__";
+
+async function createClassSubject(subjectCode: string, className: string) {
+  const res = await fetch("/api/subjects", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ subjectCode, className }),
+  });
+  const data = (await res.json()) as { error?: string };
+  return { ok: res.ok, error: data.error };
+}
+
 export function TeacherExamList({
   locale,
   t,
@@ -48,6 +60,7 @@ export function TeacherExamList({
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [pendingCode, setPendingCode] = useState<string | null>(null);
+  const [subjectPick, setSubjectPick] = useState("");
   const [subjectCode, setSubjectCode] = useState("");
   const [className, setClassName] = useState("");
   const [adding, setAdding] = useState(false);
@@ -56,7 +69,10 @@ export function TeacherExamList({
   const [, startTransition] = useTransition();
 
   const isSuccess = (m: string) =>
-    m === t.syllabusUploaded || m === t.addSubjectSuccess || m === t.distributeSuccess;
+    m === t.syllabusUploaded ||
+    m === t.addSubjectSuccess ||
+    m === t.addClassSuccess ||
+    m === t.distributeSuccess;
 
   const load = useCallback(async () => {
     setError(null);
@@ -69,7 +85,14 @@ export function TeacherExamList({
         setSubjects([]);
         return;
       }
-      setSubjects(data.subjects ?? []);
+      const list: SubjectGroup[] = data.subjects ?? [];
+      setSubjects(list);
+      setSubjectPick((current) => {
+        if (list.length === 0) return NEW_SUBJECT_VALUE;
+        if (current === NEW_SUBJECT_VALUE) return current;
+        if (current && list.some((s) => s.subjectCode === current)) return current;
+        return list[0].subjectCode;
+      });
     } catch {
       setError(t.examsError);
       setSubjects([]);
@@ -101,27 +124,25 @@ export function TeacherExamList({
 
   function onAddSubject(e: React.FormEvent) {
     e.preventDefault();
+    const creatingNew = !subjects?.length || subjectPick === NEW_SUBJECT_VALUE;
+    const code = creatingNew ? subjectCode : subjectPick;
     setNotice(null);
     setAdding(true);
     startTransition(async () => {
       try {
-        const res = await fetch("/api/subjects", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ subjectCode, className }),
-        });
-        const data = await res.json();
-        if (!res.ok) {
-          setNotice(data.error || t.addSubjectError);
+        const result = await createClassSubject(code, className);
+        if (!result.ok) {
+          setNotice(result.error || (creatingNew ? t.addSubjectError : t.addClassError));
           return;
         }
         setSubjectCode("");
         setClassName("");
-        setNotice(t.addSubjectSuccess);
+        setSubjectPick(code);
+        setNotice(creatingNew ? t.addSubjectSuccess : t.addClassSuccess);
         setShowAdd(false);
         await load();
       } catch {
-        setNotice(t.addSubjectError);
+        setNotice(creatingNew ? t.addSubjectError : t.addClassError);
       } finally {
         setAdding(false);
       }
@@ -188,6 +209,7 @@ export function TeacherExamList({
   }
 
   const addPanelOpen = showAdd || subjects.length === 0;
+  const creatingNewSubject = subjects.length === 0 || subjectPick === NEW_SUBJECT_VALUE;
 
   return (
     <div className="mt-8 space-y-8">
@@ -243,16 +265,48 @@ export function TeacherExamList({
                 <div className="mt-4 grid gap-3 sm:grid-cols-[1fr_1fr_auto] sm:items-end">
                   <div>
                     <label className="label" htmlFor="subject-code">
-                      {t.addSubjectCode}
+                      {creatingNewSubject ? t.addSubjectCode : t.addSubjectExisting}
                     </label>
-                    <input
-                      id="subject-code"
-                      required
-                      value={subjectCode}
-                      onChange={(e) => setSubjectCode(e.target.value.toUpperCase())}
-                      placeholder="PHY"
-                      className="input uppercase"
-                    />
+                    {subjects.length > 0 ? (
+                      <select
+                        id="subject-code"
+                        required
+                        value={subjectPick}
+                        onChange={(e) => setSubjectPick(e.target.value)}
+                        className="select"
+                      >
+                        {subjects.map((subject) => (
+                          <option key={subject.subjectCode} value={subject.subjectCode}>
+                            {subject.subjectCode}
+                            {" · "}
+                            {countLabel(
+                              subject.classes.length,
+                              t.classesCount,
+                              t.classesCountOne,
+                            )}
+                          </option>
+                        ))}
+                        <option value={NEW_SUBJECT_VALUE}>{t.addSubjectNewOption}</option>
+                      </select>
+                    ) : null}
+                    {creatingNewSubject ? (
+                      <>
+                        {subjects.length > 0 ? (
+                          <label className="label mt-3" htmlFor="subject-code-new">
+                            {t.addSubjectCode}
+                          </label>
+                        ) : null}
+                        <input
+                          id={subjects.length > 0 ? "subject-code-new" : "subject-code"}
+                          required
+                          value={subjectCode}
+                          onChange={(e) => setSubjectCode(e.target.value.toUpperCase())}
+                          placeholder={t.addSubjectNewPlaceholder}
+                          className="input uppercase"
+                          autoComplete="off"
+                        />
+                      </>
+                    ) : null}
                   </div>
                   <div>
                     <label className="label" htmlFor="class-name">
@@ -270,7 +324,13 @@ export function TeacherExamList({
                   <div className="flex gap-2">
                     <button type="submit" disabled={adding} className="btn btn-primary">
                       {adding ? <Icon.Loader size={16} /> : <Icon.Plus size={16} />}
-                      {adding ? t.addSubjectSaving : t.addSubjectSubmit}
+                      {adding
+                        ? creatingNewSubject
+                          ? t.addSubjectSaving
+                          : t.addClassSaving
+                        : creatingNewSubject
+                          ? t.addSubjectSubmit
+                          : t.addClassSubmit}
                     </button>
                     {subjects.length > 0 ? (
                       <button
@@ -341,6 +401,7 @@ function SubjectCard({
   onNotice: (message: string) => void;
 }) {
   const [toolsOpen, setToolsOpen] = useState(false);
+  const [addClassOpen, setAddClassOpen] = useState(false);
   const hue = subjectHues[index % subjectHues.length];
   const examCount = subject.classes.reduce((n, c) => n + c.exams.length, 0);
 
@@ -372,6 +433,15 @@ function SubjectCard({
           <span className={`badge badge-dot ${subject.syllabus ? "badge-success" : "badge-warn"}`}>
             {subject.syllabus ? t.syllabusTitle : t.syllabusEmpty}
           </span>
+          <button
+            type="button"
+            className="btn btn-secondary btn-sm"
+            onClick={() => setAddClassOpen((v) => !v)}
+            aria-expanded={addClassOpen}
+          >
+            <Icon.Plus size={14} />
+            {t.addClassTitle}
+          </button>
           <button
             type="button"
             className="btn btn-ghost btn-sm"
@@ -429,6 +499,17 @@ function SubjectCard({
       ) : null}
 
       <div className="space-y-5 px-5 py-5 sm:px-6">
+        {addClassOpen ? (
+          <AddClassForm
+            subjectCode={subject.subjectCode}
+            t={t}
+            onCancel={() => setAddClassOpen(false)}
+            onDone={(message) => {
+              setAddClassOpen(false);
+              onNotice(message);
+            }}
+          />
+        ) : null}
         {subject.classes.map((cls) => (
           <div key={cls.id}>
             <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
@@ -501,8 +582,103 @@ function SubjectCard({
             )}
           </div>
         ))}
+        {!addClassOpen ? (
+          <button
+            type="button"
+            className="card-muted flex w-full items-center justify-center gap-2 px-4 py-3 text-sm font-semibold text-primary-700 transition-colors hover:border-primary-300 hover:bg-primary-50"
+            onClick={() => setAddClassOpen(true)}
+          >
+            <Icon.Plus size={15} />
+            {t.addClassTitle}
+            <span className="font-medium text-[var(--muted)]">· {subject.subjectCode}</span>
+          </button>
+        ) : null}
       </div>
     </section>
+  );
+}
+
+function AddClassForm({
+  subjectCode,
+  t,
+  onCancel,
+  onDone,
+}: {
+  subjectCode: string;
+  t: Dictionary;
+  onCancel: () => void;
+  onDone: (message: string) => void;
+}) {
+  const [className, setClassName] = useState("");
+  const [adding, setAdding] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [, startTransition] = useTransition();
+
+  function onSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    setError(null);
+    setAdding(true);
+    startTransition(async () => {
+      try {
+        const result = await createClassSubject(subjectCode, className);
+        if (!result.ok) {
+          setError(result.error || t.addClassError);
+          return;
+        }
+        setClassName("");
+        onDone(t.addClassSuccess);
+      } catch {
+        setError(t.addClassError);
+      } finally {
+        setAdding(false);
+      }
+    });
+  }
+
+  return (
+    <form
+      onSubmit={onSubmit}
+      className="rounded-xl border border-primary-200 bg-primary-50/70 px-4 py-4 animate-fade-up"
+    >
+      <div className="flex items-start gap-3">
+        <span className="icon-tile !h-9 !w-9">
+          <Icon.Users size={16} />
+        </span>
+        <div className="min-w-0 flex-1">
+          <p className="font-semibold text-[var(--ink)]">{t.addClassTitle}</p>
+          <p className="mt-0.5 text-xs text-[var(--muted)]">
+            {t.addClassHint}{" "}
+            <span className="font-semibold text-primary-700">{subjectCode}</span>
+          </p>
+          {error ? <Alert tone="error" className="mt-3">{error}</Alert> : null}
+          <div className="mt-3 flex flex-col gap-2 sm:flex-row sm:items-end">
+            <div className="min-w-0 flex-1">
+              <label className="label" htmlFor={`add-class-${subjectCode}`}>
+                {t.addSubjectClass}
+              </label>
+              <input
+                id={`add-class-${subjectCode}`}
+                required
+                autoFocus
+                value={className}
+                onChange={(e) => setClassName(e.target.value)}
+                placeholder="3A"
+                className="input"
+              />
+            </div>
+            <div className="flex gap-2">
+              <button type="submit" disabled={adding} className="btn btn-primary">
+                {adding ? <Icon.Loader size={16} /> : <Icon.Plus size={16} />}
+                {adding ? t.addClassSaving : t.addClassSubmit}
+              </button>
+              <button type="button" className="btn btn-ghost" onClick={onCancel}>
+                {t.cancel}
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </form>
   );
 }
 
