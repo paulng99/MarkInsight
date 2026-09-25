@@ -1,0 +1,52 @@
+From 6de45bca2930e76a8be62f875105b0423be6575a Mon Sep 17 00:00:00 2001
+From: Cursor Agent <cursoragent@cursor.com>
+Date: Thu, 24 Sep 2026 23:26:36 +0000
+Subject: [PATCH 2/2] fix(web): keep settings drawer fixed to viewport after
+ page enter animation
+
+Use animation-fill-mode backwards on page-level containers so no transform
+lingers and creates a containing block for position: fixed descendants.
+---
+ apps/web/src/app/globals.css | 11 ++++++++---
+ 1 file changed, 8 insertions(+), 3 deletions(-)
+
+diff --git a/apps/web/src/app/globals.css b/apps/web/src/app/globals.css
+index 381f6af..fedb646 100644
+--- a/apps/web/src/app/globals.css
++++ b/apps/web/src/app/globals.css
+@@ -127,8 +127,13 @@ body {
+   animation: fade-up var(--motion-slow) var(--ease-out) var(--motion-base) both;
+ }
+ 
++/*
++ * Page-level containers use `backwards` (not `both`) so no transform lingers
++ * after the animation; a retained transform would become the containing block
++ * for position: fixed descendants such as the settings drawer.
++ */
+ .page-enter {
+-  animation: fade-up var(--motion-slow) var(--ease-out) both;
++  animation: fade-up var(--motion-slow) var(--ease-out) backwards;
+ }
+ 
+ @keyframes success-pop {
+@@ -1219,7 +1224,7 @@ p.hint {
+  * ------------------------------------------------------------------------- */
+ 
+ .detail-panel {
+-  animation: fade-up var(--motion-slow) var(--ease-out) both;
++  animation: fade-up var(--motion-slow) var(--ease-out) backwards;
+ }
+ 
+ .detail-meta {
+@@ -1370,7 +1375,7 @@ p.hint {
+   display: flex;
+   flex-direction: column;
+   gap: 0.75rem;
+-  animation: fade-up var(--motion-base) var(--ease-out) both;
++  animation: fade-up var(--motion-base) var(--ease-out) backwards;
+ }
+ 
+ .chat-scope-field {
+-- 
+2.43.0
+
