@@ -21,5 +21,32 @@ done
 echo "Applying Prisma schema (db push)..."
 prisma db push --schema=./prisma/schema.prisma --skip-generate
 
+# Auth.js sends every sign-in and /api/auth callback to AUTH_URL / NEXTAUTH_URL.
+# The sample .env uses http://localhost:3000, which breaks a droplet opened by IP.
+strip_loopback_auth_url() {
+  name="$1"
+  val=$(printenv "$name" 2>/dev/null || true)
+  [ -n "$val" ] || return 0
+  host=$(node -e '
+    const raw = process.argv[1] || "";
+    try {
+      const host = new URL(raw).hostname.replace(/^\[|\]$/g, "").toLowerCase();
+      process.stdout.write(host);
+    } catch {
+      process.stdout.write("");
+    }
+  ' "$val")
+  case "$host" in
+    localhost|127.0.0.1|::1|0.0.0.0)
+      echo "Ignoring ${name}=${val} (loopback). Sign-in uses the browser host, such as the droplet IP."
+      unset "$name"
+      ;;
+  esac
+}
+
+strip_loopback_auth_url NEXTAUTH_URL
+strip_loopback_auth_url AUTH_URL
+export AUTH_TRUST_HOST="${AUTH_TRUST_HOST:-true}"
+
 echo "Starting MarkInsight..."
 exec node server.js

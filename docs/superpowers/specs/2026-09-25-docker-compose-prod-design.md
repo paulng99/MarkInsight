@@ -50,7 +50,8 @@ Run MarkInsight with one command in a **production-like** layout: built Next.js 
 - Compose **overrides** `DATABASE_URL` for `web` to  
   `postgresql://markinsight:markinsight@db:5432/markinsight?schema=public`  
   so host `.env` pointing at `localhost:5434` does not break containers.
-- Required for usable auth in container: `NEXTAUTH_URL=http://localhost:3000`, `NEXTAUTH_SECRET` / `AUTH_SECRET`.
+- Required for usable auth in container: `NEXTAUTH_SECRET` / `AUTH_SECRET`, and `AUTH_TRUST_HOST=true`.
+- Set `NEXTAUTH_URL` to a stable public origin when you have one (`http://<droplet-ip>:3000` or `https://your.domain`). Loopback values such as `http://localhost:3000` are ignored at startup so sign-in uses the request host.
 - LLM: pass through `OPENROUTER_*`, `MARKINSIGHT_ANALYSIS_DEMO`, etc. from `.env`.
 - Storage: `STORAGE_PROVIDER=local`; data under `/app/.data` (uploads + exam-structure cache).
 
