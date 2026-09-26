@@ -50,6 +50,21 @@ cp .env.example .env   # if needed; set NEXTAUTH_SECRET / AUTH_SECRET
 docker compose up --build -d
 # App: http://localhost:3000
 docker compose logs -f web
+```
+
+### Public IP (DigitalOcean droplet)
+
+Auth.js follows `NEXTAUTH_URL`. If that stays `http://localhost:3000`, login and `/api/auth/*` redirect the browser to the visitor's own computer, so the app looks broken when you open `http://<droplet-ip>:3000`.
+
+The container drops a loopback `NEXTAUTH_URL` / `AUTH_URL` and trusts the request host. You can also set the real origin in `.env` before `docker compose up`:
+
+```bash
+# NEXTAUTH_URL=http://<droplet-ip>:3000
+```
+
+Open TCP **3000** on the droplet firewall (and any DigitalOcean cloud firewall), then use `http://<droplet-ip>:3000`. After changing `.env`, recreate the web container: `docker compose up -d --force-recreate web`.
+
+```bash
 docker compose down       # keep volumes
 docker compose down -v    # wipe DB + upload volumes
 ```

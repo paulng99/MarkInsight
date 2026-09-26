@@ -25,7 +25,9 @@ services:
       DATABASE_URL: postgresql://markinsight:markinsight@db:5432/markinsight?schema=public
       DATABASE_HOST: db
       DATABASE_PORT: "5432"
-      NEXTAUTH_URL: ${NEXTAUTH_URL:-http://localhost:3000}
+      # Auth.js must follow the browser host (droplet IP or domain).
+      # A localhost NEXTAUTH_URL from .env is dropped in docker/entrypoint.sh.
+      AUTH_TRUST_HOST: "true"
       STORAGE_PROVIDER: local
       STORAGE_LOCAL_DIR: /app/.data/uploads
     volumes:

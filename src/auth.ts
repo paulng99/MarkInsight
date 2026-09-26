@@ -1,7 +1,10 @@
 import NextAuth from "next-auth";
 import Credentials from "next-auth/providers/credentials";
+import { preferRequestHostForLoopbackAuthUrl } from "@/lib/auth/public-origin";
 import type { Role } from "@/lib/roles";
 import { homePathForRole } from "@/lib/rbac";
+
+preferRequestHostForLoopbackAuthUrl();
 
 /**
  * Credentials auth. Registered users are checked against Prisma passwordHash.
