@@ -1,9 +1,11 @@
 "use server";
 
 import { signIn } from "@/auth";
+import { rememberPublicAuthOrigin } from "@/lib/auth/public-origin";
 import { registerInvitedStudent } from "@/lib/enrollments/roster";
 import { AppError } from "@/lib/errors";
 import { AuthError } from "next-auth";
+import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 
 function registerErrorCode(error: unknown): string {
@@ -12,6 +14,7 @@ function registerErrorCode(error: unknown): string {
 }
 
 export async function registerAction(formData: FormData) {
+  rememberPublicAuthOrigin(await headers());
   const locale = String(formData.get("locale") ?? "zh-HK");
   const email = String(formData.get("email") ?? "");
   const name = String(formData.get("name") ?? "");

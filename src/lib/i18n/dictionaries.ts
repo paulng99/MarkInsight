@@ -80,6 +80,8 @@ const dictionaries = {
     demoTitle: "Demo accounts",
     demoFill: "Use this account",
     loginErrorInvalid: "Incorrect email or password. Please try again.",
+    loginErrorConfig:
+      "Sign-in is not configured on this server. Set AUTH_SECRET, then open the site at its public address (the droplet IP or domain).",
     loginSidebarTitle: "Insight, not just marks.",
     loginSidebarDesc:
       "Every question scored. Every topic tracked. Every exam compared — so the next step is always clear.",
@@ -462,6 +464,8 @@ const dictionaries = {
     demoTitle: "示範帳戶",
     demoFill: "使用此帳戶",
     loginErrorInvalid: "電郵或密碼不正確，請再試一次。",
+    loginErrorConfig:
+      "伺服器尚未完成登入設定。請設定 AUTH_SECRET，並用公開網址開啟（droplet IP 或網域），不要用 localhost。",
     loginSidebarTitle: "不只是分數，而是洞察。",
     loginSidebarDesc: "逐題評分、追蹤每個課題、比較每次考試 — 下一步永遠清晰。",
     // --- Dashboards ---

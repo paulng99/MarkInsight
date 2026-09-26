@@ -1,9 +1,11 @@
 "use server";
 
 import { signIn, signOut } from "@/auth";
+import { rememberPublicAuthOrigin } from "@/lib/auth/public-origin";
 import { homePathForRole } from "@/lib/rbac";
 import type { Role } from "@/lib/roles";
 import { AuthError } from "next-auth";
+import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 
 function roleFromDemoEmail(email: string): Role {
@@ -14,6 +16,7 @@ function roleFromDemoEmail(email: string): Role {
 }
 
 export async function loginAction(formData: FormData) {
+  rememberPublicAuthOrigin(await headers());
   const email = String(formData.get("email") ?? "");
   const password = String(formData.get("password") ?? "");
   const locale = String(formData.get("locale") ?? "zh-HK");
@@ -45,6 +48,7 @@ export async function loginAction(formData: FormData) {
 }
 
 export async function logoutAction(formData: FormData) {
+  rememberPublicAuthOrigin(await headers());
   const locale = String(formData.get("locale") ?? "zh-HK");
   await signOut({ redirectTo: `/?locale=${encodeURIComponent(locale)}` });
 }

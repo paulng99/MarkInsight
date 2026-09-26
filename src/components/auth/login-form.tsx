@@ -46,7 +46,11 @@ export function LoginForm({
   return (
     <div className="space-y-6">
       {error ? (
-        <Alert tone="error">{t.loginErrorInvalid}</Alert>
+        <Alert tone="error">
+          {error === "Configuration" || error === "MissingSecret" || error === "UntrustedHost"
+            ? t.loginErrorConfig
+            : t.loginErrorInvalid}
+        </Alert>
       ) : null}
 
       <form action={action} className="space-y-4">

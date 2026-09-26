@@ -64,6 +64,12 @@ The container drops a loopback `NEXTAUTH_URL` / `AUTH_URL` and trusts the reques
 
 Open TCP **3000** on the droplet firewall (and any DigitalOcean cloud firewall), then use `http://<droplet-ip>:3000`. After changing `.env`, recreate the web container: `docker compose up -d --force-recreate web`.
 
+`/api/auth/*` answers `{"message":"There was a problem with the server configuration..."}` when `AUTH_SECRET` / `NEXTAUTH_SECRET` is missing, or when Auth.js still targets `localhost`. Set `AUTH_SECRET` in `.env` (any long random string). If it is missing, the container saves a generated secret in the data volume. Rebuild so this image is what the droplet runs:
+
+```bash
+docker compose up --build -d --force-recreate
+```
+
 ```bash
 docker compose down       # keep volumes
 docker compose down -v    # wipe DB + upload volumes

@@ -1,6 +1,11 @@
 import NextAuth from "next-auth";
 import Credentials from "next-auth/providers/credentials";
-import { preferRequestHostForLoopbackAuthUrl } from "@/lib/auth/public-origin";
+import {
+  authCookiesAreSecure,
+  preferRequestHostForLoopbackAuthUrl,
+  readAuthSecret,
+  rememberPublicAuthOrigin,
+} from "@/lib/auth/public-origin";
 import type { Role } from "@/lib/roles";
 import { homePathForRole } from "@/lib/rbac";
 
@@ -36,55 +41,75 @@ declare module "@auth/core/jwt" {
   }
 }
 
-export const { handlers, auth, signIn, signOut } = NextAuth({
-  trustHost: true,
-  session: { strategy: "jwt" },
-  pages: {
-    signIn: "/login",
-  },
-  providers: [
-    Credentials({
-      name: "Credentials",
-      credentials: {
-        email: { label: "Email", type: "email" },
-        password: { label: "Password", type: "password" },
+export const { handlers, auth, signIn, signOut } = NextAuth((request) => {
+  preferRequestHostForLoopbackAuthUrl();
+  if (request) rememberPublicAuthOrigin(request.headers);
+  const secret = readAuthSecret();
+  if (!secret) {
+    console.error(
+      "[auth] AUTH_SECRET is missing. /api/auth responds with: There was a problem with the server configuration.",
+    );
+  }
+  return {
+    trustHost: true,
+    secret,
+    useSecureCookies: authCookiesAreSecure(),
+    session: { strategy: "jwt" },
+    logger: {
+      error(error) {
+        console.error("[auth]", error);
       },
-      async authorize(credentials) {
-        const email = credentials?.email?.toString() ?? "";
-        const password = credentials?.password?.toString() ?? "";
-        const { authorizeCredentials } = await import("@/lib/auth/credentials");
-        const match = await authorizeCredentials(email, password);
-        if (!match) return null;
-        return {
-          id: match.id,
-          email: match.email,
-          name: match.name ?? undefined,
-          role: match.role,
-          schoolId: match.schoolId,
-        };
+      warn(code) {
+        console.warn("[auth]", code);
       },
-    }),
-  ],
-  callbacks: {
-    async jwt({ token, user }) {
-      if (user) {
-        token.id = user.id!;
-        token.role = user.role;
-        token.schoolId = user.schoolId;
-      }
-      return token;
     },
-    async session({ session, token }) {
-      if (session.user) {
-        session.user.id = token.id;
-        session.user.role = token.role;
-        session.user.schoolId = token.schoolId;
-        if (token.email) session.user.email = token.email;
-        if (token.name !== undefined) session.user.name = token.name;
-      }
-      return session;
+    pages: {
+      signIn: "/login",
     },
-  },
+    providers: [
+      Credentials({
+        name: "Credentials",
+        credentials: {
+          email: { label: "Email", type: "email" },
+          password: { label: "Password", type: "password" },
+        },
+        async authorize(credentials) {
+          const email = credentials?.email?.toString() ?? "";
+          const password = credentials?.password?.toString() ?? "";
+          const { authorizeCredentials } = await import("@/lib/auth/credentials");
+          const match = await authorizeCredentials(email, password);
+          if (!match) return null;
+          return {
+            id: match.id,
+            email: match.email,
+            name: match.name ?? undefined,
+            role: match.role,
+            schoolId: match.schoolId,
+          };
+        },
+      }),
+    ],
+    callbacks: {
+      async jwt({ token, user }) {
+        if (user) {
+          token.id = user.id!;
+          token.role = user.role;
+          token.schoolId = user.schoolId;
+        }
+        return token;
+      },
+      async session({ session, token }) {
+        if (session.user) {
+          session.user.id = token.id;
+          session.user.role = token.role;
+          session.user.schoolId = token.schoolId;
+          if (token.email) session.user.email = token.email;
+          if (token.name !== undefined) session.user.name = token.name;
+        }
+        return session;
+      },
+    },
+  };
 });
 
 export { homePathForRole };
