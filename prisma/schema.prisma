@@ -172,6 +172,8 @@ model ClassSubject {
   name         String
   subjectCode  String
   gradeLevel   String?
+  /// Soft-archive: hidden from teacher/student workspaces until restored or deleted.
+  archivedAt   DateTime?
   createdAt    DateTime   @default(now())
   updatedAt    DateTime   @updatedAt
 
@@ -183,6 +185,7 @@ model ClassSubject {
   @@index([schoolId])
   @@index([schoolYearId])
   @@index([schoolId, subjectCode])
+  @@index([schoolId, archivedAt])
 }
 
 /// One syllabus per subject code, shared by every class of that subject.

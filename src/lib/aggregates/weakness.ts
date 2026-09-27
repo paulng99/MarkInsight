@@ -435,7 +435,12 @@ export async function listStudentClassSubjects(user: SessionUser) {
     throw new AppError("Forbidden", 403, "forbidden");
   }
   const enrollments = await prisma.enrollment.findMany({
-    where: { userId: user.id, schoolId, role: "STUDENT" },
+    where: {
+      userId: user.id,
+      schoolId,
+      role: "STUDENT",
+      classSubject: { archivedAt: null },
+    },
     include: {
       classSubject: {
         select: { id: true, name: true, subjectCode: true },

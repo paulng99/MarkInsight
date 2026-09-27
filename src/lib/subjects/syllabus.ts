@@ -33,6 +33,7 @@ async function teacherClasses(user: SessionUser, schoolId: string) {
   return prisma.classSubject.findMany({
     where: {
       schoolId,
+      archivedAt: null,
       enrollments: { some: { userId: user.id, schoolId, role: "TEACHER" } },
     },
     include: {
@@ -65,6 +66,7 @@ export async function assertTeacherTeachesSubject(
     where: {
       schoolId,
       subjectCode: code,
+      archivedAt: null,
       ...(user.role === "TEACHER"
         ? {
             enrollments: {
@@ -115,16 +117,21 @@ export async function createTeacherClassSubject(
   const existing = await prisma.classSubject.findFirst({
     where: { schoolId, schoolYearId: year.id, subjectCode, name: className },
   });
-  const row =
-    existing ??
-    (await prisma.classSubject.create({
-      data: {
-        schoolId,
-        schoolYearId: year.id,
-        subjectCode,
-        name: className,
-      },
-    }));
+  const row = existing
+    ? existing.archivedAt
+      ? await prisma.classSubject.update({
+          where: { id: existing.id },
+          data: { archivedAt: null },
+        })
+      : existing
+    : await prisma.classSubject.create({
+        data: {
+          schoolId,
+          schoolYearId: year.id,
+          subjectCode,
+          name: className,
+        },
+      });
 
   await prisma.enrollment.upsert({
     where: {
