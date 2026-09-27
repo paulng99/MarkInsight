@@ -42,6 +42,7 @@ type ExamDetail = {
     status: string;
     errorMessage: string | null;
   }>;
+  archived?: boolean;
 };
 
 function studentAnswerGroups(exam: ExamDetail) {
@@ -254,6 +255,7 @@ export function TeacherExamDetail({
 
   const step = !hasPaper ? 0 : !jobSucceeded ? 1 : 2;
   const nextStepCopy = [t.nextStepUploadPaper, t.nextStepAnalyse, t.nextStepDistribute][step];
+  const archived = exam.archived === true;
 
   return (
     <div className="space-y-8">
@@ -275,10 +277,12 @@ export function TeacherExamDetail({
         description={`${t.dateLabel}: ${exam.examDate}`}
         actions={
           <>
-            <Link href={`/teacher/exams/${examId}/upload?locale=${locale}`} className="btn btn-secondary">
-              <Icon.Upload size={16} />
-              {t.proxyUploadTitle}
-            </Link>
+            {archived ? null : (
+              <Link href={`/teacher/exams/${examId}/upload?locale=${locale}`} className="btn btn-secondary">
+                <Icon.Upload size={16} />
+                {t.proxyUploadTitle}
+              </Link>
+            )}
             <Link href={`/teacher/exams/${examId}/results?locale=${locale}`} className="btn btn-primary">
               <Icon.BarChart size={16} />
               {t.classResults}
@@ -286,6 +290,8 @@ export function TeacherExamDetail({
           </>
         }
       />
+
+      {archived ? <Alert tone="warn">{t.classArchivedBanner}</Alert> : null}
 
       <Stepper
         step={step}
@@ -345,16 +351,18 @@ export function TeacherExamDetail({
                     <Icon.Eye size={14} />
                     {t.previewFile}
                   </button>
-                  <button
-                    type="button"
-                    className="btn btn-ghost btn-sm"
-                    onClick={() =>
-                      setPendingDelete({ id: a.id, title: assetTitle(exam, a, t) })
-                    }
-                  >
-                    <Icon.X size={14} />
-                    {t.deleteAsset}
-                  </button>
+                  {archived ? null : (
+                    <button
+                      type="button"
+                      className="btn btn-ghost btn-sm"
+                      onClick={() =>
+                        setPendingDelete({ id: a.id, title: assetTitle(exam, a, t) })
+                      }
+                    >
+                      <Icon.X size={14} />
+                      {t.deleteAsset}
+                    </button>
+                  )}
                   <span className={`badge ${a.kind === "ANSWER_KEY" ? "badge-violet" : "badge-info"}`}>
                     {a.kind === "ANSWER_KEY" ? t.assetKindKey : t.assetKindPaper}
                   </span>
@@ -433,6 +441,7 @@ export function TeacherExamDetail({
             )}
           </div>
 
+          {archived ? null : (
           <form onSubmit={onUpload} className="space-y-3 border-t border-[var(--border)] pt-4">
             <div className="grid grid-cols-2 gap-2">
               {(["QUESTION_PAPER", "ANSWER_KEY"] as const).map((kind) => (
@@ -473,6 +482,7 @@ export function TeacherExamDetail({
                   : t.examUploadKey}
             </button>
           </form>
+          )}
         </section>
 
         {/* Analysis */}
@@ -483,19 +493,21 @@ export function TeacherExamDetail({
             description={jobSucceeded ? t.examAnalyzeReadyHint : t.examStructureEmpty}
             actions={latest ? <JobStatusBadge status={latest.status} t={t} pulse /> : undefined}
           />
-          <button
-            type="button"
-            onClick={startAnalyze}
-            disabled={pending || !hasPaper}
-            className="btn btn-accent w-full"
-          >
-            {pending ? <Icon.Loader size={16} /> : <Icon.Zap size={16} />}
-            {pending ? t.examAnalyzing : jobSucceeded ? t.examReanalyze : t.examAnalyze}
-          </button>
+          {archived ? null : (
+            <button
+              type="button"
+              onClick={startAnalyze}
+              disabled={pending || !hasPaper}
+              className="btn btn-accent w-full"
+            >
+              {pending ? <Icon.Loader size={16} /> : <Icon.Zap size={16} />}
+              {pending ? t.examAnalyzing : jobSucceeded ? t.examReanalyze : t.examAnalyze}
+            </button>
+          )}
           <JobProgressPanel
             jobId={jobId}
             t={t}
-            onRetry={() => void retryJob()}
+            onRetry={archived ? undefined : () => void retryJob()}
             successHint={t.examStructureReady}
             onSucceeded={onStructureSucceeded}
           />

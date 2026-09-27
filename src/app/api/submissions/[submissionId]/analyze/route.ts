@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { jsonError } from "@/lib/errors";
 import { requireSessionUser } from "@/lib/api/session";
 import { assertStudentOwnsSubmission } from "@/lib/exams/service";
+import { assertClassIsActive } from "@/lib/subjects/archive";
 import { enqueueAnalyzeSubmission } from "@/lib/jobs/analyze-exam";
 
 type Ctx = { params: Promise<{ submissionId: string }> };
@@ -12,6 +13,7 @@ export async function POST(_request: Request, context: Ctx) {
     const user = await requireSessionUser();
     const { submissionId } = await context.params;
     const submission = await assertStudentOwnsSubmission(user, submissionId);
+    assertClassIsActive(submission.exam.classSubject);
     const job = await enqueueAnalyzeSubmission({
       schoolId: submission.schoolId,
       examId: submission.examId,
