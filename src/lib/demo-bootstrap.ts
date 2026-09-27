@@ -9,6 +9,7 @@ import {
   DEMO_SCHOOL_ID,
   ensureSchoolBootstrap,
 } from "@/lib/school-settings";
+import { activeClassWhere } from "@/lib/subjects/archive";
 
 export const DEMO_TEACHER_ID = "demo_teacher";
 export const DEMO_STUDENT_ID = "demo_student";
@@ -99,6 +100,7 @@ export async function ensureDemoTeachingWorkspace(
   const classSubjects = await prisma.classSubject.findMany({
     where: {
       schoolId,
+      ...activeClassWhere,
       enrollments: {
         some: { userId: DEMO_TEACHER_ID, role: "TEACHER" },
       },
@@ -152,6 +154,7 @@ export async function ensureTeacherWorkspace(input: {
   const classSubjects = await prisma.classSubject.findMany({
     where: {
       schoolId: input.schoolId,
+      ...activeClassWhere,
       enrollments: {
         some: { userId: input.userId, role: "TEACHER" },
       },

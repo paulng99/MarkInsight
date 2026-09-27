@@ -70,6 +70,7 @@ model User {
   uploadedSyllabi   SubjectSyllabus[]  @relation("SyllabusUploadedBy")
   submissions       Submission[]       @relation("SubmissionStudent")
   analysisJobs      AnalysisJob[]      @relation("AnalysisJobCreatedBy")
+  subjectArchives   SubjectArchive[]
 
   @@index([schoolId])
   @@index([role])
@@ -95,6 +96,7 @@ model School {
   analysisJobs      AnalysisJob[]
   subjectSyllabi    SubjectSyllabus[]
   systemPrompts     SystemPrompt[]
+  subjectArchives   SubjectArchive[]
 }
 
 /// Admin-edited system prompts for this school's analysis jobs.
@@ -172,6 +174,10 @@ model ClassSubject {
   name         String
   subjectCode  String
   gradeLevel   String?
+  /// Set when this class was archived on its own. Restoring the class clears it.
+  classArchivedAt   DateTime?
+  /// Set on every class when its teacher archives the subject. Restoring the subject clears it.
+  subjectArchivedAt DateTime?
   createdAt    DateTime   @default(now())
   updatedAt    DateTime   @updatedAt
 
@@ -183,6 +189,22 @@ model ClassSubject {
   @@index([schoolId])
   @@index([schoolYearId])
   @@index([schoolId, subjectCode])
+}
+
+/// A teacher archived every class they teach for this subject code.
+/// Other teachers' classes with the same code stay active.
+model SubjectArchive {
+  id          String   @id @default(cuid())
+  schoolId    String
+  school      School   @relation(fields: [schoolId], references: [id], onDelete: Cascade)
+  teacherId   String
+  teacher     User     @relation(fields: [teacherId], references: [id], onDelete: Cascade)
+  subjectCode String
+  archivedAt  DateTime @default(now())
+
+  @@unique([schoolId, teacherId, subjectCode])
+  @@index([schoolId])
+  @@index([teacherId])
 }
 
 /// One syllabus per subject code, shared by every class of that subject.

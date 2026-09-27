@@ -7,6 +7,7 @@ import bcrypt from "bcryptjs";
 import { AppError } from "@/lib/errors";
 import { prisma } from "@/lib/prisma";
 import type { SessionUser } from "@/lib/rbac";
+import { assertClassIsActive } from "@/lib/subjects/archive";
 
 const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const MAX_BATCH = 100;
@@ -101,6 +102,13 @@ export async function addStudentsByEmail(
   raw: string,
 ): Promise<RosterAddResult[]> {
   const { schoolId } = await assertTeacherOwnsClass(user, classSubjectId);
+  const target = await prisma.classSubject.findFirst({
+    where: { id: classSubjectId, schoolId },
+  });
+  if (!target) {
+    throw new AppError("Class not found", 404, "class_not_found");
+  }
+  assertClassIsActive(target);
   const emails = parseEmailList(raw);
   if (emails.length === 0) {
     throw new AppError("Enter at least one email", 400, "emails_required");

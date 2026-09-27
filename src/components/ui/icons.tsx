@@ -276,6 +276,19 @@ export const Icon = {
       <path d="M13 2 3 14h9l-1 8 10-12h-9z" />
     </svg>
   ),
+  Archive: (p: IconProps) => (
+    <svg {...base(p)}>
+      <path d="M21 8v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8" />
+      <path d="M3 3h18v5H3z" />
+      <path d="M10 12h4" />
+    </svg>
+  ),
+  RotateCcw: (p: IconProps) => (
+    <svg {...base(p)}>
+      <path d="M3 12a9 9 0 1 0 3-6.7L3 8" />
+      <path d="M3 3v5h5" />
+    </svg>
+  ),
 };
 
 export type IconName = keyof typeof Icon;

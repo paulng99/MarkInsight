@@ -24,6 +24,7 @@ function navFor(role: Role, t: Dictionary): NavItem[] {
     case "TEACHER":
       return [
         { href: "/teacher", label: t.navDashboard, icon: <Icon.Home />, exact: true },
+        { href: "/teacher/archive", label: t.navArchive, icon: <Icon.Archive /> },
         { href: "/teacher/classes", label: t.navClasses, icon: <Icon.Users /> },
         { href: "/teacher/syllabus", label: t.syllabusTitle, icon: <Icon.BookOpen /> },
         { href: "/teacher/exams/new", label: t.examCreate, icon: <Icon.Plus /> },

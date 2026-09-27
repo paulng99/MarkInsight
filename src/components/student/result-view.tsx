@@ -20,6 +20,7 @@ type SubmissionDetail = {
     id: string;
     title: string;
     examDate: string;
+    archived?: boolean;
     classSubject: { id: string; name: string };
   };
   questionScores: Array<{
@@ -124,6 +125,7 @@ export function StudentResultView({
 
   const summary = summarize(detail.questionScores);
   const done = detail.status === "DONE";
+  const archived = detail.exam.archived === true;
 
   return (
     <div className="student-results mt-8 space-y-6">
@@ -144,18 +146,22 @@ export function StudentResultView({
           </div>
           <div className="flex flex-wrap items-center gap-2">
             <JobStatusBadge status={detail.status} t={t} pulse />
-            <Link
-              href={`/student/subjects/${detail.exam.classSubject.id}?locale=${locale}`}
-              className="btn btn-inverse btn-sm"
-            >
-              <Icon.TrendingUp size={14} />
-              {t.crossExamWeaknessNav}
-            </Link>
+            {archived ? null : (
+              <Link
+                href={`/student/subjects/${detail.exam.classSubject.id}?locale=${locale}`}
+                className="btn btn-inverse btn-sm"
+              >
+                <Icon.TrendingUp size={14} />
+                {t.crossExamWeaknessNav}
+              </Link>
+            )}
           </div>
         </div>
       </section>
 
-      {detail.status === "FAILED" ? (
+      {archived ? <Alert tone="warn">{t.classArchivedBanner}</Alert> : null}
+
+      {detail.status === "FAILED" && !archived ? (
         <Alert
           tone="error"
           action={

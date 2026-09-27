@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useState, useTransition } from "react";
+import { useEffect, useState, useTransition } from "react";
 import type { Dictionary, Locale } from "@/lib/i18n/dictionaries";
 import { JobProgressPanel } from "@/components/jobs/job-progress-panel";
 import { Alert } from "@/components/ui/feedback";
@@ -23,6 +23,24 @@ export function StudentUploadForm({
   const [submissionId, setSubmissionId] = useState<string | null>(null);
   const [fileReset, setFileReset] = useState(0);
   const [pending, startTransition] = useTransition();
+  const [archived, setArchived] = useState(false);
+  const [checked, setChecked] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      try {
+        const res = await fetch(`/api/exams/${examId}`);
+        const data = await res.json();
+        if (!cancelled && res.ok && data.exam?.archived) setArchived(true);
+      } finally {
+        if (!cancelled) setChecked(true);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [examId]);
 
   function onSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
@@ -68,6 +86,20 @@ export function StudentUploadForm({
 
   const steps = [t.stepUpload, t.stepAnalyse, t.stepReview];
   const current = submissionId ? 1 : 0;
+
+  if (!checked) return null;
+
+  if (archived) {
+    return (
+      <div className="mt-8 space-y-4">
+        <Alert tone="warn">{t.classArchivedBanner}</Alert>
+        <Link href={`/student?locale=${locale}`} className="btn btn-secondary">
+          <Icon.ArrowLeft size={16} />
+          {t.back}
+        </Link>
+      </div>
+    );
+  }
 
   return (
     <div className="mt-8 grid gap-6 lg:grid-cols-[minmax(0,1fr)_22rem]">

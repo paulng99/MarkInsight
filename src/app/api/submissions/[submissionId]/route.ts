@@ -3,6 +3,7 @@ import { jsonError } from "@/lib/errors";
 import { requireSessionUser } from "@/lib/api/session";
 import { assertStudentOwnsSubmission, formatDateYmd } from "@/lib/exams/service";
 import { prisma } from "@/lib/prisma";
+import { isClassInactive } from "@/lib/subjects/archive";
 
 type Ctx = { params: Promise<{ submissionId: string }> };
 
@@ -37,6 +38,7 @@ export async function GET(_request: Request, context: Ctx) {
             name: submission.exam.classSubject.name,
             subjectCode: submission.exam.classSubject.subjectCode,
           },
+          archived: isClassInactive(submission.exam.classSubject),
         },
         student: submission.student,
         questionScores: submission.questionScores.map((q) => ({

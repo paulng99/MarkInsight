@@ -26,6 +26,7 @@ export function ProxyUploadForm({
   examId: string;
 }) {
   const [allowed, setAllowed] = useState<boolean | null>(null);
+  const [archived, setArchived] = useState(false);
   const [students, setStudents] = useState<StudentRow[]>([]);
   const [studentId, setStudentId] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -40,6 +41,11 @@ export function ProxyUploadForm({
     const wsData = await ws.json();
     if (ws.ok) {
       setAllowed(Boolean(wsData.allowTeacherUploadOnBehalf));
+    }
+    const examRes = await fetch(`/api/exams/${examId}`);
+    const examData = await examRes.json();
+    if (examRes.ok && examData.exam?.archived) {
+      setArchived(true);
     }
     const res = await fetch(`/api/exams/${examId}/submissions`);
     const data = await res.json();
@@ -87,6 +93,18 @@ export function ProxyUploadForm({
 
   if (allowed === null) {
     return <LoadingBlock label={t.stateLoading} className="mt-8" />;
+  }
+
+  if (archived) {
+    return (
+      <div className="mt-8 space-y-4">
+        <Alert tone="warn">{t.classArchivedBanner}</Alert>
+        <Link href={`/teacher/exams/${examId}?locale=${locale}`} className="btn btn-secondary">
+          <Icon.ArrowLeft size={16} />
+          {t.examBack}
+        </Link>
+      </div>
+    );
   }
 
   if (!allowed) {

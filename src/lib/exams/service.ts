@@ -7,6 +7,7 @@ import { AppError } from "@/lib/errors";
 import { prisma } from "@/lib/prisma";
 import type { SessionUser } from "@/lib/rbac";
 import { deleteObject, putObject } from "@/lib/storage";
+import { activeClassWhere, assertClassIsActive } from "@/lib/subjects/archive";
 import {
   enqueueAnalyzeExam,
   enqueueAnalyzeSubmission,
@@ -112,6 +113,8 @@ export async function distributeExamToClasses(
     if (!target || target.subjectCode !== source.classSubject.subjectCode) {
       throw new AppError("只能分發到同一科目的班別", 400, "subject_mismatch");
     }
+    assertClassIsActive(source.classSubject);
+    assertClassIsActive(target);
     if (target.id === source.classSubjectId) continue;
 
     const existing = await prisma.exam.findFirst({
@@ -227,7 +230,11 @@ export async function listExamsForTeacher(user: SessionUser) {
   ).map((e) => e.classSubjectId);
 
   return prisma.exam.findMany({
-    where: { schoolId, classSubjectId: { in: classIds } },
+    where: {
+      schoolId,
+      classSubjectId: { in: classIds },
+      classSubject: activeClassWhere,
+    },
     include: {
       classSubject: { select: { id: true, name: true, subjectCode: true } },
       _count: { select: { submissions: true, assets: true } },
@@ -249,7 +256,11 @@ export async function listExamsForStudent(user: SessionUser) {
   });
   const classIds = enrollments.map((e) => e.classSubjectId);
   const exams = await prisma.exam.findMany({
-    where: { schoolId, classSubjectId: { in: classIds } },
+    where: {
+      schoolId,
+      classSubjectId: { in: classIds },
+      classSubject: activeClassWhere,
+    },
     include: {
       classSubject: { select: { id: true, name: true, subjectCode: true } },
       submissions: {
@@ -277,6 +288,13 @@ export async function createExam(
   input: { classSubjectId: string; title: string; examDate: string },
 ) {
   const { schoolId } = await assertTeacherOwnsClass(user, input.classSubjectId);
+  const target = await prisma.classSubject.findFirst({
+    where: { id: input.classSubjectId, schoolId },
+  });
+  if (!target) {
+    throw new AppError("Class not found", 404, "class_not_found");
+  }
+  assertClassIsActive(target);
   const title = input.title.trim();
   if (!title) {
     throw new AppError("Title is required", 400, "title_required");
@@ -304,6 +322,7 @@ export async function uploadExamAsset(
   },
 ) {
   const exam = await assertTeacherOwnsExam(user, examId);
+  assertClassIsActive(exam.classSubject);
   if (
     input.kind !== "QUESTION_PAPER" &&
     input.kind !== "ANSWER_KEY" &&
@@ -343,6 +362,7 @@ export async function startExamStructureAnalysis(
   examId: string,
 ) {
   const exam = await assertTeacherOwnsExam(user, examId);
+  assertClassIsActive(exam.classSubject);
   return enqueueAnalyzeExam({
     schoolId: exam.schoolId,
     examId,
@@ -392,6 +412,7 @@ export async function uploadSubmissionScript(input: {
   if (!exam) {
     throw new AppError("Exam not found", 404, "exam_not_found");
   }
+  assertClassIsActive(exam.classSubject);
 
   let studentId = actor.id;
   if (actor.role === "TEACHER") {
@@ -575,6 +596,7 @@ export async function deleteExamAsset(
     throw new AppError("Forbidden", 403, "forbidden");
   }
   const exam = await assertTeacherOwnsExam(user, examId);
+  assertClassIsActive(exam.classSubject);
   const asset = exam.assets.find((row) => row.id === assetId);
   if (!asset) {
     throw new AppError("File not found", 404, "file_not_found");
