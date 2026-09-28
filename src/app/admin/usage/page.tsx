@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import Link from "next/link";
 import { AppShell } from "@/components/ui/app-shell";
 import { Icon } from "@/components/ui/icons";
 import { PageHeader } from "@/components/ui/page-header";
@@ -11,7 +12,11 @@ import {
   formatTokenCount,
   formatUsd,
   getAnalysisUsagePage,
+  resolveUsageSchoolYear,
+  USAGE_RANGE_PRESETS,
+  usagePresetRange,
   type UsageJobRow,
+  type UsageRangePreset,
   type UsageRollup,
   type UsageSchoolNode,
 } from "@/lib/admin/analysis-usage";
@@ -35,6 +40,23 @@ function statusLabel(status: AnalysisJobStatus, t: Dictionary) {
       return t.jobStatusSucceeded;
     case "FAILED":
       return t.jobStatusFailed;
+  }
+}
+
+function rangePresetLabel(id: UsageRangePreset, t: Dictionary) {
+  switch (id) {
+    case "today":
+      return t.usageRangeToday;
+    case "yesterday":
+      return t.usageRangeYesterday;
+    case "last3":
+      return t.usageRangeLast3;
+    case "thisMonth":
+      return t.usageRangeThisMonth;
+    case "lastMonth":
+      return t.usageRangeLastMonth;
+    case "schoolYear":
+      return t.usageRangeSchoolYear;
   }
 }
 
@@ -91,12 +113,19 @@ export default async function AdminUsagePage({
   const locale = parseLocale(params.locale);
   const t = getDictionary(locale);
   const session = await requireRolePage("ADMIN", locale, "/admin/usage");
+  const schoolId = session.user.schoolId?.trim() || null;
+  const schoolYear = await resolveUsageSchoolYear(schoolId);
   const data = await getAnalysisUsagePage({
-    schoolId: session.user.schoolId?.trim() || null,
+    schoolId,
     from: params.from,
     to: params.to,
     kind: params.kind,
   });
+  const rangePresets = USAGE_RANGE_PRESETS.map((id) => ({
+    id,
+    label: rangePresetLabel(id, t),
+    ...usagePresetRange(id, new Date(), schoolYear),
+  }));
   const localeQuery = `locale=${locale}`;
 
   return (
@@ -110,7 +139,29 @@ export default async function AdminUsagePage({
         description={t.usageIntro}
       />
 
-      <form method="get" className="card card-pad mt-6 flex flex-wrap items-end gap-4">
+      <form key={`${data.from}-${data.to}-${data.kind}`} method="get" className="card card-pad mt-6">
+        <div className="flex flex-wrap gap-2" role="group" aria-label={t.usageRangePresets}>
+          {rangePresets.map((preset) => {
+            const active = preset.from === data.from && preset.to === data.to;
+            const query = new URLSearchParams({
+              locale,
+              from: preset.from,
+              to: preset.to,
+              kind: data.kind,
+            });
+            return (
+              <Link
+                key={preset.id}
+                href={`/admin/usage?${query.toString()}`}
+                className={`btn btn-sm ${active ? "btn-primary" : "btn-secondary"}`}
+                aria-current={active ? "true" : undefined}
+              >
+                {preset.label}
+              </Link>
+            );
+          })}
+        </div>
+        <div className="mt-4 flex flex-wrap items-end gap-4">
         <input type="hidden" name="locale" value={locale} />
         <div>
           <label className="label" htmlFor="usage-from">
@@ -137,6 +188,7 @@ export default async function AdminUsagePage({
         <button type="submit" className="btn btn-primary">
           {t.usageApply}
         </button>
+        </div>
       </form>
 
       <div className="mt-6 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
@@ -276,39 +328,58 @@ function SchoolBlock({
   t: Dictionary;
 }) {
   return (
-    <article className="border-t border-[var(--border)]">
-      <header className="flex flex-wrap items-center justify-between gap-3 bg-primary-50 px-5 py-3">
-        <div>
-          <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-primary-700">{t.usageSchool}</p>
-          <h3 className="text-base font-bold text-[var(--ink)]">{school.name}</h3>
-        </div>
+    <details className="group/school border-t border-[var(--border)]">
+      <summary className="flex cursor-pointer list-none flex-wrap items-center justify-between gap-3 bg-primary-50 px-5 py-3 [&::-webkit-details-marker]:hidden">
+        <span className="flex min-w-0 items-center gap-2">
+          <Icon.ChevronDown size={16} className="shrink-0 text-primary-700 transition-transform group-open/school:rotate-180" />
+          <span>
+            <span className="block text-[11px] font-semibold uppercase tracking-[0.12em] text-primary-700">{t.usageSchool}</span>
+            <span className="block text-base font-bold text-[var(--ink)]">{school.name}</span>
+          </span>
+        </span>
         <RollupFigures rollup={school} locale={locale} t={t} />
-      </header>
+      </summary>
       {school.teachers.map((teacher) => (
-        <div key={teacher.teacherId} className="border-t border-[var(--border)]">
-          <div
-            className="flex flex-wrap items-center justify-between gap-3 px-5 py-2.5 pl-8"
+        <details key={teacher.teacherId} className="group/teacher border-t border-[var(--border)]">
+          <summary
+            className="flex cursor-pointer list-none flex-wrap items-center justify-between gap-3 py-2.5 pr-5 pl-8 [&::-webkit-details-marker]:hidden"
             style={{ background: "var(--role-admin-soft)" }}
           >
-            <div>
-              <p className="text-[11px] font-semibold uppercase tracking-[0.12em]" style={{ color: "var(--role-admin)" }}>
-                {t.usageTeacher}
-              </p>
-              <p className="font-semibold text-[var(--ink)]">{joinNames(teacher.names, locale) ?? t.usageUnassigned}</p>
-            </div>
+            <span className="flex min-w-0 items-center gap-2">
+              <Icon.ChevronDown
+                size={16}
+                className="shrink-0 transition-transform group-open/teacher:rotate-180"
+                style={{ color: "var(--role-admin)" }}
+              />
+              <span>
+                <span className="block text-[11px] font-semibold uppercase tracking-[0.12em]" style={{ color: "var(--role-admin)" }}>
+                  {t.usageTeacher}
+                </span>
+                <span className="block font-semibold text-[var(--ink)]">
+                  {joinNames(teacher.names, locale) ?? t.usageUnassigned}
+                </span>
+              </span>
+            </span>
             <RollupFigures rollup={teacher} locale={locale} t={t} />
-          </div>
+          </summary>
           {teacher.classes.map((classGroup) => (
-            <div key={classGroup.classId} className="border-t border-[var(--border)]">
-              <div className="flex flex-wrap items-center justify-between gap-3 px-5 py-2.5 pl-12">
-                <div>
-                  <p className="text-[11px] font-semibold uppercase tracking-[0.12em]" style={{ color: "var(--teal-600)" }}>
-                    {t.classLabel}
-                  </p>
-                  <p className="font-medium text-[var(--ink)]">{classGroup.name ?? "—"}</p>
-                </div>
+            <details key={classGroup.classId} className="group/class border-t border-[var(--border)]">
+              <summary className="flex cursor-pointer list-none flex-wrap items-center justify-between gap-3 py-2.5 pr-5 pl-12 [&::-webkit-details-marker]:hidden">
+                <span className="flex min-w-0 items-center gap-2">
+                  <Icon.ChevronDown
+                    size={16}
+                    className="shrink-0 transition-transform group-open/class:rotate-180"
+                    style={{ color: "var(--teal-600)" }}
+                  />
+                  <span>
+                    <span className="block text-[11px] font-semibold uppercase tracking-[0.12em]" style={{ color: "var(--teal-600)" }}>
+                      {t.classLabel}
+                    </span>
+                    <span className="block font-medium text-[var(--ink)]">{classGroup.name ?? "—"}</span>
+                  </span>
+                </span>
                 <RollupFigures rollup={classGroup} locale={locale} t={t} />
-              </div>
+              </summary>
               <div className="overflow-x-auto">
                 <table className="w-full min-w-[36rem] text-left text-sm">
                   <thead className="text-xs uppercase tracking-wide text-[var(--muted)]">
@@ -341,11 +412,11 @@ function SchoolBlock({
                   </tbody>
                 </table>
               </div>
-            </div>
+            </details>
           ))}
-        </div>
+        </details>
       ))}
-    </article>
+    </details>
   );
 }
 

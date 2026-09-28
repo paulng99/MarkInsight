@@ -93,6 +93,88 @@ export function shiftYmd(ymd: string, days: number): string {
   return dt.toISOString().slice(0, 10);
 }
 
+export const USAGE_RANGE_PRESETS = [
+  "today",
+  "yesterday",
+  "last3",
+  "thisMonth",
+  "lastMonth",
+  "schoolYear",
+] as const;
+
+export type UsageRangePreset = (typeof USAGE_RANGE_PRESETS)[number];
+
+export type UsageDateRange = { from: string; to: string };
+
+function monthRange(today: string, monthOffset: number): UsageDateRange {
+  const match = YMD.exec(today);
+  if (!match) return { from: today, to: today };
+  const year = Number(match[1]);
+  const month = Number(match[2]) - 1 + monthOffset;
+  const start = new Date(Date.UTC(year, month, 1));
+  const end = new Date(Date.UTC(year, month + 1, 0));
+  return {
+    from: start.toISOString().slice(0, 10),
+    to: end.toISOString().slice(0, 10),
+  };
+}
+
+/** Sept 1 – Aug 31 academic year that contains this calendar date. */
+export function academicYearContaining(today: string): UsageDateRange {
+  const match = YMD.exec(today);
+  if (!match) return { from: today, to: today };
+  const year = Number(match[1]);
+  const month = Number(match[2]);
+  const startYear = month >= 9 ? year : year - 1;
+  return { from: `${startYear}-09-01`, to: `${startYear + 1}-08-31` };
+}
+
+export function usagePresetRange(
+  preset: UsageRangePreset,
+  now = new Date(),
+  schoolYear?: UsageDateRange | null,
+): UsageDateRange {
+  const today = hkTodayYmd(now);
+  switch (preset) {
+    case "today":
+      return { from: today, to: today };
+    case "yesterday": {
+      const day = shiftYmd(today, -1);
+      return { from: day, to: day };
+    }
+    case "last3":
+      return { from: shiftYmd(today, -2), to: today };
+    case "thisMonth":
+      return monthRange(today, 0);
+    case "lastMonth":
+      return monthRange(today, -1);
+    case "schoolYear":
+      return schoolYear ?? academicYearContaining(today);
+  }
+}
+
+export async function resolveUsageSchoolYear(schoolId: string | null): Promise<UsageDateRange> {
+  const today = hkTodayYmd();
+  if (schoolId) {
+    const years = await prisma.schoolYear.findMany({
+      where: { schoolId },
+      orderBy: { startsOn: "desc" },
+    });
+    const containing = years.find((year) => {
+      const startsOn = hkDateTimeParts(year.startsOn).date;
+      const endsOn = hkDateTimeParts(year.endsOn).date;
+      return startsOn <= today && endsOn >= today;
+    });
+    if (containing) {
+      return {
+        from: hkDateTimeParts(containing.startsOn).date,
+        to: hkDateTimeParts(containing.endsOn).date,
+      };
+    }
+  }
+  return academicYearContaining(today);
+}
+
 export function hkDateTimeParts(value: Date): { date: string; time: string } {
   const date = new Intl.DateTimeFormat("en-CA", {
     timeZone: "Asia/Hong_Kong",
