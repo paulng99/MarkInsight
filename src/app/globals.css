@@ -383,6 +383,11 @@ body {
   .textarea::placeholder {
     color: var(--faint);
   }
+  .input[type="search"]::-webkit-search-cancel-button,
+  .input[type="search"]::-webkit-search-decoration {
+    -webkit-appearance: none;
+    appearance: none;
+  }
   .input:hover,
   .select:hover,
   .textarea:hover {

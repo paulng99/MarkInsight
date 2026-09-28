@@ -163,25 +163,7 @@ export function SystemPromptsForm({
     }
   }
 
-  const selectOptions = useMemo(() => {
-    const base =
-      filteredModels.length > 0
-        ? filteredModels
-        : modelChoices.filter((m) => m.id === analysisLlmModel);
-    if (analysisLlmModel && !base.some((m) => m.id === analysisLlmModel)) {
-      const current = modelChoices.find((m) => m.id === analysisLlmModel);
-      return [
-        current ?? {
-          id: analysisLlmModel,
-          name: analysisLlmModel,
-          supportsFile: true,
-          supportsImage: true,
-        },
-        ...base,
-      ];
-    }
-    return base;
-  }, [filteredModels, modelChoices, analysisLlmModel]);
+  const selectedModel = modelChoices.find((m) => m.id === analysisLlmModel);
 
   return (
     <form onSubmit={onSave} className="mt-8 space-y-6">
@@ -209,33 +191,77 @@ export function SystemPromptsForm({
           <label className="label" htmlFor="model-search">
             {t.settingsFieldModelSearch}
           </label>
-          <input
-            id="model-search"
-            type="search"
-            value={modelQuery}
-            onChange={(e) => setModelQuery(e.target.value)}
-            placeholder={t.settingsFieldModelSearchPlaceholder}
-            className="input"
-            disabled={saving || improvingKey !== null}
-          />
+          <div className="relative">
+            <span className="pointer-events-none absolute top-1/2 left-3 -translate-y-1/2 text-[var(--muted)]">
+              <Icon.Search size={16} />
+            </span>
+            <input
+              id="model-search"
+              type="search"
+              value={modelQuery}
+              onChange={(e) => setModelQuery(e.target.value)}
+              placeholder={t.settingsFieldModelSearchPlaceholder}
+              className="input pr-10 pl-10"
+              autoComplete="off"
+              disabled={saving || improvingKey !== null}
+              aria-controls="analysis-model"
+            />
+            {modelQuery ? (
+              <button
+                type="button"
+                className="absolute top-1/2 right-2 -translate-y-1/2 rounded-md p-1 text-[var(--muted)] hover:bg-[var(--surface-muted)] hover:text-[var(--ink)]"
+                aria-label={t.settingsFieldModelSearch}
+                onClick={() => setModelQuery("")}
+              >
+                <Icon.X size={14} />
+              </button>
+            ) : null}
+          </div>
+
+          {selectedModel && !filteredModels.some((m) => m.id === analysisLlmModel) ? (
+            <p className="text-xs leading-relaxed text-[var(--ink-secondary)]">
+              <span className="font-semibold text-[var(--color-primary)]">
+                {t.settingsFieldModelSelected}
+              </span>
+              {" · "}
+              {selectedModel.name === selectedModel.id
+                ? selectedModel.id
+                : `${selectedModel.name} (${selectedModel.id})`}
+            </p>
+          ) : null}
+
           <label className="label" htmlFor="analysis-model">
             {t.settingsFieldModel}
           </label>
           <select
             id="analysis-model"
-            required
-            value={analysisLlmModel}
-            onChange={(e) => setAnalysisLlmModel(e.target.value)}
+            value={
+              filteredModels.some((m) => m.id === analysisLlmModel)
+                ? analysisLlmModel
+                : ""
+            }
+            onChange={(e) => {
+              if (e.target.value) setAnalysisLlmModel(e.target.value);
+            }}
             className="select font-mono text-sm"
-            disabled={saving || improvingKey !== null || selectOptions.length === 0}
+            disabled={saving || improvingKey !== null || filteredModels.length === 0}
           >
-            {selectOptions.map((model) => (
-              <option key={model.id} value={model.id}>
-                {model.name === model.id
-                  ? model.id
-                  : `${model.name} (${model.id})`}
-              </option>
-            ))}
+            {filteredModels.length === 0 ? (
+              <option value="">{t.settingsFieldModelEmpty}</option>
+            ) : (
+              <>
+                {!filteredModels.some((m) => m.id === analysisLlmModel) ? (
+                  <option value="">{t.settingsFieldModelPlaceholder}</option>
+                ) : null}
+                {filteredModels.map((model) => (
+                  <option key={model.id} value={model.id}>
+                    {model.name === model.id
+                      ? model.id
+                      : `${model.name} (${model.id})`}
+                  </option>
+                ))}
+              </>
+            )}
           </select>
           <p className="text-xs leading-relaxed text-[var(--muted)]">
             {modelQuery.trim()

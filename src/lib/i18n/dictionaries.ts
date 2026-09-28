@@ -179,9 +179,12 @@ const dictionaries = {
     settingsFieldModelHelp:
       "Choose a multimodal analysis model from the live catalog. Changing the model affects new analysis jobs only; past results keep their stored model id.",
     settingsFieldModelSearch: "Search models",
-    settingsFieldModelSearchPlaceholder: "Filter by name or id…",
+    settingsFieldModelSearchPlaceholder: "Type a name or id, then pick a model…",
     settingsFieldModelCount: "{count} models available",
     settingsFieldModelFilteredCount: "Showing {filtered} of {count} models",
+    settingsFieldModelEmpty: "No matching models. Try another name or id.",
+    settingsFieldModelSelected: "Selected",
+    settingsFieldModelPlaceholder: "Select a model",
     settingsFieldTeacherStudents: "Allow teachers to create student accounts",
     settingsFieldTeacherUpload: "Allow teachers to upload on behalf of students",
     settingsTeachersIntro:
@@ -596,9 +599,12 @@ const dictionaries = {
     settingsFieldModelHelp:
       "從即時模型目錄選擇支援多模態分析的模型。更改模型只影響新分析工作；過往結果保留已儲存的模型 id。",
     settingsFieldModelSearch: "搜尋模型",
-    settingsFieldModelSearchPlaceholder: "以名稱或 id 篩選…",
+    settingsFieldModelSearchPlaceholder: "輸入名稱或 id，再點選模型…",
     settingsFieldModelCount: "共 {count} 個可用模型",
     settingsFieldModelFilteredCount: "顯示 {filtered} / {count} 個模型",
+    settingsFieldModelEmpty: "沒有相符的模型。請改用其他名稱或 id。",
+    settingsFieldModelSelected: "已選",
+    settingsFieldModelPlaceholder: "選擇模型",
     settingsFieldTeacherStudents: "允許教師建立學生帳戶",
     settingsFieldTeacherUpload: "允許教師代學生上載呈交",
     settingsTeachersIntro:
