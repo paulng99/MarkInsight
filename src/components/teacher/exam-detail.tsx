@@ -775,7 +775,6 @@ function QuestionStructureList({
           activeKey === group.questionKey ||
           group.parts.some((part) => part.questionKey === activeKey);
         const single = group.parts.length <= 1 && !group.parts[0]?.partKey;
-        const lead = single ? group.parts[0]?.prompt || group.stem : group.stem;
         return (
           <li
             key={group.questionKey}
@@ -794,11 +793,7 @@ function QuestionStructureList({
                 <span className="font-semibold text-[var(--ink)]">{group.maxScore}</span>
               </p>
             </div>
-        {lead ? (
-              <p className="mt-3 whitespace-pre-wrap text-sm leading-relaxed text-[var(--ink)]">{lead}</p>
-            ) : single ? (
-              <p className="mt-3 text-sm text-[var(--muted)]">{t.examStructurePromptMissing}</p>
-            ) : null}
+            {single ? <TeachingBlock content={group.parts[0]?.teachingContent} t={t} /> : null}
             <div className="mt-2 flex flex-wrap gap-1.5">
               <span className="chip chip--hue" style={{ ["--chip-hue" as string]: 222 + (index % 5) * 28 }}>
                 {t.topicChip}: {group.topic}
@@ -832,11 +827,7 @@ function QuestionStructureList({
                         {t.examStructureMaxScore} {part.maxScore}
                       </span>
                     </p>
-                    {part.prompt && part.prompt !== group.stem ? (
-                      <p className="mt-1.5 whitespace-pre-wrap text-sm leading-relaxed text-[var(--ink)]">
-                        {part.prompt}
-                      </p>
-                    ) : null}
+                    <TeachingBlock content={part.teachingContent} t={t} />
                     <div className="mt-2 flex flex-wrap gap-1.5">
                       {part.itemType.trim() ? (
                         <span className="chip">{t.itemTypeChip}: {part.itemType}</span>
@@ -858,6 +849,23 @@ function QuestionStructureList({
         );
       })}
     </ul>
+  );
+}
+
+function TeachingBlock({
+  content,
+  t,
+}: {
+  content?: string;
+  t: Dictionary;
+}) {
+  return (
+    <div className="mt-2">
+      <p className="text-xs font-semibold text-primary-700">{t.examStructureTeaching}</p>
+      <p className="mt-1 whitespace-pre-wrap text-sm leading-relaxed text-[var(--ink)]">
+        {content?.trim() || "—"}
+      </p>
+    </div>
   );
 }
 

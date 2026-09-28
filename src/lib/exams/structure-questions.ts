@@ -15,6 +15,8 @@ export type FlatStructureQuestion = {
   maxScore: number;
   assessmentObjective: string;
   difficultyPoints: string;
+  /** Syllabus learning content for this part, not the exam wording. */
+  teachingContent: string;
 };
 
 export type StructurePartView = {
@@ -26,6 +28,7 @@ export type StructurePartView = {
   questionCategory: string;
   assessmentObjective: string;
   difficultyPoints: string;
+  teachingContent: string;
 };
 
 export type StructureQuestionGroup = {
@@ -123,6 +126,7 @@ export function flattenRawQuestion(raw: Record<string, unknown>): FlatStructureQ
         maxScore: marks(raw.maxScore, 1),
         assessmentObjective,
         difficultyPoints,
+        teachingContent: textOf(raw.teachingContent),
       },
     ];
   }
@@ -150,6 +154,7 @@ export function flattenRawQuestion(raw: Record<string, unknown>): FlatStructureQ
         difficultyPoints:
           textOf(record.difficultyPoints || record.difficulty || record.hardPoints) ||
           difficultyPoints,
+        teachingContent: textOf(record.teachingContent) || textOf(raw.teachingContent),
       },
     ];
   });
@@ -193,6 +198,7 @@ export function groupStructureQuestions(rows: FlatStructureQuestion[]): Structur
       questionCategory: item.questionCategory,
       assessmentObjective: item.assessmentObjective,
       difficultyPoints: item.difficultyPoints,
+      teachingContent: item.teachingContent,
     }));
     const sum = parts.reduce((total, part) => total + (part.maxScore || 0), 0);
     return {
@@ -238,23 +244,59 @@ function partSpecificity(partKey: string): number {
 
 const SYLLABUS_SIGNAL =
   /assessment objective|kinds of items|multiple-choice|multiple choice|structured question|short question|essay|curriculum structure|compulsory part|learning outcome|題型|評估目標|課題/gi;
+const LEARN_SIGNAL = /students should learn|should be able to|學生應學習|學生應能/i;
 
-/** Keep syllabus pages that name item types and assessment categories. */
-export function selectSyllabusText(pages: string[], maxChars = 20_000): string {
+function tidyTeachingContent(text: string): string {
+  const seen = new Set<string>();
+  const lines: string[] = [];
+  for (const line of text.split("\n")) {
+    const trimmed = line.trim();
+    if (!trimmed) continue;
+    const key = trimmed.replace(/^[-•*]\s*/, "");
+    if (seen.has(key)) continue;
+    seen.add(key);
+    lines.push(trimmed);
+  }
+  return lines.join("\n");
+}
+
+function hintScore(text: string, hints: string[]): number {
+  const lower = text.toLowerCase();
+  let score = 0;
+  for (const hint of hints) {
+    for (const word of hint.toLowerCase().split(/[^a-z0-9\u4e00-\u9fff]+/)) {
+      if (word.length > 3 && lower.includes(word)) score += 1;
+    }
+  }
+  return score;
+}
+
+/** Keep assessment pages and the syllabus pages that state what students should learn. */
+export function selectSyllabusText(
+  pages: string[],
+  maxChars = 36_000,
+  hints: string[] = [],
+): string {
   const scored = pages
     .map((text, index) => ({
       index,
       text: text.replace(/\s+/g, " ").trim(),
       score: text.match(SYLLABUS_SIGNAL)?.length ?? 0,
+      learn: LEARN_SIGNAL.test(text),
+      hint: hintScore(text, hints),
     }))
     .filter((page) => page.text.length > 40);
-  const picked = scored.some((page) => page.score > 0)
-    ? scored.filter((page) => page.score > 0)
-    : scored.slice(0, 8);
+  const assessment = scored.filter((page) => page.score > 0);
+  const learn = scored
+    .filter((page) => page.learn && (hints.length === 0 || page.hint > 0))
+    .sort((a, b) => b.hint - a.hint || a.index - b.index);
+  const picked = [...learn, ...assessment.filter((page) => !learn.includes(page))];
+  const chosen = picked.length > 0 ? picked : scored.slice(0, 8);
+  const ordered = [...chosen].sort((a, b) => a.index - b.index);
   let excerpt = "";
-  for (const page of picked) {
+  for (const page of ordered) {
     const block = `\n\n[syllabus page ${page.index + 1}]\n${page.text}`;
-    if (excerpt.length + block.length > maxChars) break;
+    if (excerpt.length + block.length > maxChars) continue;
     excerpt += block;
   }
   return excerpt.trim();
@@ -268,6 +310,7 @@ export function applySyllabusLabels(
     itemType?: string;
     questionCategory?: string;
     topic?: string;
+    teachingContent?: string;
   }>,
 ): FlatStructureQuestion[] {
   const byKey = new Map<string, (typeof labels)[number]>();
@@ -285,6 +328,7 @@ export function applySyllabusLabels(
       itemType: textOf(label.itemType) || row.itemType,
       questionCategory: textOf(label.questionCategory) || row.questionCategory,
       topic: textOf(label.topic) || row.topic,
+      teachingContent: tidyTeachingContent(textOf(label.teachingContent)) || row.teachingContent,
     };
   });
 }
@@ -503,5 +547,6 @@ export function coerceFlatQuestion(value: Partial<FlatStructureQuestion>): FlatS
     maxScore: marks(value.maxScore, 1),
     assessmentObjective: textOf(value.assessmentObjective),
     difficultyPoints: textOf(value.difficultyPoints),
+    teachingContent: textOf(value.teachingContent),
   };
 }

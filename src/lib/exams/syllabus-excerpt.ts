@@ -5,6 +5,7 @@ const MAX_CHARS = 20_000;
 
 export async function readSyllabusExcerpt(
   refs: Array<{ kind: string; storageKey: string; mimeType?: string | null }>,
+  hints: string[] = [],
 ): Promise<string> {
   const syllabus = refs.find((ref) => ref.kind === "SYLLABUS");
   if (!syllabus) return "";
@@ -33,5 +34,5 @@ export async function readSyllabusExcerpt(
     const content = await page.getTextContent();
     pages.push(content.items.map((item) => ("str" in item ? item.str : "")).join(" "));
   }
-  return selectSyllabusText(pages);
+  return selectSyllabusText(pages, 36_000, hints);
 }

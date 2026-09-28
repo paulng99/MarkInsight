@@ -738,13 +738,15 @@ export class OpenRouterLlmClient implements LlmClient {
       total: parents.size,
       questionKey: null,
       partKeys: [],
-      note: "正在對照已上載的教學大綱，標示題型同題目種類。",
+      note: "正在對照已上載的教學大綱，寫出教學內容、題型同題目種類。",
       commit: false,
     });
 
     let excerpt = "";
     try {
-      excerpt = await readSyllabusExcerpt(input.assetRefs);
+      excerpt = await readSyllabusExcerpt(input.assetRefs, [
+        ...new Set(questions.map((row) => row.topic).filter((topic) => topic && topic !== "—")),
+      ]);
     } catch (error) {
       console.error(
         "[llm] syllabus read failed",
@@ -762,14 +764,14 @@ export class OpenRouterLlmClient implements LlmClient {
     const request: LlmChatRequest = {
       model: llmModel,
       temperature: 0.1,
-      maxTokens: 8192,
+      maxTokens: 12000,
       responseFormat: "json_object",
       messages: [
         {
           role: "system",
           content:
             "You classify exam parts against an uploaded syllabus. Reply with JSON only: " +
-            '{"questions":[{"questionKey":"1(a)","itemType":"string","questionCategory":"string","topic":"string"}]}',
+            '{"questions":[{"questionKey":"1(a)","itemType":"string","questionCategory":"string","topic":"string","teachingContent":"string"}]}',
         },
         {
           role: "user",
@@ -790,6 +792,8 @@ export class OpenRouterLlmClient implements LlmClient {
                 "An explanation of a phenomenon maps to applying knowledge to explain. Stating a fact maps to recall and understanding. " +
                 "Do not use a curriculum heading such as Skills and Processes or Values and Attitudes as the category.\n" +
                 "topic is the syllabus topic name for this part.\n" +
+                "teachingContent is 教學內容. From Students should learn / Students should be able to, write the curriculum points this part assesses, in Traditional Chinese (Hong Kong). " +
+                "State what students are taught. Do not copy or paraphrase the exam question.\n" +
                 "Return one object for every questionKey.\n\n" +
                 `Syllabus excerpt:\n${excerpt}\n\nParts:\n${JSON.stringify(brief)}`,
             },
@@ -815,6 +819,7 @@ export class OpenRouterLlmClient implements LlmClient {
       itemType?: string;
       questionCategory?: string;
       topic?: string;
+      teachingContent?: string;
     }> = [];
     try {
       const parsed = extractJsonObject(content) as {
@@ -830,7 +835,8 @@ export class OpenRouterLlmClient implements LlmClient {
       if (
         next[i]?.itemType !== questions[i]?.itemType ||
         next[i]?.questionCategory !== questions[i]?.questionCategory ||
-        next[i]?.topic !== questions[i]?.topic
+        next[i]?.topic !== questions[i]?.topic ||
+        next[i]?.teachingContent !== questions[i]?.teachingContent
       ) {
         changed.add(next[i].parentKey);
       }
@@ -845,7 +851,7 @@ export class OpenRouterLlmClient implements LlmClient {
         total: changed.size,
         questionKey: parent,
         partKeys: rows.map((row) => row.partKey).filter(Boolean),
-        note: "已按教學大綱更新題型與題目種類。",
+        note: "已按教學大綱寫出教學內容、題型與題目種類。",
         commit: true,
         replaceParentKeys: [parent],
         questions: rows,

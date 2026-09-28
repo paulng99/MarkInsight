@@ -94,12 +94,32 @@ test("applies syllabus labels without changing the question wording", () => {
     parts: [{ partKey: "a", prompt: "估算功率", maxScore: 3 }],
   });
   const next = applySyllabusLabels(rows, [
-    { questionKey: "1(a)", itemType: "結構題", questionCategory: "應用知識解釋現象及解題", topic: "Heat and Gases" },
+    {
+      questionKey: "1(a)",
+      itemType: "結構題",
+      questionCategory: "應用知識解釋現象及解題",
+      topic: "Heat and Gases",
+      teachingContent: "理解熱、內能與比熱容，並用 Q = mcΔT 處理傳熱。",
+    },
   ]);
   assert.equal(next[0].prompt, "估算功率");
   assert.equal(next[0].itemType, "結構題");
   assert.equal(next[0].questionCategory, "應用知識解釋現象及解題");
   assert.equal(next[0].topic, "Heat and Gases");
+  assert.match(next[0].teachingContent, /比熱容/);
+});
+
+test("keeps the learning-content pages for the question topic", () => {
+  const excerpt = selectSyllabusText(
+    [
+      "Students should learn ideal gas and the kinetic theory of gases.",
+      "Students should learn image formation by lenses.",
+    ],
+    5_000,
+    ["Heat and Gases"],
+  );
+  assert.match(excerpt, /kinetic theory/);
+  assert.doesNotMatch(excerpt, /lenses/);
 });
 
 test("keeps syllabus pages that name item types", () => {
