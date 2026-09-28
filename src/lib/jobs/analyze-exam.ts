@@ -14,7 +14,8 @@ import { refreshSubjectAggregates } from "@/lib/aggregates/weakness";
 import { coerceFlatQuestion, type FlatStructureQuestion } from "@/lib/exams/structure-questions";
 import { AppError, ANALYSIS_FAILED_GENERIC, sanitizeVendorLeak } from "@/lib/errors";
 import { createLlmClient } from "@/lib/llm";
-import type { StructureProgressUpdate } from "@/lib/llm/types";
+import type { LlmClient, LlmUsageTotals, StructureProgressUpdate } from "@/lib/llm/types";
+import { sumUsage } from "@/lib/llm/usage";
 import { resolveSystemPrompt } from "@/lib/llm/system-prompts";
 import { saveJobProgress } from "@/lib/jobs/job-progress";
 import { emptyAnalysisProgress, type AnalysisProgress } from "@/lib/jobs/progress-types";
@@ -209,6 +210,25 @@ export async function processJob(jobId: string): Promise<void> {
   }
 }
 
+async function persistAnalysisUsage(jobId: string, usage: LlmUsageTotals) {
+  if (usage.callCount === 0 && usage.costUsd == null) return;
+  try {
+    await prisma.analysisJob.update({
+      where: { id: jobId },
+      data: {
+        promptTokens: usage.promptTokens,
+        completionTokens: usage.completionTokens,
+        totalTokens: usage.totalTokens,
+        costUsd: usage.costUsd == null ? null : usage.costUsd.toFixed(8),
+        costComplete: usage.costComplete,
+        llmCallCount: usage.callCount,
+      },
+    });
+  } catch (error) {
+    console.error("[usage] persist failed", jobId, error);
+  }
+}
+
 async function failJob(jobId: string, message: string) {
   const safe = sanitizeVendorLeak(message || ANALYSIS_FAILED_GENERIC);
   const job = await prisma.analysisJob.update({
@@ -263,6 +283,7 @@ async function runExamStructure(
   await publish(progress);
   let progressChain = Promise.resolve();
 
+  try {
   const result = await llm.analyzeExamStructure({
     schoolId,
     examId,
@@ -317,6 +338,9 @@ async function runExamStructure(
       errorMessage: null,
     },
   });
+  } finally {
+    await persistAnalysisUsage(jobId, llm.snapshotUsage());
+  }
 }
 
 async function runSubmissionScoring(
@@ -353,6 +377,8 @@ async function runSubmissionScoring(
     throw new AppError("請檢查檔案", 400, "missing_script");
   }
 
+  const clients: LlmClient[] = [];
+  try {
   let questions = await getExamStructureQuestions(examId);
   if (!questions || questions.length === 0) {
     // Rebuild from a prior successful structure job is not stored — use demo structure
@@ -381,6 +407,7 @@ async function runSubmissionScoring(
       ? await getSubjectSyllabus(schoolId, examWithSubject.classSubject.subjectCode)
       : null;
     const llmRecover = createLlmClient();
+    clients.push(llmRecover);
     const structurePrompt = await resolveSystemPrompt(schoolId, "exam_structure");
     const recovered = await llmRecover.analyzeExamStructure({
       schoolId,
@@ -409,6 +436,7 @@ async function runSubmissionScoring(
   }
 
   const llm = createLlmClient();
+  clients.push(llm);
   const scoringPrompt = await resolveSystemPrompt(schoolId, "submission_scoring");
   const result = await llm.scoreSubmission({
     schoolId,
@@ -463,6 +491,9 @@ async function runSubmissionScoring(
   });
 
   await refreshSubjectAggregates(schoolId, examId, submission.enrollmentId);
+  } finally {
+    await persistAnalysisUsage(jobId, sumUsage(clients.map((client) => client.snapshotUsage())));
+  }
 }
 
 /** In-memory + DB-backed structure cache (survives via ExamStructureBlob table avoidance). */

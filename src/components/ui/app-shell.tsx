@@ -36,6 +36,7 @@ function navFor(role: Role, t: Dictionary): NavItem[] {
     default:
       return [
         { href: "/admin", label: t.navOverview, icon: <Icon.Home />, exact: true },
+        { href: "/admin/usage", label: t.usageNav, icon: <Icon.BarChart /> },
         { href: "/admin/prompts", label: t.settingsSectionPrompts, icon: <Icon.Sparkles /> },
         { href: "/admin/settings", label: t.settingsTitle, icon: <Icon.Settings /> },
       ];

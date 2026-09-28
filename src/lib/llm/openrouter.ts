@@ -19,11 +19,13 @@ import type {
   LlmChatResponse,
   LlmClient,
   LlmContentPart,
+  LlmUsageTotals,
   ScoreSubmissionInput,
   ScoreSubmissionResult,
   StructureProgressUpdate,
 } from "@/lib/llm/types";
 import { parseOpenRouterModelAllowlist } from "@/lib/config/openrouter-model-allowlist";
+import { addUsage, emptyUsage, parseProviderUsage, type ProviderUsage } from "@/lib/llm/usage";
 import {
   ANALYSIS_BUSY,
   ANALYSIS_FAILED_GENERIC,
@@ -140,7 +142,19 @@ function extractJsonObject(text: string): unknown {
 }
 
 export class OpenRouterLlmClient implements LlmClient {
+  private usageLedger: LlmUsageTotals = emptyUsage();
+
   constructor(private readonly config: OpenRouterClientConfig) {}
+
+  snapshotUsage(): LlmUsageTotals {
+    return { ...this.usageLedger };
+  }
+
+  private recordUsage(usage: ProviderUsage | undefined | null) {
+    const parsed = parseProviderUsage(usage);
+    if (!parsed) return;
+    this.usageLedger = addUsage(this.usageLedger, parsed);
+  }
 
   async chat(request: LlmChatRequest): Promise<LlmChatResponse> {
     if (!this.config.apiKey) {
@@ -192,11 +206,10 @@ export class OpenRouterLlmClient implements LlmClient {
     const data = (await response.json()) as {
       model?: string;
       choices?: Array<{ message?: { content?: string | null } }>;
-      usage?: {
-        prompt_tokens?: number;
-        completion_tokens?: number;
-      };
+      usage?: ProviderUsage;
     };
+
+    this.recordUsage(data.usage);
 
     const content = data.choices?.[0]?.message?.content ?? "";
     if (!content) {
@@ -214,6 +227,8 @@ export class OpenRouterLlmClient implements LlmClient {
       usage: {
         promptTokens: data.usage?.prompt_tokens,
         completionTokens: data.usage?.completion_tokens,
+        totalTokens: data.usage?.total_tokens,
+        costUsd: parseProviderUsage(data.usage)?.costUsd ?? null,
       },
     };
   }
@@ -239,6 +254,7 @@ export class OpenRouterLlmClient implements LlmClient {
       messages: request.messages,
       temperature: request.temperature ?? 0.2,
       stream: true,
+      stream_options: { include_usage: true },
       ...(request.maxTokens ? { max_tokens: request.maxTokens } : {}),
       ...(request.responseFormat === "json_object"
         ? { response_format: { type: "json_object" } }
@@ -269,43 +285,50 @@ export class OpenRouterLlmClient implements LlmClient {
     const reader = response.body.getReader();
     const decoder = new TextDecoder();
     let carry = "";
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      carry += decoder.decode(value, { stream: true });
-      const lines = carry.split("\n");
-      carry = lines.pop() ?? "";
-      for (const line of lines) {
-        const trimmed = line.trim();
-        if (!trimmed.startsWith("data:")) continue;
-        const data = trimmed.slice(5).trim();
-        if (!data || data === "[DONE]") continue;
-        let parsed: {
-          choices?: Array<{
-            finish_reason?: string | null;
-            delta?: {
-              content?: string | null;
-              reasoning?: string | null;
-              reasoning_content?: string | null;
-            };
-          }>;
-        };
-        try {
-          parsed = JSON.parse(data) as typeof parsed;
-        } catch {
-          continue;
+    let streamUsage: ProviderUsage | null = null;
+    try {
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        carry += decoder.decode(value, { stream: true });
+        const lines = carry.split("\n");
+        carry = lines.pop() ?? "";
+        for (const line of lines) {
+          const trimmed = line.trim();
+          if (!trimmed.startsWith("data:")) continue;
+          const data = trimmed.slice(5).trim();
+          if (!data || data === "[DONE]") continue;
+          let parsed: {
+            usage?: ProviderUsage;
+            choices?: Array<{
+              finish_reason?: string | null;
+              delta?: {
+                content?: string | null;
+                reasoning?: string | null;
+                reasoning_content?: string | null;
+              };
+            }>;
+          };
+          try {
+            parsed = JSON.parse(data) as typeof parsed;
+          } catch {
+            continue;
+          }
+          if (parsed.usage) streamUsage = parsed.usage;
+          const choice = parsed.choices?.[0];
+          const delta = choice?.delta;
+          const reasoning = delta?.reasoning || delta?.reasoning_content;
+          if (typeof reasoning === "string" && reasoning.trim()) {
+            yield { reasoning: reasoning.trim() };
+          }
+          if (typeof delta?.content === "string" && delta.content) {
+            yield { text: delta.content };
+          }
+          if (choice?.finish_reason) yield { finishReason: choice.finish_reason };
         }
-        const choice = parsed.choices?.[0];
-        const delta = choice?.delta;
-        const reasoning = delta?.reasoning || delta?.reasoning_content;
-        if (typeof reasoning === "string" && reasoning.trim()) {
-          yield { reasoning: reasoning.trim() };
-        }
-        if (typeof delta?.content === "string" && delta.content) {
-          yield { text: delta.content };
-        }
-        if (choice?.finish_reason) yield { finishReason: choice.finish_reason };
       }
+    } finally {
+      this.recordUsage(streamUsage);
     }
   }
 

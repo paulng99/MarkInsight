@@ -448,6 +448,18 @@ model AnalysisJob {
   /// OpenRouter (or routed) model id/name actually used for this run — required once the job starts.
   /// Example: `google/gemini-2.5-flash`. Always persist; product UI must not display vendor names.
   llmModel    String?
+  /// Prompt tokens summed across every model call in this job.
+  promptTokens     Int      @default(0)
+  /// Completion tokens summed across every model call in this job.
+  completionTokens Int      @default(0)
+  /// prompt + completion, as reported (falls back to the sum when the provider omits total).
+  totalTokens      Int      @default(0)
+  /// USD charged for this job. Null when the provider did not report a cost.
+  costUsd          Decimal? @db.Decimal(14, 8)
+  /// False when one or more calls omitted cost, so costUsd is incomplete.
+  costComplete     Boolean  @default(true)
+  /// Number of model calls whose usage was recorded.
+  llmCallCount     Int      @default(0)
   createdById String?
   createdBy   User?             @relation("AnalysisJobCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
   errorMessage String?
@@ -457,6 +469,7 @@ model AnalysisJob {
   updatedAt   DateTime          @updatedAt
 
   @@index([schoolId])
+  @@index([schoolId, createdAt])
   @@index([status])
   @@index([kind])
 }

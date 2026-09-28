@@ -35,6 +35,18 @@ export type LlmChatRequest = {
   maxTokens?: number;
 };
 
+/** Token and USD totals for one model call, or a sum of calls. */
+export type LlmUsageTotals = {
+  promptTokens: number;
+  completionTokens: number;
+  totalTokens: number;
+  /** Provider-reported USD. Null when no call included a cost figure. */
+  costUsd: number | null;
+  /** False when at least one call omitted cost, so costUsd is a partial sum. */
+  costComplete: boolean;
+  callCount: number;
+};
+
 export type LlmChatResponse = {
   content: string;
   /** Model id actually used (from request or provider response). Persist on AnalysisJob / result rows. */
@@ -42,6 +54,8 @@ export type LlmChatResponse = {
   usage?: {
     promptTokens?: number;
     completionTokens?: number;
+    totalTokens?: number;
+    costUsd?: number | null;
   };
 };
 
@@ -118,6 +132,9 @@ export type ScoreSubmissionResult = {
  * Provider-agnostic interface; MVP implementation MUST target OpenRouter.
  */
 export interface LlmClient {
+  /** Sum of token and cost figures from every call on this client instance. */
+  snapshotUsage(): LlmUsageTotals;
+
   /** Low-level chat/completions (OpenAI-compatible). */
   chat(request: LlmChatRequest): Promise<LlmChatResponse>;
 

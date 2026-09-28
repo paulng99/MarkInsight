@@ -19,6 +19,7 @@ export default async function AdminPage({
   const user = session.user;
   const displayName = user.name?.trim() || user.email?.split("@")[0] || "";
   const settingsHref = `/admin/settings?locale=${locale}`;
+  const usageHref = `/admin/usage?locale=${locale}`;
 
   const checklist = [t.adminCheck1, t.adminCheck2, t.adminCheck3, t.adminCheck4];
 
@@ -55,6 +56,20 @@ export default async function AdminPage({
             </span>
             <h2 className="mt-4 text-lg font-bold text-[var(--ink)]">{t.settingsTitle}</h2>
             <p className="mt-1 flex-1 text-sm leading-relaxed text-[var(--muted)]">{t.adminCardSettingsDesc}</p>
+            <span className="mt-4 inline-flex items-center gap-1 text-sm font-semibold text-primary-600">
+              {t.manage}
+              <Icon.ArrowRight size={14} className="transition-transform group-hover:translate-x-0.5" />
+            </span>
+          </Link>
+          <Link href={usageHref} className="card card-hover card-pad group flex flex-col">
+            <span
+              className="icon-tile !h-12 !w-12 !rounded-2xl"
+              style={{ ["--tile-bg" as string]: "#dbeafe", ["--tile-fg" as string]: "var(--primary-700, #1d4ed8)" }}
+            >
+              <Icon.BarChart size={22} />
+            </span>
+            <h2 className="mt-4 text-lg font-bold text-[var(--ink)]">{t.usageTitle}</h2>
+            <p className="mt-1 flex-1 text-sm leading-relaxed text-[var(--muted)]">{t.usageCardDesc}</p>
             <span className="mt-4 inline-flex items-center gap-1 text-sm font-semibold text-primary-600">
               {t.manage}
               <Icon.ArrowRight size={14} className="transition-transform group-hover:translate-x-0.5" />
