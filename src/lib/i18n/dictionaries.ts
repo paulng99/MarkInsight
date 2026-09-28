@@ -181,6 +181,7 @@ const dictionaries = {
     settingsFieldModelSearch: "Search models",
     settingsFieldModelSearchPlaceholder: "Filter by name or id…",
     settingsFieldModelCount: "{count} models available",
+    settingsFieldModelFilteredCount: "Showing {filtered} of {count} models",
     settingsFieldTeacherStudents: "Allow teachers to create student accounts",
     settingsFieldTeacherUpload: "Allow teachers to upload on behalf of students",
     settingsTeachersIntro:
@@ -597,6 +598,7 @@ const dictionaries = {
     settingsFieldModelSearch: "搜尋模型",
     settingsFieldModelSearchPlaceholder: "以名稱或 id 篩選…",
     settingsFieldModelCount: "共 {count} 個可用模型",
+    settingsFieldModelFilteredCount: "顯示 {filtered} / {count} 個模型",
     settingsFieldTeacherStudents: "允許教師建立學生帳戶",
     settingsFieldTeacherUpload: "允許教師代學生上載呈交",
     settingsTeachersIntro:

@@ -238,10 +238,14 @@ export function SystemPromptsForm({
             ))}
           </select>
           <p className="text-xs leading-relaxed text-[var(--muted)]">
-            {t.settingsFieldModelCount.replace(
-              "{count}",
-              String(modelChoices.length),
-            )}
+            {modelQuery.trim()
+              ? t.settingsFieldModelFilteredCount
+                  .replace("{filtered}", String(filteredModels.length))
+                  .replace("{count}", String(modelChoices.length))
+              : t.settingsFieldModelCount.replace(
+                  "{count}",
+                  String(modelChoices.length),
+                )}
           </p>
         </div>
       </section>
