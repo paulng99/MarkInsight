@@ -1,9 +1,14 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
+  applySyllabusLabels,
+  dedupePartRows,
+  selectSyllabusText,
   digestStructureBuffer,
   flattenRawQuestion,
   groupStructureQuestions,
+  mergeParentRows,
+  parentsMissingParts,
 } from "./structure-questions.ts";
 
 test("streams numbered questions and keeps every part", () => {
@@ -43,6 +48,82 @@ test("shows the question being checked before the object finishes", () => {
   assert.equal(digested.fresh.length, 0);
   assert.equal(digested.draft?.questionKey, "3");
   assert.match(digested.draft?.note ?? "", /第3題/);
+});
+
+test("keeps the fuller wording when the same part is read again", () => {
+  const first = flattenRawQuestion({
+    questionKey: "1",
+    stem: "題幹",
+    parts: [{ partKey: "a", prompt: "短", maxScore: 2 }],
+  });
+  const again = flattenRawQuestion({
+    questionKey: "1",
+    stem: "題幹",
+    parts: [
+      { partKey: "a", prompt: "較完整的分題原文", maxScore: 3 },
+      { partKey: "b", prompt: "乙部", maxScore: 2 },
+    ],
+  });
+  const merged = mergeParentRows(first, again);
+  assert.equal(merged.length, 2);
+  assert.equal(merged[0].prompt, "較完整的分題原文");
+  assert.equal(merged[1].partKey, "b");
+});
+
+test("drops a repeated part when the same wording is stored twice", () => {
+  const rows = [
+    ...flattenRawQuestion({
+      questionKey: "7",
+      parts: [
+        { partKey: "b(i)", prompt: "Explain why the fringe equation is not accurate here.", maxScore: 1 },
+        { partKey: "i", prompt: "Explain why the fringe equation is not accurate here.", maxScore: 1 },
+      ],
+    }),
+  ];
+  const kept = dedupePartRows(rows);
+  assert.equal(kept.length, 1);
+  assert.equal(kept[0].partKey, "b(i)");
+});
+
+test("applies syllabus labels without changing the question wording", () => {
+  const rows = flattenRawQuestion({
+    questionKey: "1",
+    stem: "題幹",
+    itemType: "calculation",
+    questionCategory: "應用",
+    parts: [{ partKey: "a", prompt: "估算功率", maxScore: 3 }],
+  });
+  const next = applySyllabusLabels(rows, [
+    { questionKey: "1(a)", itemType: "結構題", questionCategory: "應用知識解釋現象及解題", topic: "Heat and Gases" },
+  ]);
+  assert.equal(next[0].prompt, "估算功率");
+  assert.equal(next[0].itemType, "結構題");
+  assert.equal(next[0].questionCategory, "應用知識解釋現象及解題");
+  assert.equal(next[0].topic, "Heat and Gases");
+});
+
+test("keeps syllabus pages that name item types", () => {
+  const excerpt = selectSyllabusText([
+    "This preamble introduces the subject and the school year calendar for teachers.",
+    "Various kinds of items, including multiple-choice questions, short questions, structured questions and essays, are used.",
+  ]);
+  assert.match(excerpt, /structured questions/);
+  assert.doesNotMatch(excerpt, /school year calendar/);
+});
+
+test("finds questions that still have no lettered part", () => {
+  const rows = [
+    ...flattenRawQuestion({ questionKey: "1", stem: "只有整題", maxScore: 5 }),
+    ...flattenRawQuestion({
+      questionKey: "2",
+      stem: "題幹",
+      parts: [
+        { partKey: "a", prompt: "甲", maxScore: 2 },
+        { partKey: "b", prompt: "乙", maxScore: 3 },
+      ],
+    }),
+  ];
+  assert.deepEqual(parentsMissingParts(rows), ["1"]);
 });
 
 test("keeps a question even when topic is missing and groups legacy part keys", () => {

@@ -378,6 +378,8 @@ const dictionaries = {
     examStructurePromptMissing:
       "This result has no question text. Run structure analysis again to show the full wording.",
     examStructureLiveEmpty: "Questions appear here as they are finished, including the full stem and every part.",
+    examStructureNoParts:
+      "This run did not list lettered parts. If the paper has parts (a), (b) and so on, run structure analysis again.",
     examAnalyzeError: "Could not start analysis.",
     examAssetsEmpty: "No paper assets yet.",
     previewFile: "Preview",
@@ -806,6 +808,7 @@ const dictionaries = {
     examStructurePart: "分題",
     examStructurePromptMissing: "這次結果沒有題目原文。請重新執行結構分析，以顯示完整題幹同分題。",
     examStructureLiveEmpty: "題目會在分析時逐題出現，並顯示完整題幹與分題（a、b…）。",
+    examStructureNoParts: "這次沒有列出分題（a、b）。若試卷有分題，請再執行結構分析。",
     examAnalyzeError: "無法開始分析。",
     examAssetsEmpty: "尚未有試卷資產。",
     previewFile: "預覽",

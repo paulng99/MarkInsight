@@ -663,11 +663,18 @@ export function TeacherExamDetail({
             />
           </div>
         ) : (
-          <QuestionStructureList
-            groups={groups}
-            activeKey={running ? progress?.questionKey ?? null : null}
-            t={t}
-          />
+          <>
+            {!running && groups.every((group) => group.parts.every((part) => !part.partKey)) ? (
+              <p className="border-b border-[var(--border)] bg-primary-50 px-5 py-3 text-sm text-primary-900 sm:px-6">
+                {t.examStructureNoParts}
+              </p>
+            ) : null}
+            <QuestionStructureList
+              groups={groups}
+              activeKey={running ? progress?.questionKey ?? null : null}
+              t={t}
+            />
+          </>
         )}
       </section>
 
@@ -787,22 +794,26 @@ function QuestionStructureList({
                 <span className="font-semibold text-[var(--ink)]">{group.maxScore}</span>
               </p>
             </div>
-            {lead ? (
+        {lead ? (
               <p className="mt-3 whitespace-pre-wrap text-sm leading-relaxed text-[var(--ink)]">{lead}</p>
-            ) : (
+            ) : single ? (
               <p className="mt-3 text-sm text-[var(--muted)]">{t.examStructurePromptMissing}</p>
-            )}
+            ) : null}
             <div className="mt-2 flex flex-wrap gap-1.5">
               <span className="chip chip--hue" style={{ ["--chip-hue" as string]: 222 + (index % 5) * 28 }}>
                 {t.topicChip}: {group.topic}
               </span>
-              <span className="chip">
-                {t.itemTypeChip}: {group.itemType}
-              </span>
-              {group.questionCategory.trim() ? (
-                <span className="chip">
-                  {t.examStructureCategory}: {group.questionCategory}
-                </span>
+              {single ? (
+                <>
+                  <span className="chip">
+                    {t.itemTypeChip}: {group.itemType}
+                  </span>
+                  {group.questionCategory.trim() ? (
+                    <span className="chip">
+                      {t.examStructureCategory}: {group.questionCategory}
+                    </span>
+                  ) : null}
+                </>
               ) : null}
             </div>
             {single ? (
@@ -826,6 +837,14 @@ function QuestionStructureList({
                         {part.prompt}
                       </p>
                     ) : null}
+                    <div className="mt-2 flex flex-wrap gap-1.5">
+                      {part.itemType.trim() ? (
+                        <span className="chip">{t.itemTypeChip}: {part.itemType}</span>
+                      ) : null}
+                      {part.questionCategory.trim() ? (
+                        <span className="chip">{t.examStructureCategory}: {part.questionCategory}</span>
+                      ) : null}
+                    </div>
                     <QuestionMeta
                       objective={part.assessmentObjective}
                       difficulty={part.difficultyPoints}

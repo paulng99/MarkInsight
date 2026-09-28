@@ -57,11 +57,13 @@ export const STRUCTURE_PROMPT_ADDENDUM = [
   "Additional output rules, even if the schema above omits them:",
   'Begin the JSON with {"total": <count of numbered questions on the paper>, "questions": [...]} and write questions in paper order.',
   "Return one object per numbered question (1, 2, 3…). A 10-question paper must contain 10 objects. Do not drop questions.",
-  "Put every lettered or roman part inside parts (a, b, c, i, ii, iii). Do not skip a part.",
-  "stem is the shared wording copied in full from the paper. Each part prompt is that part's wording copied in full. Do not summarise, translate, or shorten the question text.",
-  "If a question has no lettered parts, parts is one object with partKey \"\" and prompt equal to the full question.",
+  "Put every lettered or roman part inside parts: (a), (b), (c), (i), (ii), and （甲）（乙） when the paper uses them. Do not skip a part.",
+  "Each part needs its own copied prompt, its own maxScore, and its own assessmentObjective and difficultyPoints. Do not analyse only the whole question.",
+  "stem is the shared wording copied in full from the paper, without the part text. Each part prompt is that part's wording copied in full. Do not summarise, translate, or shorten.",
+  "An empty partKey is invalid when the paper shows lettered parts. Do not merge (a) and (b) into one prompt.",
   'Put workingNote immediately after questionKey: one short sentence in the paper\'s language describing what you are checking on this question.',
   "part maxScore is that part's mark. The question maxScore is the sum of its parts.",
+  "When a syllabus excerpt is provided, itemType (題型) and questionCategory (題目種類) must follow that syllabus. Do not invent a label the syllabus does not support.",
 ].join(" ");
 
 function textOf(value: unknown): string {
@@ -205,6 +207,167 @@ export function groupStructureQuestions(rows: FlatStructureQuestion[]): Structur
       parts,
     };
   });
+}
+
+/** Parent keys that were stored as one block, with no lettered part. */
+export function parentsMissingParts(rows: FlatStructureQuestion[]): string[] {
+  const order: string[] = [];
+  const map = new Map<string, FlatStructureQuestion[]>();
+  for (const row of rows) {
+    const parent = row.parentKey || splitQuestionKey(row.questionKey).parentKey;
+    if (!map.has(parent)) {
+      map.set(parent, []);
+      order.push(parent);
+    }
+    map.get(parent)!.push(row);
+  }
+  return order.filter((parent) => !map.get(parent)!.some((row) => row.partKey.trim()));
+}
+
+function partPromptKey(prompt: string): string {
+  return prompt
+    .toLowerCase()
+    .replace(/^\s*[(（]?[a-zivx]+[)）.]?\s*/i, "")
+    .replace(/\s+/g, "")
+    .trim();
+}
+
+function partSpecificity(partKey: string): number {
+  return partKey.replace(/[^a-z0-9]/gi, "").length;
+}
+
+const SYLLABUS_SIGNAL =
+  /assessment objective|kinds of items|multiple-choice|multiple choice|structured question|short question|essay|curriculum structure|compulsory part|learning outcome|題型|評估目標|課題/gi;
+
+/** Keep syllabus pages that name item types and assessment categories. */
+export function selectSyllabusText(pages: string[], maxChars = 20_000): string {
+  const scored = pages
+    .map((text, index) => ({
+      index,
+      text: text.replace(/\s+/g, " ").trim(),
+      score: text.match(SYLLABUS_SIGNAL)?.length ?? 0,
+    }))
+    .filter((page) => page.text.length > 40);
+  const picked = scored.some((page) => page.score > 0)
+    ? scored.filter((page) => page.score > 0)
+    : scored.slice(0, 8);
+  let excerpt = "";
+  for (const page of picked) {
+    const block = `\n\n[syllabus page ${page.index + 1}]\n${page.text}`;
+    if (excerpt.length + block.length > maxChars) break;
+    excerpt += block;
+  }
+  return excerpt.trim();
+}
+
+/** Replace 題型 and 題目種類 from a syllabus classification, leaving the question wording in place. */
+export function applySyllabusLabels(
+  rows: FlatStructureQuestion[],
+  labels: Array<{
+    questionKey?: string;
+    itemType?: string;
+    questionCategory?: string;
+    topic?: string;
+  }>,
+): FlatStructureQuestion[] {
+  const byKey = new Map<string, (typeof labels)[number]>();
+  for (const label of labels) {
+    const key = textOf(label.questionKey);
+    if (key) byKey.set(key, label);
+  }
+  return rows.map((row) => {
+    const label =
+      byKey.get(row.questionKey) ||
+      byKey.get(formatQuestionKey(row.parentKey, row.partKey));
+    if (!label) return row;
+    return {
+      ...row,
+      itemType: textOf(label.itemType) || row.itemType,
+      questionCategory: textOf(label.questionCategory) || row.questionCategory,
+      topic: textOf(label.topic) || row.topic,
+    };
+  });
+}
+
+/** Drop a part that repeats another part of the same question. */
+export function dedupePartRows(rows: FlatStructureQuestion[]): FlatStructureQuestion[] {
+  const order: string[] = [];
+  const map = new Map<string, FlatStructureQuestion[]>();
+  for (const row of rows) {
+    const parent = row.parentKey || splitQuestionKey(row.questionKey).parentKey;
+    if (!map.has(parent)) {
+      map.set(parent, []);
+      order.push(parent);
+    }
+    map.get(parent)!.push(row);
+  }
+
+  return order.flatMap((parent) => {
+    const kept: FlatStructureQuestion[] = [];
+    for (const row of map.get(parent)!) {
+      const key = partPromptKey(row.prompt);
+      const index = kept.findIndex((item) => {
+        const other = partPromptKey(item.prompt);
+        if (!key || !other) return false;
+        if (key === other) return true;
+        const [shorter, longer] = key.length < other.length ? [key, other] : [other, key];
+        return shorter.length >= 40 && longer.includes(shorter);
+      });
+      if (index < 0) {
+        kept.push(row);
+        continue;
+      }
+      const current = kept[index];
+      const preferRow =
+        partSpecificity(row.partKey) > partSpecificity(current.partKey) ||
+        (partSpecificity(row.partKey) === partSpecificity(current.partKey) &&
+          row.prompt.trim().length > current.prompt.trim().length);
+      if (preferRow) kept[index] = row;
+    }
+    return kept;
+  });
+}
+
+/** Keep the fuller wording when the same part is seen again on a later page. */
+export function mergeParentRows(
+  current: FlatStructureQuestion[],
+  incoming: FlatStructureQuestion[],
+): FlatStructureQuestion[] {
+  const parent = incoming[0]?.parentKey;
+  if (!parent || incoming.every((row) => !row.partKey.trim())) return current;
+  const byPart = new Map<string, FlatStructureQuestion>();
+  for (const row of current) {
+    if (row.parentKey === parent) byPart.set(row.partKey, row);
+  }
+  for (const row of incoming) {
+    const prev = byPart.get(row.partKey);
+    if (!prev || row.prompt.trim().length >= prev.prompt.trim().length) {
+      byPart.set(row.partKey, row);
+    }
+  }
+  return replaceParentQuestions(current, parent, [...byPart.values()]);
+}
+
+/** Swap in part rows for one numbered question, keeping the other questions in place. */
+export function replaceParentQuestions(
+  rows: FlatStructureQuestion[],
+  parentKey: string,
+  next: FlatStructureQuestion[],
+): FlatStructureQuestion[] {
+  const out: FlatStructureQuestion[] = [];
+  let inserted = false;
+  for (const row of rows) {
+    if (row.parentKey === parentKey) {
+      if (!inserted) {
+        out.push(...next);
+        inserted = true;
+      }
+      continue;
+    }
+    out.push(row);
+  }
+  if (!inserted) out.push(...next);
+  return out;
 }
 
 function matchingBrace(text: string, open: number): number {

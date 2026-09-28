@@ -2,7 +2,13 @@ import {
   digestStructureBuffer,
   flattenRawQuestion,
   flattenStructurePayload,
+  applySyllabusLabels,
+  dedupePartRows,
+  mergeParentRows,
+  parentsMissingParts,
+  replaceParentQuestions,
   STRUCTURE_PROMPT_ADDENDUM,
+  type DigestedQuestion,
   type FlatStructureQuestion,
 } from "@/lib/exams/structure-questions";
 import type {
@@ -26,6 +32,8 @@ import {
   sanitizeVendorLeak,
 } from "@/lib/errors";
 import { DEFAULT_SYSTEM_PROMPTS } from "@/lib/llm/system-prompts";
+import { rasterizeScanPages, type ScanPage } from "@/lib/exams/pdf-page-images";
+import { readSyllabusExcerpt } from "@/lib/exams/syllabus-excerpt";
 import { getObjectBytes, isImageMime, isPdfMime, toDataUrl } from "@/lib/storage";
 
 /**
@@ -393,9 +401,26 @@ export class OpenRouterLlmClient implements LlmClient {
       total: 0,
       questionKey: null,
       partKeys: [],
-      note: null,
+      note: "正在把試卷每一頁轉成可閱讀的圖片。",
       commit: false,
     });
+
+    const scanPages = await rasterizeScanPages(input.assetRefs).catch((error: unknown) => {
+      console.error(
+        "[llm] page raster failed",
+        error instanceof Error ? error.name : "error",
+      );
+      return [] as ScanPage[];
+    });
+    const paperPages = scanPages.filter((page) => page.role === "paper");
+    if (paperPages.length > 0) {
+      const scanned = await this.analyzeScannedPaper(llmModel, input, paperPages, report);
+      if (scanned.length === 0) {
+        throw new AppError(ANALYSIS_FAILED_GENERIC, 502, "llm_no_questions");
+      }
+      const classified = await this.classifyAgainstSyllabus(llmModel, input, scanned, report);
+      return { llmModel, questions: classified, rawModelText: "" };
+    }
 
     const assetParts = await this.assetParts(input.assetRefs);
     const request = structureChatRequest(llmModel, input, assetParts);
@@ -520,14 +545,439 @@ export class OpenRouterLlmClient implements LlmClient {
       );
     }
 
+    const missingParts = parentsMissingParts(questions);
+    if (missingParts.length > 0) {
+      try {
+        const filled = await this.readLetterParts(
+          llmModel,
+          input,
+          assetParts,
+          missingParts,
+          questions,
+          report,
+        );
+        let merged = questions.slice();
+        for (const item of filled) {
+          if (item.partKeys.length === 0) continue;
+          merged = replaceParentQuestions(merged, item.questionKey, item.rows);
+        }
+        questions.splice(0, questions.length, ...merged);
+      } catch (error) {
+        console.error(
+          "[llm] part analysis failed",
+          error instanceof Error ? error.name : "error",
+        );
+        await report({
+          stage: "receiving",
+          completed: emitted,
+          total,
+          questionKey: null,
+          partKeys: [],
+          note: "分題分析未完成，已保留各題內容。",
+          commit: false,
+        });
+      }
+    }
+
+    const classified = await this.classifyAgainstSyllabus(llmModel, input, questions, report);
     return {
       llmModel,
-      questions,
+      questions: classified,
       rawModelText: buffer,
     };
     } finally {
       clearInterval(beat);
     }
+  }
+
+  private async analyzeScannedPaper(
+    llmModel: string,
+    input: AnalyzeExamStructureInput,
+    pages: ScanPage[],
+    report: (update: StructureProgressUpdate) => Promise<void>,
+  ): Promise<FlatStructureQuestion[]> {
+    const batches = pageBatches(pages, 4, 3);
+    let questions: FlatStructureQuestion[] = [];
+    let total = 0;
+    const fingerprints = new Map<string, string>();
+    const system = `${(input.systemPrompt?.trim() || DEFAULT_SYSTEM_PROMPTS.exam_structure).trim()}\n\n${STRUCTURE_PROMPT_ADDENDUM}`;
+
+    for (const batch of batches) {
+      const from = batch[0]?.page ?? 1;
+      const to = batch[batch.length - 1]?.page ?? from;
+      const parents = new Set(questions.map((row) => row.parentKey));
+      await report({
+        stage: "receiving",
+        completed: parents.size,
+        total: Math.max(total, parents.size),
+        questionKey: null,
+        partKeys: [],
+        note: `正在閱讀第 ${from}–${to} 頁，逐項抄錄分題、分數、考核要求同難點。`,
+        commit: false,
+      });
+
+      const content: LlmContentPart[] = [
+        {
+          type: "text",
+          text:
+            `These upright images are question-paper pages ${from}–${to}. ` +
+            "Extract only numbered questions whose wording is visible here. " +
+            "Copy each lettered part in the paper's language. Do not summarise, translate, or invent a question. " +
+            "partKey is the printed label without the question number, such as a, b, c, b(i), or b(ii). An empty partKey is invalid. " +
+            "maxScore is the mark printed for that part. " +
+            "Write assessmentObjective (考核要求) and difficultyPoints (難點) in Traditional Chinese (Hong Kong), about that part only. " +
+            "Skip cover pages, instructions, and blank answer lines. " +
+            'If a marks table is visible, set total to the number of questions. Otherwise set total to 0.',
+        },
+      ];
+      for (const page of batch) {
+        content.push({
+          type: "text",
+          text: `Page ${page.page} of ${page.pageCount}.`,
+        });
+        content.push({ type: "image_url", image_url: { url: page.dataUrl } });
+      }
+
+      let buffer = "";
+      const request: LlmChatRequest = {
+        model: llmModel,
+        temperature: 0.1,
+        maxTokens: 8192,
+        responseFormat: "json_object",
+        messages: [
+          { role: "system", content: system },
+          { role: "user", content },
+        ],
+      };
+      try {
+        for await (const delta of this.chatDeltas(request)) {
+          if (delta.text) buffer += delta.text;
+        }
+      } catch (error) {
+        if (!buffer.trim()) {
+          try {
+            const chat = await this.chat(request);
+            buffer = chat.content;
+          } catch (fallbackError) {
+            console.error(
+              "[llm] page batch failed",
+              from,
+              fallbackError instanceof Error ? fallbackError.name : "error",
+            );
+            continue;
+          }
+        } else if (error instanceof AppError && error.code !== "llm_http_error") {
+          throw error;
+        }
+      }
+      if (!buffer.trim()) continue;
+
+      let items = digestStructureBuffer(buffer, 0).fresh;
+      total = Math.max(total, digestStructureBuffer(buffer, 0).total);
+      if (items.length === 0) {
+        try {
+          const parsed = flattenStructurePayload(extractJsonObject(buffer));
+          const grouped = new Map<string, FlatStructureQuestion[]>();
+          for (const row of parsed) {
+            const list = grouped.get(row.parentKey) ?? [];
+            list.push(row);
+            grouped.set(row.parentKey, list);
+          }
+          items = [...grouped.entries()].map(([questionKey, rows]) => ({
+            questionKey,
+            partKeys: rows.map((row) => row.partKey).filter(Boolean),
+            note: "",
+            rows,
+          }));
+        } catch {
+          continue;
+        }
+      }
+
+      for (const item of items) {
+        if (!usableScanQuestion(item)) continue;
+        const fingerprint = item.rows.map((row) => row.prompt.trim()).join("\n");
+        const duplicate = [...fingerprints.entries()].find(
+          ([key, value]) => key !== item.questionKey && value === fingerprint,
+        );
+        if (duplicate) continue;
+        fingerprints.set(item.questionKey, fingerprint);
+        questions = mergeParentRows(questions, item.rows);
+        const done = new Set(questions.map((row) => row.parentKey));
+        const rows = questions.filter((row) => row.parentKey === item.questionKey);
+        await report({
+          stage: "question",
+          completed: done.size,
+          total: Math.max(total, done.size),
+          questionKey: item.questionKey,
+          partKeys: rows.map((row) => row.partKey).filter(Boolean),
+          note: item.note || "已分析此題的分題。",
+          commit: true,
+          replaceParentKeys: [item.questionKey],
+          questions: rows,
+        });
+      }
+    }
+
+    return dedupePartRows(questions);
+  }
+
+  async classifyAgainstSyllabus(
+    llmModel: string,
+    input: AnalyzeExamStructureInput,
+    questions: FlatStructureQuestion[],
+    report: (update: StructureProgressUpdate) => Promise<void>,
+  ): Promise<FlatStructureQuestion[]> {
+    if (!input.assetRefs.some((ref) => ref.kind === "SYLLABUS") || questions.length === 0) {
+      return questions;
+    }
+    const parents = new Set(questions.map((row) => row.parentKey));
+    await report({
+      stage: "receiving",
+      completed: parents.size,
+      total: parents.size,
+      questionKey: null,
+      partKeys: [],
+      note: "正在對照已上載的教學大綱，標示題型同題目種類。",
+      commit: false,
+    });
+
+    let excerpt = "";
+    try {
+      excerpt = await readSyllabusExcerpt(input.assetRefs);
+    } catch (error) {
+      console.error(
+        "[llm] syllabus read failed",
+        error instanceof Error ? error.name : "error",
+      );
+      return questions;
+    }
+    if (!excerpt) return questions;
+
+    const brief = questions.map((row) => ({
+      questionKey: row.questionKey,
+      stem: row.stem.slice(0, 400),
+      prompt: row.prompt.slice(0, 500),
+    }));
+    const request: LlmChatRequest = {
+      model: llmModel,
+      temperature: 0.1,
+      maxTokens: 8192,
+      responseFormat: "json_object",
+      messages: [
+        {
+          role: "system",
+          content:
+            "You classify exam parts against an uploaded syllabus. Reply with JSON only: " +
+            '{"questions":[{"questionKey":"1(a)","itemType":"string","questionCategory":"string","topic":"string"}]}',
+        },
+        {
+          role: "user",
+          content: [
+            {
+              type: "text",
+              text:
+                "Use only the syllabus excerpt below.\n" +
+                "itemType is 題型. Use only the kinds of items the syllabus lists together. " +
+                "Translate them as 多項選擇題, 短題目, 結構題, or 論述題 when those are the kinds named. " +
+                "Use 短題目 for a brief reason, a single fact, or a direction. Use 結構題 for a calculation, derivation, or multi-step account. " +
+                "Use 論述題 only for an extended discussion, and 多項選擇題 only when options are printed. " +
+                "Do not invent formats such as 計算題, 推導題, 解釋題, 選擇題, or 實驗設計題.\n" +
+                "questionCategory is 題目種類. Choose the one assessment objective in the syllabus that best fits that part, in Traditional Chinese (Hong Kong). " +
+                "Do not give every part the same category. " +
+                "Apparatus or an experimental procedure maps to the experiment objective. Uncertainty or error maps to the errors objective. " +
+                "A table, graph, or reading maps to presenting or analysing data. A numerical solution maps to applying knowledge to solve a problem. " +
+                "An explanation of a phenomenon maps to applying knowledge to explain. Stating a fact maps to recall and understanding. " +
+                "Do not use a curriculum heading such as Skills and Processes or Values and Attitudes as the category.\n" +
+                "topic is the syllabus topic name for this part.\n" +
+                "Return one object for every questionKey.\n\n" +
+                `Syllabus excerpt:\n${excerpt}\n\nParts:\n${JSON.stringify(brief)}`,
+            },
+          ],
+        },
+      ],
+    };
+
+    let content = "";
+    try {
+      const chat = await this.chat(request);
+      content = chat.content;
+    } catch (error) {
+      console.error(
+        "[llm] syllabus classification failed",
+        error instanceof Error ? error.name : "error",
+      );
+      return questions;
+    }
+
+    let labels: Array<{
+      questionKey?: string;
+      itemType?: string;
+      questionCategory?: string;
+      topic?: string;
+    }> = [];
+    try {
+      const parsed = extractJsonObject(content) as {
+        questions?: typeof labels;
+      };
+      labels = Array.isArray(parsed.questions) ? parsed.questions : [];
+    } catch {
+      return questions;
+    }
+    const next = applySyllabusLabels(questions, labels);
+    const changed = new Set<string>();
+    for (let i = 0; i < questions.length; i++) {
+      if (
+        next[i]?.itemType !== questions[i]?.itemType ||
+        next[i]?.questionCategory !== questions[i]?.questionCategory ||
+        next[i]?.topic !== questions[i]?.topic
+      ) {
+        changed.add(next[i].parentKey);
+      }
+    }
+    let cursor = 0;
+    for (const parent of changed) {
+      cursor += 1;
+      const rows = next.filter((row) => row.parentKey === parent);
+      await report({
+        stage: "question",
+        completed: cursor,
+        total: changed.size,
+        questionKey: parent,
+        partKeys: rows.map((row) => row.partKey).filter(Boolean),
+        note: "已按教學大綱更新題型與題目種類。",
+        commit: true,
+        replaceParentKeys: [parent],
+        questions: rows,
+      });
+    }
+    return next;
+  }
+
+  private async readLetterParts(
+    llmModel: string,
+    input: AnalyzeExamStructureInput,
+    assetParts: LlmContentPart[],
+    missing: string[],
+    current: FlatStructureQuestion[],
+    report: (update: StructureProgressUpdate) => Promise<void>,
+  ): Promise<DigestedQuestion[]> {
+    await report({
+      stage: "receiving",
+      completed: 0,
+      total: missing.length,
+      questionKey: missing[0] ?? null,
+      partKeys: [],
+      note: "正在拆開每一題的分題，並逐項寫考核要求與難點。",
+      commit: false,
+    });
+
+    const request: LlmChatRequest = {
+      model: llmModel,
+      temperature: 0.1,
+      maxTokens: 16384,
+      responseFormat: "json_object",
+      messages: [
+        {
+          role: "system",
+          content: [
+            "You analyse lettered parts of a Hong Kong exam paper.",
+            "Reply with JSON only:",
+            '{"questions":[{"questionKey":"1","workingNote":"string","stem":"shared stem","parts":[{"partKey":"a","prompt":"full part text","maxScore":1,"itemType":"short","assessmentObjective":"string","difficultyPoints":"string"}]}]}',
+            "Every listed question has parts on the paper, such as (a), (b), (c), (i), (ii), or （甲）（乙）.",
+            "Copy each part's wording in full. Do not summarise, translate, or merge parts into the stem.",
+            "partKey is the letter or numeral without brackets, for example a or ii.",
+            "An empty partKey is invalid.",
+            "Each part needs its own maxScore, assessmentObjective (考核要求), and difficultyPoints (難點).",
+            "Write assessmentObjective and difficultyPoints in Traditional Chinese (Hong Kong), about that part only.",
+            "Use the questionKey values exactly as given.",
+          ].join(" "),
+        },
+        {
+          role: "user",
+          content: [
+            {
+              type: "text",
+              text:
+                `These numbered questions still need part-by-part analysis: ${missing.join(", ")}. ` +
+                "Read the question paper. For each questionKey return every part in order, with the full part text and a separate analysis of that part.",
+            },
+            ...assetParts,
+          ],
+        },
+      ],
+    };
+
+    let buffer = "";
+    let emitted = 0;
+    const found: DigestedQuestion[] = [];
+    const wanted = new Set(missing);
+
+    const accept = async (item: DigestedQuestion) => {
+      if (!wanted.has(item.questionKey) || item.partKeys.length === 0) return;
+      const previous = current.find((row) => row.parentKey === item.questionKey);
+      const rows = item.rows.map((row) => ({
+        ...row,
+        topic: row.topic && row.topic !== "—" ? row.topic : previous?.topic || row.topic,
+        questionCategory: row.questionCategory || previous?.questionCategory || "",
+        itemType: row.itemType && row.itemType !== "short" ? row.itemType : previous?.itemType || row.itemType,
+      }));
+      const next = { ...item, rows };
+      found.push(next);
+      await report({
+        stage: "question",
+        completed: found.length,
+        total: missing.length,
+        questionKey: item.questionKey,
+        partKeys: item.partKeys,
+        note: item.note || "已分析此題的分題。",
+        commit: true,
+        replaceParentKeys: [item.questionKey],
+        questions: rows,
+      });
+    };
+
+    const take = async (text: string) => {
+      const digested = digestStructureBuffer(text, emitted);
+      for (const item of digested.fresh) {
+        emitted += 1;
+        await accept(item);
+      }
+    };
+
+    try {
+      for await (const delta of this.chatDeltas(request)) {
+        if (!delta.text) continue;
+        buffer += delta.text;
+        await take(buffer);
+      }
+    } catch (error) {
+      if (!buffer.trim()) {
+        const chat = await this.chat(request);
+        buffer = chat.content;
+      } else if (error instanceof AppError && error.code !== "llm_http_error") {
+        throw error;
+      }
+    }
+
+    if (buffer.trim()) await take(buffer);
+    if (found.length === 0 && buffer.trim()) {
+      const parsed = flattenStructurePayload(extractJsonObject(buffer));
+      const grouped = new Map<string, FlatStructureQuestion[]>();
+      for (const row of parsed) {
+        const list = grouped.get(row.parentKey) ?? [];
+        list.push(row);
+        grouped.set(row.parentKey, list);
+      }
+      for (const [questionKey, rows] of grouped) {
+        const partKeys = rows.map((row) => row.partKey).filter(Boolean);
+        if (!wanted.has(questionKey) || partKeys.length === 0) continue;
+        const item: DigestedQuestion = { questionKey, partKeys, note: "", rows };
+        await accept(item);
+      }
+    }
+
+    return found;
   }
 
   async scoreSubmission(
@@ -657,6 +1107,22 @@ const DEMO_STRUCTURE_RAW: Array<Record<string, unknown>> = [
     ],
   },
 ];
+
+function pageBatches<T>(pages: T[], size: number, stride: number): T[][] {
+  const batches: T[][] = [];
+  for (let index = 0; index < pages.length; index += stride) {
+    batches.push(pages.slice(index, index + size));
+    if (index + size >= pages.length) break;
+  }
+  return batches;
+}
+
+function usableScanQuestion(item: DigestedQuestion): boolean {
+  if (!/^\d+$/.test(item.questionKey)) return false;
+  if (item.partKeys.length === 0) return false;
+  if (item.rows.some((row) => /shared stem/i.test(`${row.stem} ${row.prompt}`))) return false;
+  return item.rows.some((row) => row.prompt.trim().length >= 15);
+}
 
 function structureChatRequest(
   llmModel: string,

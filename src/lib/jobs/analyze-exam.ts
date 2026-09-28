@@ -239,6 +239,7 @@ async function runExamStructure(
       schoolId,
       kind: { in: ["QUESTION_PAPER", "ANSWER_KEY"] },
     },
+    orderBy: { createdAt: "asc" },
   });
   if (assets.length === 0) {
     throw new AppError("請檢查檔案", 400, "missing_assets");
@@ -272,6 +273,7 @@ async function runExamStructure(
         kind: a.kind,
         storageKey: a.storageKey,
         mimeType: a.mimeType,
+        fileName: a.originalName,
       })),
       ...(syllabus
         ? [
@@ -474,7 +476,11 @@ async function applyStructureProgress(
 ): Promise<void> {
   const prev = current();
   const note = update.note ? sanitizeVendorLeak(update.note).slice(0, 280) : null;
-  const questions = update.questions ? [...prev.questions, ...update.questions] : prev.questions;
+  const drop = new Set(update.replaceParentKeys ?? []);
+  const kept = drop.size
+    ? prev.questions.filter((row) => !drop.has(row.parentKey))
+    : prev.questions;
+  const questions = update.questions ? [...kept, ...update.questions] : kept;
   const log = update.commit
     ? [
         ...prev.log,

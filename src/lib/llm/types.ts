@@ -50,7 +50,12 @@ export type AnalyzeExamStructureInput = {
   schoolId: string;
   examId: string;
   /** Object-storage keys or signed URLs for question paper / answer key assets. */
-  assetRefs: Array<{ kind: string; storageKey: string; mimeType?: string | null }>;
+  assetRefs: Array<{
+    kind: string;
+    storageKey: string;
+    mimeType?: string | null;
+    fileName?: string | null;
+  }>;
   /** Allowlisted model id from SchoolSettings for this run. */
   modelOverride?: string;
   /** Admin-configured system prompt. Falls back to the built-in default when omitted. */
@@ -68,6 +73,8 @@ export type StructureProgressUpdate = {
   note: string | null;
   /** True when a whole numbered question has been committed. */
   commit: boolean;
+  /** When set, drop existing rows for these parent keys before appending questions. */
+  replaceParentKeys?: string[];
   questions?: FlatStructureQuestion[];
 };
 
