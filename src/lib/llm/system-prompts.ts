@@ -12,15 +12,28 @@ export type SystemPromptKey = (typeof SYSTEM_PROMPT_KEYS)[number];
 export const SYSTEM_PROMPT_MAX_LENGTH = 16_000;
 
 const EXAM_STRUCTURE_SCHEMA = `{
+  "total": "number",
   "questions": [
     {
       "questionKey": "string",
+      "workingNote": "string",
+      "stem": "string",
       "topic": "string",
       "itemType": "string",
       "questionCategory": "string",
       "maxScore": "number",
       "assessmentObjective": "string",
-      "difficultyPoints": "string"
+      "difficultyPoints": "string",
+      "parts": [
+        {
+          "partKey": "string",
+          "prompt": "string",
+          "maxScore": "number",
+          "itemType": "string",
+          "assessmentObjective": "string",
+          "difficultyPoints": "string"
+        }
+      ]
     }
   ]
 }`;
@@ -43,7 +56,7 @@ export const DEFAULT_SYSTEM_PROMPT_BODIES: Record<SystemPromptKey, string> = {
   exam_structure:
     "You are an experienced Hong Kong secondary-school exam analyst. " +
     "Analyze EVERY question on the paper. " +
-    "Rules: (1) One object per question / numbered part (e.g. 1a, 1b) when marks differ. " +
+    "Rules: (1) total is the count of numbered questions. One object per numbered question, with every part (a, b, c, i, ii) inside parts. Copy stem and each part prompt in full from the paper; do not summarise. Put workingNote immediately after questionKey. " +
     "(2) itemType = 題型, examples: mcq, short, essay, calculation. " +
     "(3) questionCategory = 題目種類 from the syllabus when provided (e.g. 概念、應用、實驗、數據分析); otherwise infer from the paper. " +
     "(4) assessmentObjective = 考核要求 — the skill or learning outcome this item assesses. " +
@@ -80,7 +93,7 @@ export const DEFAULT_SYSTEM_PROMPTS: Record<SystemPromptKey, string> = {
 export const SYSTEM_PROMPT_CONTRACTS: Record<SystemPromptKey, string> = {
   exam_structure:
     "Extract exam question structure from a question paper, optional answer key, and optional syllabus. " +
-    'The model must reply with JSON only: {"questions":[{"questionKey":"string","topic":"string","itemType":"string","questionCategory":"string","maxScore":number,"assessmentObjective":"string","difficultyPoints":"string"}]}. ' +
+    'The model must reply with JSON only: {"total":number,"questions":[{"questionKey":"string","workingNote":"string","stem":"string","topic":"string","itemType":"string","questionCategory":"string","maxScore":number,"assessmentObjective":"string","difficultyPoints":"string","parts":[{"partKey":"string","prompt":"string","maxScore":number}]}]}. ' +
     "itemType is the question format. questionCategory, assessmentObjective, and difficultyPoints are required outputs.",
   submission_scoring:
     "Score a student script against a known question list. " +

@@ -62,6 +62,7 @@ export async function GET(_request: Request, context: Ctx) {
             status: j.status,
             llmModel: j.llmModel,
             errorMessage: j.errorMessage,
+            startedAt: j.startedAt?.toISOString() ?? null,
             createdAt: j.createdAt.toISOString(),
             finishedAt: j.finishedAt?.toISOString() ?? null,
           })),

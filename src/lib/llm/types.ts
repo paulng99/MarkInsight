@@ -1,3 +1,5 @@
+import type { FlatStructureQuestion } from "@/lib/exams/structure-questions";
+
 /**
  * Multimodal LLM client contract for MarkInsight.
  *
@@ -30,6 +32,7 @@ export type LlmChatRequest = {
   temperature?: number;
   /** Hint for JSON object responses when the model supports it. */
   responseFormat?: "json_object" | "text";
+  maxTokens?: number;
 };
 
 export type LlmChatResponse = {
@@ -52,23 +55,26 @@ export type AnalyzeExamStructureInput = {
   modelOverride?: string;
   /** Admin-configured system prompt. Falls back to the built-in default when omitted. */
   systemPrompt?: string;
+  /** Called as questions are recognised so the exam page can show live progress. */
+  onProgress?: (update: StructureProgressUpdate) => void | Promise<void>;
+};
+
+export type StructureProgressUpdate = {
+  stage: "reading" | "receiving" | "question" | "saving";
+  completed: number;
+  total: number;
+  questionKey: string | null;
+  partKeys: string[];
+  note: string | null;
+  /** True when a whole numbered question has been committed. */
+  commit: boolean;
+  questions?: FlatStructureQuestion[];
 };
 
 export type AnalyzeExamStructureResult = {
   /** Model id used for this structure analysis — must be persisted (Exam.structureLlmModel + AnalysisJob.llmModel). */
   llmModel: string;
-  questions: Array<{
-    questionKey: string;
-    topic: string;
-    itemType: string;
-    /** Syllabus-aligned category (題目種類), e.g. 概念題 / 應用題. */
-    questionCategory: string;
-    maxScore: number;
-    /** What the question is designed to assess (考核要求). */
-    assessmentObjective: string;
-    /** Key hard points / common pitfalls for this question (難點). */
-    difficultyPoints: string;
-  }>;
+  questions: FlatStructureQuestion[];
   rawModelText?: string;
 };
 

@@ -1,11 +1,20 @@
+import {
+  digestStructureBuffer,
+  flattenRawQuestion,
+  flattenStructurePayload,
+  STRUCTURE_PROMPT_ADDENDUM,
+  type FlatStructureQuestion,
+} from "@/lib/exams/structure-questions";
 import type {
   AnalyzeExamStructureInput,
   AnalyzeExamStructureResult,
   LlmChatRequest,
   LlmChatResponse,
   LlmClient,
+  LlmContentPart,
   ScoreSubmissionInput,
   ScoreSubmissionResult,
+  StructureProgressUpdate,
 } from "@/lib/llm/types";
 import { parseOpenRouterModelAllowlist } from "@/lib/config/openrouter-model-allowlist";
 import {
@@ -140,6 +149,7 @@ export class OpenRouterLlmClient implements LlmClient {
       model: request.model,
       messages: request.messages,
       temperature: request.temperature ?? 0.2,
+      ...(request.maxTokens ? { max_tokens: request.maxTokens } : {}),
       ...(request.responseFormat === "json_object"
         ? { response_format: { type: "json_object" } }
         : {}),
@@ -197,6 +207,97 @@ export class OpenRouterLlmClient implements LlmClient {
         completionTokens: data.usage?.completion_tokens,
       },
     };
+  }
+
+  private async *chatDeltas(request: LlmChatRequest): AsyncGenerator<{
+    text?: string;
+    reasoning?: string;
+    finishReason?: string;
+  }> {
+    if (!this.config.apiKey) {
+      throw new AppError(ANALYSIS_NOT_CONFIGURED, 503, "llm_not_configured");
+    }
+
+    const headers: Record<string, string> = {
+      Authorization: `Bearer ${this.config.apiKey}`,
+      "Content-Type": "application/json",
+    };
+    if (this.config.siteUrl) headers["HTTP-Referer"] = this.config.siteUrl;
+    if (this.config.siteName) headers["X-Title"] = this.config.siteName;
+
+    const payload = JSON.stringify({
+      model: request.model,
+      messages: request.messages,
+      temperature: request.temperature ?? 0.2,
+      stream: true,
+      ...(request.maxTokens ? { max_tokens: request.maxTokens } : {}),
+      ...(request.responseFormat === "json_object"
+        ? { response_format: { type: "json_object" } }
+        : {}),
+    });
+
+    let response: Response;
+    try {
+      response = await fetchChatWithRetry(
+        `${this.config.baseUrl}/chat/completions`,
+        headers,
+        payload,
+        request.model,
+      );
+    } catch (error) {
+      if (error instanceof AppError) throw error;
+      throw new AppError(ANALYSIS_FAILED_GENERIC, 502, "llm_network_error");
+    }
+
+    if (!response.ok || !response.body) {
+      console.error("[llm] stream HTTP", response.status, "model=", request.model);
+      if (response.status === 429 || response.status === 503) {
+        throw new AppError(ANALYSIS_BUSY, 503, "llm_busy");
+      }
+      throw new AppError(ANALYSIS_FAILED_GENERIC, 502, "llm_http_error");
+    }
+
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    let carry = "";
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      carry += decoder.decode(value, { stream: true });
+      const lines = carry.split("\n");
+      carry = lines.pop() ?? "";
+      for (const line of lines) {
+        const trimmed = line.trim();
+        if (!trimmed.startsWith("data:")) continue;
+        const data = trimmed.slice(5).trim();
+        if (!data || data === "[DONE]") continue;
+        let parsed: {
+          choices?: Array<{
+            finish_reason?: string | null;
+            delta?: {
+              content?: string | null;
+              reasoning?: string | null;
+              reasoning_content?: string | null;
+            };
+          }>;
+        };
+        try {
+          parsed = JSON.parse(data) as typeof parsed;
+        } catch {
+          continue;
+        }
+        const choice = parsed.choices?.[0];
+        const delta = choice?.delta;
+        const reasoning = delta?.reasoning || delta?.reasoning_content;
+        if (typeof reasoning === "string" && reasoning.trim()) {
+          yield { reasoning: reasoning.trim() };
+        }
+        if (typeof delta?.content === "string" && delta.content) {
+          yield { text: delta.content };
+        }
+        if (choice?.finish_reason) yield { finishReason: choice.finish_reason };
+      }
+    }
   }
 
   private async assetParts(
@@ -259,88 +360,173 @@ export class OpenRouterLlmClient implements LlmClient {
   async analyzeExamStructure(
     input: AnalyzeExamStructureInput,
   ): Promise<AnalyzeExamStructureResult> {
-    const llmModel = input.modelOverride || this.config.examStructureModel;
+    let llmModel = input.modelOverride || this.config.examStructureModel;
 
     if (!this.config.apiKey && this.config.demoMode) {
-      return demoStructureResult(llmModel);
+      return playDemoStructure(llmModel, input.onProgress);
     }
     if (!this.config.apiKey) {
       throw new AppError(ANALYSIS_NOT_CONFIGURED, 503, "llm_not_configured");
     }
 
-    const parts = await this.assetParts(input.assetRefs);
-    const hasSyllabus = input.assetRefs.some((ref) => ref.kind === "SYLLABUS");
-
-    const chat = await this.chat({
-      model: llmModel,
-      responseFormat: "json_object",
-      messages: [
-        {
-          role: "system",
-          content: input.systemPrompt?.trim() || DEFAULT_SYSTEM_PROMPTS.exam_structure,
-        },
-        {
-          role: "user",
-          content: [
-            {
-              type: "text",
-              text:
-                `Extract full question structure for exam ${input.examId}. ` +
-                "For each question include 題型 (itemType), 題目種類 (questionCategory), 考核要求 (assessmentObjective), and 難點 (difficultyPoints)." +
-                (hasSyllabus ? " Follow the attached syllabus." : ""),
-            },
-            ...parts,
-          ],
-        },
-      ],
-    });
+    let pulse: StructureProgressUpdate = {
+      stage: "reading",
+      completed: 0,
+      total: 0,
+      questionKey: null,
+      partKeys: [],
+      note: null,
+      commit: false,
+    };
+    const report = async (update: StructureProgressUpdate) => {
+      pulse = update;
+      await emitProgress(input, update);
+    };
+    const beat = setInterval(() => {
+      void emitProgress(input, { ...pulse, commit: false, questions: undefined });
+    }, 15_000);
 
     try {
-      const parsed = extractJsonObject(chat.content) as {
-        questions?: Array<{
-          questionKey?: string;
-          topic?: string;
-          itemType?: string;
-          questionCategory?: string;
-          maxScore?: number;
-          assessmentObjective?: string;
-          difficultyPoints?: string;
-          /** Accept alternate keys some models invent. */
-          objective?: string;
-          difficulty?: string;
-          hardPoints?: string;
-        }>;
-      };
-      const questions = (parsed.questions ?? [])
-        .filter((q) => q.questionKey && q.topic && q.itemType)
-        .map((q) => ({
-          questionKey: String(q.questionKey),
-          topic: String(q.topic),
-          itemType: String(q.itemType),
-          questionCategory: String(q.questionCategory || "").trim(),
-          maxScore: Number(q.maxScore) || 1,
-          assessmentObjective: String(
-            q.assessmentObjective || q.objective || "",
-          ).trim(),
-          difficultyPoints: String(
-            q.difficultyPoints || q.difficulty || q.hardPoints || "",
-          ).trim(),
-        }));
-      if (questions.length === 0) {
-        throw new AppError(ANALYSIS_FAILED_GENERIC, 502, "llm_no_questions");
+    await report({
+      stage: "reading",
+      completed: 0,
+      total: 0,
+      questionKey: null,
+      partKeys: [],
+      note: null,
+      commit: false,
+    });
+
+    const assetParts = await this.assetParts(input.assetRefs);
+    const request = structureChatRequest(llmModel, input, assetParts);
+    let buffer = "";
+    let emitted = 0;
+    let total = 0;
+    const questions: FlatStructureQuestion[] = [];
+    let finishReason = "";
+
+    const absorb = async (text: string) => {
+      buffer = text;
+      const digested = digestStructureBuffer(buffer, emitted);
+      total = Math.max(total, digested.total);
+      for (const item of digested.fresh) {
+        emitted += 1;
+        total = Math.max(total, emitted);
+        questions.push(...item.rows);
+        await report({
+          stage: "question",
+          completed: emitted,
+          total,
+          questionKey: item.questionKey,
+          partKeys: item.partKeys,
+          note: item.note || null,
+          commit: true,
+          questions: item.rows,
+        });
       }
-      return {
-        llmModel: chat.llmModel || llmModel,
-        questions,
-        rawModelText: chat.content,
-      };
+      return digested;
+    };
+
+    try {
+      let lastDraftAt = 0;
+      for await (const delta of this.chatDeltas(request)) {
+        if (delta.finishReason) finishReason = delta.finishReason;
+        if (delta.reasoning) {
+          const now = Date.now();
+          if (now - lastDraftAt > 800) {
+            lastDraftAt = now;
+            await report({
+              stage: "receiving",
+              completed: emitted,
+              total,
+              questionKey: null,
+              partKeys: [],
+              note: delta.reasoning.slice(-180),
+              commit: false,
+            });
+          }
+          continue;
+        }
+        if (!delta.text) continue;
+        buffer += delta.text;
+        const digested = await absorb(buffer);
+        if (digested.draft && Date.now() - lastDraftAt > 700) {
+          lastDraftAt = Date.now();
+          await report({
+            stage: "receiving",
+            completed: emitted,
+            total: Math.max(total, digested.total),
+            questionKey: digested.draft.questionKey,
+            partKeys: [],
+            note: digested.draft.note,
+            commit: false,
+          });
+        }
+      }
     } catch (error) {
-      if (error instanceof AppError) throw error;
+      if (!buffer.trim()) {
+        const chat = await this.chat(request);
+        buffer = chat.content;
+        llmModel = chat.llmModel || llmModel;
+      } else if (error instanceof AppError && error.code !== "llm_http_error") {
+        throw error;
+      }
+    }
+
+    if (buffer.trim()) {
+      await absorb(buffer);
+    }
+
+    if (questions.length === 0 && buffer.trim()) {
+      try {
+        const parsed = flattenStructurePayload(extractJsonObject(buffer));
+        if (parsed.length > 0) {
+          const grouped = new Map<string, FlatStructureQuestion[]>();
+          for (const row of parsed) {
+            const list = grouped.get(row.parentKey) ?? [];
+            list.push(row);
+            grouped.set(row.parentKey, list);
+          }
+          for (const [questionKey, rows] of grouped) {
+            emitted += 1;
+            questions.push(...rows);
+            await report({
+              stage: "question",
+              completed: emitted,
+              total: Math.max(total, grouped.size),
+              questionKey,
+              partKeys: rows.map((row) => row.partKey).filter(Boolean),
+              note: null,
+              commit: true,
+              questions: rows,
+            });
+          }
+          total = Math.max(total, grouped.size);
+        }
+      } catch (error) {
+        if (error instanceof AppError) throw error;
+        throw new AppError(sanitizeVendorLeak(ANALYSIS_FAILED_GENERIC), 502, "llm_parse_error");
+      }
+    }
+
+    if (questions.length === 0) {
+      throw new AppError(ANALYSIS_FAILED_GENERIC, 502, "llm_no_questions");
+    }
+    if (finishReason === "length" && (total === 0 || total > emitted)) {
       throw new AppError(
-        sanitizeVendorLeak(ANALYSIS_FAILED_GENERIC),
+        "分析未完成，試卷題目未能全部抽出，請再試一次。",
         502,
-        "llm_parse_error",
+        "llm_truncated",
       );
+    }
+
+    return {
+      llmModel,
+      questions,
+      rawModelText: buffer,
+    };
+    } finally {
+      clearInterval(beat);
     }
   }
 
@@ -421,38 +607,135 @@ export class OpenRouterLlmClient implements LlmClient {
   }
 }
 
+const DEMO_STRUCTURE_RAW: Array<Record<string, unknown>> = [
+  {
+    questionKey: "1",
+    workingNote: "核對第 1 題是否有 (a)(b)，並抄下題幹。",
+    stem: "解下列方程，並寫出檢驗步驟。",
+    topic: "algebra",
+    itemType: "calculation",
+    questionCategory: "計算題",
+    maxScore: 6,
+    assessmentObjective: "考核能否正確應用一次方程求解並檢驗。",
+    difficultyPoints: "易忽略單位換算或符號錯誤。",
+    parts: [
+      {
+        partKey: "a",
+        prompt: "求 2x + 3 = 11 的解。",
+        maxScore: 2,
+        itemType: "calculation",
+        assessmentObjective: "考核移項與基本運算。",
+        difficultyPoints: "移項時符號容易寫錯。",
+      },
+      {
+        partKey: "b",
+        prompt: "把 (a) 的答案代回方程，說明它是否正確。",
+        maxScore: 4,
+        itemType: "short",
+        assessmentObjective: "考核檢驗答案的習慣。",
+        difficultyPoints: "學生往往只寫答案，沒有代回原式。",
+      },
+    ],
+  },
+  {
+    questionKey: "2",
+    workingNote: "第 2 題沒有分題，抄錄整題並列出幾何推理難點。",
+    stem: "如圖，AB = AC，∠ABC = 50°。求 ∠BAC。",
+    topic: "geometry",
+    itemType: "short",
+    questionCategory: "應用題",
+    maxScore: 4,
+    assessmentObjective: "考核等腰三角形底角相等的推理。",
+    difficultyPoints: "需正確選用等腰三角形底角，步驟易缺漏。",
+    parts: [
+      {
+        partKey: "",
+        prompt: "如圖，AB = AC，∠ABC = 50°。求 ∠BAC。",
+        maxScore: 4,
+        itemType: "short",
+      },
+    ],
+  },
+];
+
+function structureChatRequest(
+  llmModel: string,
+  input: AnalyzeExamStructureInput,
+  parts: LlmContentPart[],
+): LlmChatRequest {
+  const hasSyllabus = input.assetRefs.some((ref) => ref.kind === "SYLLABUS");
+  const system = `${(input.systemPrompt?.trim() || DEFAULT_SYSTEM_PROMPTS.exam_structure).trim()}\n\n${STRUCTURE_PROMPT_ADDENDUM}`;
+  return {
+    model: llmModel,
+    temperature: 0.1,
+    maxTokens: 16384,
+    responseFormat: "json_object",
+    messages: [
+      { role: "system", content: system },
+      {
+        role: "user",
+        content: [
+          {
+            type: "text",
+            text:
+              `Extract the full question paper for exam ${input.examId}. ` +
+              "Include every numbered question and every part (a), (b), (c). Copy the question wording in full. " +
+              "For each question include 題型 (itemType), 題目種類 (questionCategory), 考核要求 (assessmentObjective), and 難點 (difficultyPoints)." +
+              (hasSyllabus ? " Follow the attached syllabus." : ""),
+          },
+          ...parts,
+        ],
+      },
+    ],
+  };
+}
+
+async function emitProgress(
+  input: AnalyzeExamStructureInput,
+  update: StructureProgressUpdate,
+): Promise<void> {
+  await input.onProgress?.(update);
+}
+
+async function playDemoStructure(
+  llmModel: string,
+  onProgress: AnalyzeExamStructureInput["onProgress"],
+): Promise<AnalyzeExamStructureResult> {
+  const total = DEMO_STRUCTURE_RAW.length;
+  await onProgress?.({
+    stage: "reading",
+    completed: 0,
+    total,
+    questionKey: null,
+    partKeys: [],
+    note: null,
+    commit: false,
+  });
+  const questions: FlatStructureQuestion[] = [];
+  let completed = 0;
+  for (const raw of DEMO_STRUCTURE_RAW) {
+    await sleep(400);
+    const rows = flattenRawQuestion(raw);
+    completed += 1;
+    questions.push(...rows);
+    await onProgress?.({
+      stage: "question",
+      completed,
+      total,
+      questionKey: rows[0]?.parentKey ?? null,
+      partKeys: rows.map((row) => row.partKey).filter(Boolean),
+      note: typeof raw.workingNote === "string" ? raw.workingNote : null,
+      commit: true,
+      questions: rows,
+    });
+  }
+  return { llmModel, questions, rawModelText: '{"demo":true}' };
+}
+
 function demoStructureResult(llmModel: string): AnalyzeExamStructureResult {
   return {
     llmModel,
-    questions: [
-      {
-        questionKey: "Q1",
-        topic: "algebra",
-        itemType: "mcq",
-        questionCategory: "概念題",
-        maxScore: 2,
-        assessmentObjective: "考核能否正確應用一次方程求解。",
-        difficultyPoints: "易忽略單位換算或符號錯誤。",
-      },
-      {
-        questionKey: "Q2",
-        topic: "geometry",
-        itemType: "short",
-        questionCategory: "應用題",
-        maxScore: 4,
-        assessmentObjective: "考核平面幾何推理與定理應用。",
-        difficultyPoints: "需正確選用相似／全等條件，步驟易缺漏。",
-      },
-      {
-        questionKey: "Q3",
-        topic: "algebra",
-        itemType: "calculation",
-        questionCategory: "計算題",
-        maxScore: 6,
-        assessmentObjective: "考核多步驟代數運算與檢驗答案。",
-        difficultyPoints: "展開與因式分解易出錯；未驗算。",
-      },
-    ],
+    questions: DEMO_STRUCTURE_RAW.flatMap((item) => flattenRawQuestion(item)),
     rawModelText: '{"demo":true}',
   };
 }

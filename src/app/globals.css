@@ -678,6 +678,10 @@ body {
     background: var(--color-primary);
     transition: width var(--motion-slow) var(--ease-out);
   }
+  .progress > span.is-indeterminate {
+    width: 40%;
+    animation: progress-indeterminate 1.3s ease-in-out infinite;
+  }
 
   /* Skeleton */
   .skeleton {
@@ -831,6 +835,15 @@ body {
   }
   50% {
     opacity: 0.6;
+  }
+}
+
+@keyframes progress-indeterminate {
+  0% {
+    transform: translateX(-70%);
+  }
+  100% {
+    transform: translateX(280%);
   }
 }
 

@@ -11,9 +11,13 @@
 
 import type { AnalysisJobKind, Prisma } from "@prisma/client";
 import { refreshSubjectAggregates } from "@/lib/aggregates/weakness";
+import { coerceFlatQuestion, type FlatStructureQuestion } from "@/lib/exams/structure-questions";
 import { AppError, ANALYSIS_FAILED_GENERIC, sanitizeVendorLeak } from "@/lib/errors";
 import { createLlmClient } from "@/lib/llm";
+import type { StructureProgressUpdate } from "@/lib/llm/types";
 import { resolveSystemPrompt } from "@/lib/llm/system-prompts";
+import { saveJobProgress } from "@/lib/jobs/job-progress";
+import { emptyAnalysisProgress, type AnalysisProgress } from "@/lib/jobs/progress-types";
 import { prisma } from "@/lib/prisma";
 import { resolveAnalysisLlmModelForNewJob } from "@/lib/school-settings";
 import { getSubjectSyllabus } from "@/lib/subjects/syllabus";
@@ -250,6 +254,14 @@ async function runExamStructure(
 
   const llm = createLlmClient();
   const structurePrompt = await resolveSystemPrompt(schoolId, "exam_structure");
+  let progress = emptyAnalysisProgress();
+  const publish = async (next: AnalysisProgress) => {
+    progress = next;
+    await saveJobProgress(jobId, progress);
+  };
+  await publish(progress);
+  let progressChain = Promise.resolve();
+
   const result = await llm.analyzeExamStructure({
     schoolId,
     examId,
@@ -271,6 +283,20 @@ async function runExamStructure(
           ]
         : []),
     ],
+    onProgress: (update) => {
+      progressChain = progressChain.then(() =>
+        applyStructureProgress(publish, () => progress, update),
+      );
+      return progressChain;
+    },
+  });
+
+  await publish({
+    ...progress,
+    stage: "saving",
+    completed: progress.total > 0 ? progress.total : progress.completed,
+    note: null,
+    updatedAt: new Date().toISOString(),
   });
 
   // Schema has no ExamStructure table — cache questions on disk for scoring.
@@ -439,15 +465,42 @@ async function runSubmissionScoring(
 }
 
 /** In-memory + DB-backed structure cache (survives via ExamStructureBlob table avoidance). */
-type QuestionShape = {
-  questionKey: string;
-  topic: string;
-  itemType: string;
-  questionCategory: string;
-  maxScore: number;
-  assessmentObjective: string;
-  difficultyPoints: string;
-};
+type QuestionShape = FlatStructureQuestion;
+
+async function applyStructureProgress(
+  publish: (next: AnalysisProgress) => Promise<void>,
+  current: () => AnalysisProgress,
+  update: StructureProgressUpdate,
+): Promise<void> {
+  const prev = current();
+  const note = update.note ? sanitizeVendorLeak(update.note).slice(0, 280) : null;
+  const questions = update.questions ? [...prev.questions, ...update.questions] : prev.questions;
+  const log = update.commit
+    ? [
+        ...prev.log,
+        {
+          at: new Date().toISOString(),
+          questionKey: update.questionKey,
+          partKeys: update.partKeys,
+          note: note ?? "",
+          completed: update.completed,
+          total: update.total,
+        },
+      ].slice(-40)
+    : prev.log;
+  await publish({
+    stage: update.stage,
+    completed: update.completed,
+    total: update.total,
+    questionKey: update.questionKey,
+    partKeys: update.partKeys,
+    note,
+    updatedAt: new Date().toISOString(),
+    startedAt: prev.startedAt,
+    log,
+    questions,
+  });
+}
 
 /**
  * Persist exam structure JSON on AnalysisJob is not in schema.
@@ -476,17 +529,11 @@ const structureCache = {
       );
       const parsed = JSON.parse(raw) as Array<Partial<QuestionShape>>;
       if (!Array.isArray(parsed)) return null;
-      return parsed
-        .filter((q) => q.questionKey && q.topic && q.itemType)
-        .map((q) => ({
-          questionKey: String(q.questionKey),
-          topic: String(q.topic),
-          itemType: String(q.itemType),
-          questionCategory: String(q.questionCategory ?? "").trim(),
-          maxScore: Number(q.maxScore) || 1,
-          assessmentObjective: String(q.assessmentObjective ?? "").trim(),
-          difficultyPoints: String(q.difficultyPoints ?? "").trim(),
-        }));
+      const questions = parsed.flatMap((item) => {
+        const row = coerceFlatQuestion(item);
+        return row ? [row] : [];
+      });
+      return questions.length > 0 ? questions : null;
     } catch {
       return null;
     }
