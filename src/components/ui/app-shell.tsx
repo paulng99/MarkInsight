@@ -129,7 +129,7 @@ export function AppShell({
 
   return (
     <div className="page-bg flex min-h-full flex-1">
-      <aside className="workspace-sidebar sticky top-0 hidden h-screen shrink-0 flex-col border-r border-[var(--border)] bg-[var(--surface)]/80 backdrop-blur md:flex">
+      <aside className="workspace-sidebar no-print sticky top-0 hidden h-screen shrink-0 flex-col border-r border-[var(--border)] bg-[var(--surface)]/80 backdrop-blur md:flex">
         <div className="sidebar-brand flex">
           <BrandLogo href={home} wordmarkClassName="sidebar-wordmark sidebar-expanded-only" />
         </div>
@@ -151,7 +151,7 @@ export function AppShell({
       </aside>
 
       <div className="flex min-w-0 flex-1 flex-col">
-        <header className="glass sticky top-0 z-20 border-b border-[var(--border)] md:hidden">
+        <header className="glass no-print sticky top-0 z-20 border-b border-[var(--border)] md:hidden">
           <div className="flex items-center justify-between gap-3 px-4 py-3">
             <BrandLogo href={home} />
             <div className="flex items-center gap-2">

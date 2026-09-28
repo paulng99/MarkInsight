@@ -340,6 +340,10 @@ model Submission {
   /// Model id/name used for the latest successful submission scoring (persist always when scored).
   /// Product UI must not show vendor names — store model id only.
   scoringLlmModel String?
+  /// Whole-paper revision order the student should follow. Traditional Chinese (Hong Kong).
+  studyFocusZh String @default("") @db.Text
+  /// Whole-paper revision order the student should follow. English.
+  studyFocusEn String @default("") @db.Text
   createdAt   DateTime         @default(now())
   updatedAt   DateTime         @updatedAt
 
@@ -399,8 +403,20 @@ model QuestionScore {
   itemType     String
   score        Float
   maxScore     Float
-  /// Optional LLM/short feedback; keep free of unnecessary PII.
+  /// Optional short comment; the study sections below are the revision report.
   feedback     String?
+  /// What this answer got right. Traditional Chinese (Hong Kong).
+  didWellZh    String @default("") @db.Text
+  didWellEn    String @default("") @db.Text
+  /// The specific gap in this answer. Traditional Chinese (Hong Kong) and English.
+  weaknessZh   String @default("") @db.Text
+  weaknessEn   String @default("") @db.Text
+  /// Concrete slips to avoid next time.
+  mistakesToWatchZh String @default("") @db.Text
+  mistakesToWatchEn String @default("") @db.Text
+  /// Steps the student can practise for this question.
+  howToImproveZh String @default("") @db.Text
+  howToImproveEn String @default("") @db.Text
   createdAt    DateTime   @default(now())
   updatedAt    DateTime   @updatedAt
 

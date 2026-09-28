@@ -5,6 +5,7 @@ import { useCallback, useEffect, useState } from "react";
 import { countLabel, type Dictionary, type Locale } from "@/lib/i18n/dictionaries";
 import { JobStatusBadge } from "@/components/jobs/job-status-badge";
 import { ExpandableScoreCards } from "@/components/results/expandable-score-cards";
+import { StudyFocusCard } from "@/components/results/study-report";
 import { ResultSummary, summarize, topicRatios } from "@/components/results/result-summary";
 import { TopicChartStub } from "@/components/results/topic-chart-stub";
 import { Alert, EmptyState, LoadingBlock } from "@/components/ui/feedback";
@@ -16,6 +17,8 @@ type SubmissionDetail = {
   status: string;
   errorMessage: string | null;
   scoringLlmModel: string | null;
+  studyFocusZh?: string | null;
+  studyFocusEn?: string | null;
   exam: {
     id: string;
     title: string;
@@ -30,6 +33,14 @@ type SubmissionDetail = {
     score: number;
     maxScore: number;
     feedback?: string | null;
+    didWellZh?: string | null;
+    didWellEn?: string | null;
+    weaknessZh?: string | null;
+    weaknessEn?: string | null;
+    mistakesToWatchZh?: string | null;
+    mistakesToWatchEn?: string | null;
+    howToImproveZh?: string | null;
+    howToImproveEn?: string | null;
   }>;
   aggregates: Array<{
     topic: string;
@@ -193,22 +204,48 @@ export function StudentResultView({
               <ResultSummary summary={summary} t={t} />
             </div>
           ) : null}
+          <StudyFocusCard
+            locale={locale}
+            t={t}
+            zh={detail.studyFocusZh}
+            en={detail.studyFocusEn}
+          />
           <div className="card card-pad animate-fade-up-delay-2">
-            <TopicChartStub data={chartData} t={t} intensity="high" />
+            <SectionHeader
+              icon={<Icon.BookOpen size={18} />}
+              title={t.studyReportTitle}
+              description={t.studyReportIntro}
+              className="mb-4"
+              actions={
+                <button
+                  type="button"
+                  className="btn btn-secondary btn-sm no-print"
+                  onClick={() => window.print()}
+                >
+                  <Icon.FileText size={14} />
+                  {t.studyPrint}
+                </button>
+              }
+            />
+            <p className="mb-3 text-xs text-[var(--muted)]">
+              {countLabel(detail.questionScores.length, t.questionsCount, t.questionsCountOne)}
+            </p>
+            <ExpandableScoreCards
+              key={detail.id}
+              scores={detail.questionScores}
+              t={t}
+              locale={locale}
+              colorful
+              initiallyOpen="all"
+            />
           </div>
           <div className="card card-pad animate-fade-up-delay-3">
-            <SectionHeader
-              icon={<Icon.Layers size={18} />}
-              title={t.expandScores}
-              description={countLabel(detail.questionScores.length, t.questionsCount, t.questionsCountOne)}
-              className="mb-4"
-            />
-            <ExpandableScoreCards scores={detail.questionScores} t={t} colorful />
+            <TopicChartStub data={chartData} t={t} intensity="high" />
           </div>
         </>
       ) : null}
 
-      <Link href={`/student?locale=${locale}`} className="link-muted inline-flex items-center gap-1 text-sm">
+      <Link href={`/student?locale=${locale}`} className="link-muted no-print inline-flex items-center gap-1 text-sm">
         <Icon.ArrowLeft size={14} />
         {t.studentNavHome}
       </Link>

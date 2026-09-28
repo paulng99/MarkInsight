@@ -465,6 +465,14 @@ async function runSubmissionScoring(
           score: s.score,
           maxScore: s.maxScore,
           feedback: s.feedback ?? null,
+          didWellZh: s.didWellZh,
+          didWellEn: s.didWellEn,
+          weaknessZh: s.weaknessZh,
+          weaknessEn: s.weaknessEn,
+          mistakesToWatchZh: s.mistakesToWatchZh,
+          mistakesToWatchEn: s.mistakesToWatchEn,
+          howToImproveZh: s.howToImproveZh,
+          howToImproveEn: s.howToImproveEn,
         })),
       });
     }
@@ -474,6 +482,8 @@ async function runSubmissionScoring(
       data: {
         status: "DONE",
         scoringLlmModel: result.llmModel,
+        studyFocusZh: result.studyFocusZh,
+        studyFocusEn: result.studyFocusEn,
         analyzedAt: new Date(),
         errorMessage: null,
       },

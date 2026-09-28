@@ -12,6 +12,7 @@ import {
   type DigestedQuestion,
   type FlatStructureQuestion,
 } from "@/lib/exams/structure-questions";
+import { buildDemoStudyReport, parseSubmissionScorePayload } from "@/lib/exams/study-report";
 import type {
   AnalyzeExamStructureInput,
   AnalyzeExamStructureResult,
@@ -34,7 +35,7 @@ import {
   AppError,
   sanitizeVendorLeak,
 } from "@/lib/errors";
-import { DEFAULT_SYSTEM_PROMPTS } from "@/lib/llm/system-prompts";
+import { DEFAULT_SYSTEM_PROMPTS, SCORING_PROMPT_ADDENDUM } from "@/lib/llm/system-prompts";
 import { rasterizeScanPages, type ScanPage } from "@/lib/exams/pdf-page-images";
 import { readSyllabusExcerpt } from "@/lib/exams/syllabus-excerpt";
 import { getObjectBytes, isImageMime, isPdfMime, toDataUrl } from "@/lib/storage";
@@ -1036,13 +1037,16 @@ export class OpenRouterLlmClient implements LlmClient {
 
     const parts = await this.assetParts(input.assetRefs);
 
+    const system = `${(input.systemPrompt?.trim() || DEFAULT_SYSTEM_PROMPTS.submission_scoring).trim()}\n\n${SCORING_PROMPT_ADDENDUM}`;
     const chat = await this.chat({
       model: llmModel,
+      temperature: 0.2,
+      maxTokens: 16384,
       responseFormat: "json_object",
       messages: [
         {
           role: "system",
-          content: input.systemPrompt?.trim() || DEFAULT_SYSTEM_PROMPTS.submission_scoring,
+          content: system,
         },
         {
           role: "user",
@@ -1050,8 +1054,10 @@ export class OpenRouterLlmClient implements LlmClient {
             {
               type: "text",
               text:
-                `Score submission ${input.submissionId} for exam ${input.examId}. ` +
-                `Questions (with 考核目的 / 難點 when available): ${JSON.stringify(input.questions)}`,
+                `Score every question on submission ${input.submissionId} for exam ${input.examId}. ` +
+                "Write a revision report the student can study from. " +
+                "For each question, use assessmentObjective and difficultyPoints when present, then say what this student did well, the specific weakness, the mistakes to watch next time, and how to improve. " +
+                `Questions: ${JSON.stringify(input.questions)}`,
             },
             ...parts,
           ],
@@ -1060,36 +1066,15 @@ export class OpenRouterLlmClient implements LlmClient {
     });
 
     try {
-      const parsed = extractJsonObject(chat.content) as {
-        scores?: Array<{
-          questionKey?: string;
-          topic?: string;
-          itemType?: string;
-          score?: number;
-          maxScore?: number;
-          feedback?: string;
-        }>;
-      };
-      const byKey = new Map(input.questions.map((q) => [q.questionKey, q]));
-      const scores = (parsed.scores ?? [])
-        .filter((s) => s.questionKey && byKey.has(String(s.questionKey)))
-        .map((s) => {
-          const q = byKey.get(String(s.questionKey))!;
-          return {
-            questionKey: q.questionKey,
-            topic: String(s.topic || q.topic),
-            itemType: String(s.itemType || q.itemType),
-            score: Math.max(0, Number(s.score) || 0),
-            maxScore: Number(s.maxScore) || q.maxScore,
-            feedback: s.feedback ? String(s.feedback) : undefined,
-          };
-        });
-      if (scores.length === 0) {
+      const parsed = parseSubmissionScorePayload(extractJsonObject(chat.content), input.questions);
+      if (parsed.scores.length === 0) {
         throw new AppError(ANALYSIS_FAILED_GENERIC, 502, "llm_no_scores");
       }
       return {
         llmModel: chat.llmModel || llmModel,
-        scores,
+        studyFocusZh: parsed.studyFocusZh,
+        studyFocusEn: parsed.studyFocusEn,
+        scores: parsed.scores,
         rawModelText: chat.content,
       };
     } catch (error) {
@@ -1256,16 +1241,12 @@ function demoScoreResult(
     questions.length > 0
       ? questions
       : demoStructureResult(llmModel).questions;
+  const report = buildDemoStudyReport(list);
   return {
     llmModel,
-    scores: list.map((q, i) => ({
-      questionKey: q.questionKey,
-      topic: q.topic,
-      itemType: q.itemType,
-      score: Math.max(0, q.maxScore - (i % 3)),
-      maxScore: q.maxScore,
-      feedback: i === 0 ? "Clear working." : "Review this topic.",
-    })),
+    studyFocusZh: report.studyFocusZh,
+    studyFocusEn: report.studyFocusEn,
+    scores: report.scores,
     rawModelText: '{"demo":true}',
   };
 }

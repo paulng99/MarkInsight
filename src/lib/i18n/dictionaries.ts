@@ -199,7 +199,7 @@ const dictionaries = {
       "Used when reading the question paper and answer key. Write the instructions here; put the required JSON below.",
     settingsPromptScoring: "Answer script scoring",
     settingsPromptScoringHelp:
-      "Used when scoring a student script. Write the instructions here; put the required JSON below.",
+      "Used when scoring a student script. Every question needs what went well, the weakness, mistakes to watch, and how to improve, in Traditional Chinese (Hong Kong) and English. Write the instructions here; put the required JSON below.",
     settingsPromptOutputSchema: "Required JSON",
     settingsPromptOutputSchemaHelp:
       "The model must reply with this JSON only. Keep every required field.",
@@ -468,6 +468,16 @@ const dictionaries = {
     chartStubHint: "Tap a bar to highlight a topic.",
     expandScores: "Question scores",
     noScoresYet: "No scores yet.",
+    studyReportTitle: "Revision report",
+    studyReportIntro:
+      "Each question shows what went well, the weakness, mistakes to watch, and how to improve. Take this report with you when you revise.",
+    studyFocusTitle: "Revise these first",
+    studyOverview: "This question",
+    studyDidWell: "What went well",
+    studyWeakness: "Weakness",
+    studyMistakes: "Mistakes to watch",
+    studyImprove: "How to improve",
+    studyPrint: "Print revision report",
     teacherNavExams: "Exams",
     studentNavHome: "My exams",
     latestJob: "Latest job",
@@ -680,7 +690,7 @@ const dictionaries = {
       "閱讀試題紙與答案時使用。指示寫在這裡；必須回傳的 JSON 請填在下方。",
     settingsPromptScoring: "答卷評分",
     settingsPromptScoringHelp:
-      "評分學生答卷時使用。指示寫在這裡；必須回傳的 JSON 請填在下方。",
+      "評分學生答卷時使用。每一題都要寫出做得好的地方、弱點、要小心的錯誤，以及如何改善，並同時提供繁體中文（香港）及英文。指示寫在這裡；必須回傳的 JSON 請填在下方。",
     settingsPromptOutputSchema: "必須回傳的 JSON",
     settingsPromptOutputSchemaHelp:
       "模型只可回傳此 JSON。請保留所有必須欄位。",
@@ -938,6 +948,16 @@ const dictionaries = {
     chartStubHint: "點擊長條以醒目顯示課題。",
     expandScores: "分題分數",
     noScoresYet: "尚未有分數。",
+    studyReportTitle: "溫習報告",
+    studyReportIntro:
+      "每一題都會寫出做得好的地方、弱點、要小心的錯誤，以及可以怎樣改善。可以帶着這份報告溫習。",
+    studyFocusTitle: "優先溫習",
+    studyOverview: "這一題",
+    studyDidWell: "做得好",
+    studyWeakness: "弱點",
+    studyMistakes: "要小心的錯誤",
+    studyImprove: "如何改善",
+    studyPrint: "列印溫習報告",
     teacherNavExams: "試卷",
     studentNavHome: "我的試卷",
     latestJob: "最新工作",

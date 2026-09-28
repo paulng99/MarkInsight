@@ -117,6 +117,9 @@ export type ScoreSubmissionInput = {
 export type ScoreSubmissionResult = {
   /** Model id used for this scoring — must be persisted (Submission.scoringLlmModel + AnalysisJob.llmModel). */
   llmModel: string;
+  /** Whole-paper revision order, Traditional Chinese (Hong Kong) and English. */
+  studyFocusZh: string;
+  studyFocusEn: string;
   scores: Array<{
     questionKey: string;
     topic: string;
@@ -124,6 +127,14 @@ export type ScoreSubmissionResult = {
     score: number;
     maxScore: number;
     feedback?: string;
+    didWellZh: string;
+    didWellEn: string;
+    weaknessZh: string;
+    weaknessEn: string;
+    mistakesToWatchZh: string;
+    mistakesToWatchEn: string;
+    howToImproveZh: string;
+    howToImproveEn: string;
   }>;
   rawModelText?: string;
 };
