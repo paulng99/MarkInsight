@@ -1,15 +1,15 @@
 /**
- * OpenRouter model allowlist for school analysis settings.
+ * OpenRouter model allowlist helpers (env filter + defaults).
  *
- * SchoolSettings.analysisLlmModel MUST be one of these ids (never free-text).
- * Source of truth: env `OPENROUTER_MODEL_ALLOWLIST` (comma-separated), else
- * the built-in DEFAULT_OPENROUTER_MODEL_ALLOWLIST constant below.
+ * Live catalog lives in `@/lib/llm/openrouter-models`.
+ * When `OPENROUTER_MODEL_ALLOWLIST` is set, admin pickers are restricted to those ids.
+ * When empty, the live gateway catalog is used (with this default list as fallback).
  *
  * API keys (OPENROUTER_API_KEY / JINA_API_KEY) stay env-only — never in UI or DB.
  */
 
 /**
- * Fallback allowlist when env is empty.
+ * Fallback allowlist when the live catalog is unavailable and env is empty.
  * Prefer multimodal models that accept PDF `file` parts and are available in HK
  * (Gemini / GPT often geo-blocked via OpenRouter from Hong Kong).
  */
@@ -31,22 +31,26 @@ export function parseOpenRouterModelAllowlist(
   return [...DEFAULT_OPENROUTER_MODEL_ALLOWLIST];
 }
 
+/**
+ * Env-configured filter only (null when OPENROUTER_MODEL_ALLOWLIST is unset/empty).
+ * Does not fall back to DEFAULT — that is for offline catalog fallback only.
+ */
+export function getConfiguredModelAllowlistFilter(): string[] | null {
+  const raw = process.env.OPENROUTER_MODEL_ALLOWLIST;
+  if (raw === undefined || raw.trim() === "") return null;
+  const fromEnv = raw
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean);
+  return fromEnv.length > 0 ? fromEnv : null;
+}
+
+/** @deprecated Prefer listAnalysisModelChoices() from openrouter-models. */
 export function getOpenRouterModelAllowlist(): string[] {
   return parseOpenRouterModelAllowlist();
 }
 
-export function isAllowedAnalysisModel(modelId: string): boolean {
+/** Sync check against env/default list only (legacy). Prefer async catalog assert. */
+export function isAllowedAnalysisModelSync(modelId: string): boolean {
   return getOpenRouterModelAllowlist().includes(modelId);
-}
-
-/**
- * Validate analysis model for SchoolSettings write.
- * @throws Error if modelId is not on the allowlist
- */
-export function assertAllowedAnalysisModel(modelId: string): void {
-  if (!isAllowedAnalysisModel(modelId)) {
-    throw new Error(
-      `analysisLlmModel "${modelId}" is not in the analysis model allowlist`,
-    );
-  }
 }

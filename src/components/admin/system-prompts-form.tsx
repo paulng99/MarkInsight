@@ -1,11 +1,14 @@
 "use client";
 
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { Alert } from "@/components/ui/feedback";
 import { Icon } from "@/components/ui/icons";
 import type { Dictionary, Locale } from "@/lib/i18n/dictionaries";
 import type { SystemPromptKey } from "@/lib/llm/system-prompts";
-import type { SystemPromptSettingDto } from "@/lib/school-settings/types";
+import type {
+  AnalysisModelChoiceDto,
+  SystemPromptSettingDto,
+} from "@/lib/school-settings/types";
 
 const PROMPT_FIELDS: Array<{
   key: SystemPromptKey;
@@ -29,6 +32,8 @@ type Props = {
   t: Dictionary;
   schoolId: string;
   initialPrompts: SystemPromptSettingDto[];
+  initialAnalysisLlmModel: string;
+  initialModelChoices: AnalysisModelChoiceDto[];
 };
 
 type PromptDraft = { body: string; outputSchema: string };
@@ -44,12 +49,49 @@ function toMap(prompts: SystemPromptSettingDto[]): Record<SystemPromptKey, Promp
   return map;
 }
 
-export function SystemPromptsForm({ locale, t, schoolId, initialPrompts }: Props) {
+function withCurrentModel(
+  choices: AnalysisModelChoiceDto[],
+  currentId: string,
+): AnalysisModelChoiceDto[] {
+  if (!currentId || choices.some((m) => m.id === currentId)) return choices;
+  return [
+    {
+      id: currentId,
+      name: currentId,
+      supportsFile: true,
+      supportsImage: true,
+    },
+    ...choices,
+  ];
+}
+
+export function SystemPromptsForm({
+  locale,
+  t,
+  schoolId,
+  initialPrompts,
+  initialAnalysisLlmModel,
+  initialModelChoices,
+}: Props) {
   const [prompts, setPrompts] = useState(() => toMap(initialPrompts));
+  const [analysisLlmModel, setAnalysisLlmModel] = useState(initialAnalysisLlmModel);
+  const [modelChoices] = useState(() =>
+    withCurrentModel(initialModelChoices, initialAnalysisLlmModel),
+  );
+  const [modelQuery, setModelQuery] = useState("");
   const [saving, setSaving] = useState(false);
   const [improvingKey, setImprovingKey] = useState<SystemPromptKey | null>(null);
   const [banner, setBanner] = useState<string | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+
+  const filteredModels = useMemo(() => {
+    const q = modelQuery.trim().toLowerCase();
+    if (!q) return modelChoices;
+    return modelChoices.filter(
+      (m) =>
+        m.id.toLowerCase().includes(q) || m.name.toLowerCase().includes(q),
+    );
+  }, [modelChoices, modelQuery]);
 
   async function onSave(e?: { preventDefault(): void }) {
     e?.preventDefault();
@@ -63,6 +105,7 @@ export function SystemPromptsForm({ locale, t, schoolId, initialPrompts }: Props
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           schoolId,
+          analysisLlmModel,
           systemPrompts: PROMPT_FIELDS.map((item) => ({
             key: item.key,
             body: prompts[item.key].body,
@@ -70,11 +113,16 @@ export function SystemPromptsForm({ locale, t, schoolId, initialPrompts }: Props
           })),
         }),
       });
-      const data = (await res.json()) as { error?: string; systemPrompts?: SystemPromptSettingDto[] };
+      const data = (await res.json()) as {
+        error?: string;
+        systemPrompts?: SystemPromptSettingDto[];
+        analysisLlmModel?: string;
+      };
       if (!res.ok) {
         throw new Error(data.error || t.settingsErrorSave);
       }
       if (data.systemPrompts) setPrompts(toMap(data.systemPrompts));
+      if (data.analysisLlmModel) setAnalysisLlmModel(data.analysisLlmModel);
       setBanner(t.settingsSuccess);
     } catch (err) {
       setErrorMessage(err instanceof Error ? err.message : t.settingsErrorSave);
@@ -115,11 +163,92 @@ export function SystemPromptsForm({ locale, t, schoolId, initialPrompts }: Props
     }
   }
 
+  const selectOptions = useMemo(() => {
+    const base =
+      filteredModels.length > 0
+        ? filteredModels
+        : modelChoices.filter((m) => m.id === analysisLlmModel);
+    if (analysisLlmModel && !base.some((m) => m.id === analysisLlmModel)) {
+      const current = modelChoices.find((m) => m.id === analysisLlmModel);
+      return [
+        current ?? {
+          id: analysisLlmModel,
+          name: analysisLlmModel,
+          supportsFile: true,
+          supportsImage: true,
+        },
+        ...base,
+      ];
+    }
+    return base;
+  }, [filteredModels, modelChoices, analysisLlmModel]);
+
   return (
     <form onSubmit={onSave} className="mt-8 space-y-6">
       <span className="sr-only">locale {locale}</span>
       {banner ? <Alert tone="success">{banner}</Alert> : null}
       {errorMessage ? <Alert tone="error">{errorMessage}</Alert> : null}
+
+      <section className="card card-pad">
+        <div className="flex items-start gap-3">
+          <span
+            className="icon-tile"
+            style={{ ["--tile-bg" as string]: "#e3f6f3", ["--tile-fg" as string]: "var(--teal-600)" }}
+          >
+            <Icon.Settings size={18} />
+          </span>
+          <div>
+            <h2 className="section-title">{t.settingsSectionModel}</h2>
+            <p className="mt-0.5 text-sm leading-relaxed text-[var(--muted)]">
+              {t.settingsFieldModelHelp}
+            </p>
+          </div>
+        </div>
+
+        <div className="mt-5 space-y-3">
+          <label className="label" htmlFor="model-search">
+            {t.settingsFieldModelSearch}
+          </label>
+          <input
+            id="model-search"
+            type="search"
+            value={modelQuery}
+            onChange={(e) => setModelQuery(e.target.value)}
+            placeholder={t.settingsFieldModelSearchPlaceholder}
+            className="input"
+            disabled={saving || improvingKey !== null}
+          />
+          <label className="label" htmlFor="analysis-model">
+            {t.settingsFieldModel}
+          </label>
+          <select
+            id="analysis-model"
+            required
+            value={analysisLlmModel}
+            onChange={(e) => setAnalysisLlmModel(e.target.value)}
+            className="select font-mono text-sm"
+            disabled={saving || improvingKey !== null || selectOptions.length === 0}
+          >
+            {selectOptions.map((model) => (
+              <option key={model.id} value={model.id}>
+                {model.name === model.id
+                  ? model.id
+                  : `${model.name} (${model.id})`}
+              </option>
+            ))}
+          </select>
+          <p className="text-xs leading-relaxed text-[var(--muted)]">
+            {modelQuery.trim()
+              ? t.settingsFieldModelFilteredCount
+                  .replace("{filtered}", String(filteredModels.length))
+                  .replace("{count}", String(modelChoices.length))
+              : t.settingsFieldModelCount.replace(
+                  "{count}",
+                  String(modelChoices.length),
+                )}
+          </p>
+        </div>
+      </section>
 
       <section className="card card-pad">
         <div className="flex items-start gap-3">
@@ -196,7 +325,11 @@ export function SystemPromptsForm({ locale, t, schoolId, initialPrompts }: Props
         </div>
 
         <div className="mt-6 flex justify-end">
-          <button type="submit" disabled={saving || improvingKey !== null} className="btn btn-primary">
+          <button
+            type="submit"
+            disabled={saving || improvingKey !== null || !analysisLlmModel}
+            className="btn btn-primary"
+          >
             {saving ? <Icon.Loader size={16} /> : <Icon.Check size={16} />}
             {saving ? t.settingsSaving : t.settingsSave}
           </button>

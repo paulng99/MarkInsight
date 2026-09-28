@@ -29,7 +29,8 @@ export type SchoolSettingsDto = {
   /** Denormalized year name for UI. */
   defaultSchoolYearName?: string | null;
   /**
-   * Must be a member of the analysis model allowlist.
+   * Must be a member of the analysis model catalog (gateway models, optionally
+   * filtered by OPENROUTER_MODEL_ALLOWLIST).
    * New analysis jobs use this; past results keep their stored llmModel.
    */
   analysisLlmModel: string;
@@ -55,6 +56,13 @@ export type UpsertSchoolSettingsInput = {
   systemPrompts?: SystemPromptSettingDto[];
 };
 
+export type AnalysisModelChoiceDto = {
+  id: string;
+  name: string;
+  supportsFile: boolean;
+  supportsImage: boolean;
+};
+
 /** Full admin settings page payload (GET). */
 export type SchoolSettingsPageDto = {
   schoolId: string;
@@ -62,7 +70,9 @@ export type SchoolSettingsPageDto = {
   settings: SchoolSettingsDto | null;
   schoolYears: SchoolYearDto[];
   teachers: TeacherAccountDto[];
+  /** @deprecated Prefer analysisModelChoices. */
   analysisModelAllowlist: string[];
+  analysisModelChoices: AnalysisModelChoiceDto[];
   systemPrompts: SystemPromptSettingDto[];
 };
 

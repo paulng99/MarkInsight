@@ -33,7 +33,7 @@ function fieldsFromPage(page: SchoolSettingsPageDto): FormFields {
       displayName: page.schoolName,
       contactNote: "",
       defaultSchoolYearId: page.schoolYears[0]?.id ?? "",
-      analysisLlmModel: page.analysisModelAllowlist[0] ?? "",
+      analysisLlmModel: page.analysisModelChoices?.[0]?.id ?? page.analysisModelAllowlist[0] ?? "",
       allowTeacherCreateStudents: false,
       allowTeacherUploadOnBehalf: false,
     };
@@ -147,7 +147,22 @@ export function SchoolSettingsForm({
   );
   const [schoolYears, setSchoolYears] = useState(initialPage?.schoolYears ?? []);
   const [teachers, setTeachers] = useState<TeacherAccountDto[]>(initialPage?.teachers ?? []);
-  const [allowlist, setAllowlist] = useState(initialPage?.analysisModelAllowlist ?? []);
+  const [allowlist, setAllowlist] = useState(
+    () =>
+      initialPage?.analysisModelChoices?.map((m) => m.id) ??
+      initialPage?.analysisModelAllowlist ??
+      [],
+  );
+  const [modelChoices, setModelChoices] = useState(
+    () =>
+      initialPage?.analysisModelChoices ??
+      (initialPage?.analysisModelAllowlist ?? []).map((id) => ({
+        id,
+        name: id,
+        supportsFile: true,
+        supportsImage: true,
+      })),
+  );
   const [schoolId, setSchoolId] = useState(initialPage?.schoolId ?? "");
   const [schoolName, setSchoolName] = useState(initialPage?.schoolName ?? "");
   const [saving, setSaving] = useState(false);
@@ -164,7 +179,18 @@ export function SchoolSettingsForm({
     setSchoolName(next.schoolName);
     setSchoolYears(next.schoolYears);
     setTeachers(next.teachers);
-    setAllowlist(next.analysisModelAllowlist);
+    setAllowlist(
+      next.analysisModelChoices?.map((m) => m.id) ?? next.analysisModelAllowlist,
+    );
+    setModelChoices(
+      next.analysisModelChoices ??
+        next.analysisModelAllowlist.map((id) => ({
+          id,
+          name: id,
+          supportsFile: true,
+          supportsImage: true,
+        })),
+    );
     setFields(fieldsFromPage(next));
     setState(next.settings ? "default" : "empty");
     setErrorMessage(null);
@@ -421,11 +447,15 @@ export function SchoolSettingsForm({
                 onChange={(e) => setFields((f) => ({ ...f, analysisLlmModel: e.target.value }))}
                 className="select font-mono text-sm"
               >
-                {allowlist.map((id) => (
-                  <option key={id} value={id}>
-                    {id}
-                  </option>
-                ))}
+                {(modelChoices.length > 0 ? modelChoices : allowlist.map((id) => ({ id, name: id }))).map(
+                  (model) => (
+                    <option key={model.id} value={model.id}>
+                      {"name" in model && model.name !== model.id
+                        ? `${model.name} (${model.id})`
+                        : model.id}
+                    </option>
+                  ),
+                )}
               </select>
             </div>
           </SettingsSection>
