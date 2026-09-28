@@ -145,7 +145,7 @@ const dictionaries = {
     manage: "Manage",
     settingsTitle: "School settings",
     settingsIntro:
-      "Configure this school once. Analysis model choices come from the allowlist; API keys stay in environment variables only.",
+      "Configure this school once. Analysis model choices come from the live catalog; API keys stay in environment variables only.",
     settingsSectionSchool: "School profile",
     settingsSectionYear: "Default school year",
     settingsSectionModel: "Analysis model",
@@ -177,7 +177,10 @@ const dictionaries = {
     settingsFieldYearAdd: "Add year",
     settingsFieldModel: "Analysis model",
     settingsFieldModelHelp:
-      "Only allowlisted models appear here. Changing the model affects new analysis jobs only; past results keep their stored model id.",
+      "Choose a multimodal analysis model from the live catalog. Changing the model affects new analysis jobs only; past results keep their stored model id.",
+    settingsFieldModelSearch: "Search models",
+    settingsFieldModelSearchPlaceholder: "Filter by name or id…",
+    settingsFieldModelCount: "{count} models available",
     settingsFieldTeacherStudents: "Allow teachers to create student accounts",
     settingsFieldTeacherUpload: "Allow teachers to upload on behalf of students",
     settingsTeachersIntro:
@@ -558,7 +561,7 @@ const dictionaries = {
     manage: "管理",
     settingsTitle: "學校設定",
     settingsIntro:
-      "一次設定此學校。分析模型只可從允許清單選擇；API 金鑰只存放於環境變數。",
+      "一次設定此學校。分析模型可從即時目錄選擇；API 金鑰只存放於環境變數。",
     settingsSectionSchool: "學校資料",
     settingsSectionYear: "預設學年",
     settingsSectionModel: "分析模型",
@@ -590,7 +593,10 @@ const dictionaries = {
     settingsFieldYearAdd: "新增學年",
     settingsFieldModel: "分析模型",
     settingsFieldModelHelp:
-      "只顯示允許清單內的模型。更改模型只影響新分析工作；過往結果保留已儲存的模型 id。",
+      "從即時模型目錄選擇支援多模態分析的模型。更改模型只影響新分析工作；過往結果保留已儲存的模型 id。",
+    settingsFieldModelSearch: "搜尋模型",
+    settingsFieldModelSearchPlaceholder: "以名稱或 id 篩選…",
+    settingsFieldModelCount: "共 {count} 個可用模型",
     settingsFieldTeacherStudents: "允許教師建立學生帳戶",
     settingsFieldTeacherUpload: "允許教師代學生上載呈交",
     settingsTeachersIntro:
