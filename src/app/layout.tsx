@@ -42,6 +42,7 @@ export default function RootLayout({
     <html
       lang="zh-HK"
       data-scroll-behavior="smooth"
+      suppressHydrationWarning
       className={`${notoSansHk.variable} ${displayFont.variable} h-full antialiased`}
     >
       <body className="min-h-full flex flex-col font-sans text-[var(--ink)]">

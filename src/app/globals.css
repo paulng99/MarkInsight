@@ -586,8 +586,12 @@ body {
     width: 16rem;
     padding: 1.25rem 1rem;
   }
-  .sidebar-expanded-only {
+  .sidebar-expanded-only,
+  .sidebar-user-meta {
     display: none;
+  }
+  .sidebar-nav-head {
+    justify-content: center;
   }
   html[data-sidebar="expanded"] .sidebar-wordmark {
     display: inline;
@@ -650,9 +654,8 @@ body {
     justify-content: flex-start;
     padding-inline: 0.5rem;
   }
-  html[data-sidebar="collapsed"] .sidebar-nav-head,
-  html:not([data-sidebar="expanded"]) .sidebar-nav-head {
-    justify-content: center;
+  html[data-sidebar="expanded"] .sidebar-nav-head {
+    justify-content: space-between;
   }
   @media (prefers-reduced-motion: reduce) {
     .workspace-sidebar {
