@@ -55,15 +55,28 @@ function UserBlock({
   t,
   locale,
   compact = false,
+  rail = false,
 }: {
   user: ShellUser;
   t: Dictionary;
   locale: Locale;
   compact?: boolean;
+  /** Icon rail below 1400px; full name from desktop width up. */
+  rail?: boolean;
 }) {
   const tone = roleTone[user.role];
   return (
-    <div className={`flex items-center gap-3 ${compact ? "" : "rounded-xl border border-[var(--border)] bg-[var(--surface)] p-3"}`}>
+    <div
+      className={`flex items-center gap-3 ${
+        compact
+          ? ""
+          : `rounded-xl border border-[var(--border)] bg-[var(--surface)] ${
+              rail
+                ? "flex-col px-1.5 py-2 min-[1400px]:flex-row min-[1400px]:p-3"
+                : "p-3"
+            }`
+      }`}
+    >
       <span
         className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-xs font-bold text-white ${tone.avatar}`}
         aria-hidden
@@ -71,7 +84,7 @@ function UserBlock({
         {initials(user)}
       </span>
       {compact ? null : (
-        <div className="min-w-0 flex-1">
+        <div className={`min-w-0 flex-1 ${rail ? "hidden min-[1400px]:block" : ""}`}>
           <p className="truncate text-sm font-semibold text-[var(--ink)]">
             {user.name || user.email}
           </p>
@@ -94,8 +107,10 @@ function UserBlock({
 }
 
 /**
- * Role workspace layout: persistent sidebar on large screens, compact
- * top bar + horizontal nav on small screens.
+ * Role workspace layout.
+ * Phone: top bar + horizontal nav.
+ * iPad widths (768–1399px): icon-only sidebar.
+ * Desktop (1400px+): labeled sidebar.
  */
 export function AppShell({
   user,
@@ -115,26 +130,29 @@ export function AppShell({
 
   return (
     <div className="page-bg flex min-h-full flex-1">
-      <aside className="sticky top-0 hidden h-screen w-64 shrink-0 flex-col border-r border-[var(--border)] bg-[var(--surface)]/80 px-4 py-5 backdrop-blur lg:flex">
-        <div className="px-2">
-          <BrandLogo href={home} />
+      <aside className="sticky top-0 hidden h-screen w-[4.5rem] shrink-0 flex-col border-r border-[var(--border)] bg-[var(--surface)]/80 px-2 py-4 backdrop-blur md:flex min-[1400px]:w-64 min-[1400px]:px-4 min-[1400px]:py-5">
+        <div className="flex justify-center min-[1400px]:justify-start min-[1400px]:px-2">
+          <BrandLogo href={home} wordmarkClassName="hidden min-[1400px]:inline" />
         </div>
-        <div className="mt-8 flex-1">
-          <p className="mb-2 px-3 text-[0.68rem] font-bold uppercase tracking-[0.14em] text-[var(--faint)]">
+        <div className="mt-6 flex-1 min-[1400px]:mt-8">
+          <p className="mb-2 hidden px-3 text-[0.68rem] font-bold uppercase tracking-[0.14em] text-[var(--faint)] min-[1400px]:block">
             {t.navSectionWorkspace}
           </p>
           <SidebarNav items={items} locale={locale} />
         </div>
-        <div className="space-y-3">
+        <div className="flex flex-col items-center gap-3 min-[1400px]:items-stretch">
           <Suspense fallback={null}>
-            <LocaleSwitch locale={locale} className="w-full justify-center" />
+            <LocaleSwitch
+              locale={locale}
+              className="justify-center max-[1399px]:flex-col min-[1400px]:w-full"
+            />
           </Suspense>
-          <UserBlock user={user} t={t} locale={locale} />
+          <UserBlock user={user} t={t} locale={locale} rail />
         </div>
       </aside>
 
       <div className="flex min-w-0 flex-1 flex-col">
-        <header className="glass sticky top-0 z-20 border-b border-[var(--border)] lg:hidden">
+        <header className="glass sticky top-0 z-20 border-b border-[var(--border)] md:hidden">
           <div className="flex items-center justify-between gap-3 px-4 py-3">
             <BrandLogo href={home} />
             <div className="flex items-center gap-2">
