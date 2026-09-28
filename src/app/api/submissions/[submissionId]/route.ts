@@ -28,6 +28,8 @@ export async function GET(_request: Request, context: Ctx) {
         status: submission.status,
         errorMessage: submission.errorMessage,
         scoringLlmModel: submission.scoringLlmModel,
+        studyFocusZh: submission.studyFocusZh,
+        studyFocusEn: submission.studyFocusEn,
         analyzedAt: submission.analyzedAt?.toISOString() ?? null,
         exam: {
           id: submission.exam.id,
@@ -48,6 +50,14 @@ export async function GET(_request: Request, context: Ctx) {
           score: q.score,
           maxScore: q.maxScore,
           feedback: q.feedback,
+          didWellZh: q.didWellZh,
+          didWellEn: q.didWellEn,
+          weaknessZh: q.weaknessZh,
+          weaknessEn: q.weaknessEn,
+          mistakesToWatchZh: q.mistakesToWatchZh,
+          mistakesToWatchEn: q.mistakesToWatchEn,
+          howToImproveZh: q.howToImproveZh,
+          howToImproveEn: q.howToImproveEn,
         })),
         jobs: submission.analysisJobs.map((j) => ({
           id: j.id,
