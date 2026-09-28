@@ -10,13 +10,25 @@ export type FlatStructureQuestion = {
   stem: string;
   prompt: string;
   topic: string;
+  topicZh: string;
+  topicEn: string;
   itemType: string;
+  itemTypeZh: string;
+  itemTypeEn: string;
   questionCategory: string;
+  questionCategoryZh: string;
+  questionCategoryEn: string;
   maxScore: number;
   assessmentObjective: string;
+  assessmentObjectiveZh: string;
+  assessmentObjectiveEn: string;
   difficultyPoints: string;
+  difficultyPointsZh: string;
+  difficultyPointsEn: string;
   /** Syllabus learning content for this part, not the exam wording. */
   teachingContent: string;
+  teachingContentZh: string;
+  teachingContentEn: string;
 };
 
 export type StructurePartView = {
@@ -25,21 +37,41 @@ export type StructurePartView = {
   prompt: string;
   maxScore: number;
   itemType: string;
+  itemTypeZh: string;
+  itemTypeEn: string;
   questionCategory: string;
+  questionCategoryZh: string;
+  questionCategoryEn: string;
   assessmentObjective: string;
+  assessmentObjectiveZh: string;
+  assessmentObjectiveEn: string;
   difficultyPoints: string;
+  difficultyPointsZh: string;
+  difficultyPointsEn: string;
   teachingContent: string;
+  teachingContentZh: string;
+  teachingContentEn: string;
 };
 
 export type StructureQuestionGroup = {
   questionKey: string;
   stem: string;
   topic: string;
+  topicZh: string;
+  topicEn: string;
   itemType: string;
+  itemTypeZh: string;
+  itemTypeEn: string;
   questionCategory: string;
+  questionCategoryZh: string;
+  questionCategoryEn: string;
   maxScore: number;
   assessmentObjective: string;
+  assessmentObjectiveZh: string;
+  assessmentObjectiveEn: string;
   difficultyPoints: string;
+  difficultyPointsZh: string;
+  difficultyPointsEn: string;
   parts: StructurePartView[];
 };
 
@@ -67,10 +99,49 @@ export const STRUCTURE_PROMPT_ADDENDUM = [
   'Put workingNote immediately after questionKey: one short sentence in the paper\'s language describing what you are checking on this question.',
   "part maxScore is that part's mark. The question maxScore is the sum of its parts.",
   "When a syllabus excerpt is provided, itemType (題型) and questionCategory (題目種類) must follow that syllabus. Do not invent a label the syllabus does not support.",
+  'Write assessmentObjective, difficultyPoints, itemType, questionCategory, topic, and teachingContent in both Traditional Chinese (Hong Kong) and English. Prefer objects {"zh":"...","en":"..."} or the paired keys topicZh/topicEn, itemTypeZh/itemTypeEn, questionCategoryZh/questionCategoryEn, assessmentObjectiveZh/assessmentObjectiveEn, difficultyPointsZh/difficultyPointsEn, teachingContentZh/teachingContentEn.',
 ].join(" ");
 
 function textOf(value: unknown): string {
   return typeof value === "string" ? value.trim() : "";
+}
+
+const BILINGUAL_FIELDS = [
+  "topic",
+  "itemType",
+  "questionCategory",
+  "assessmentObjective",
+  "difficultyPoints",
+  "teachingContent",
+] as const;
+
+function hasCjk(text: string): boolean {
+  return /[\u4e00-\u9fff]/.test(text);
+}
+
+function nestedLang(value: unknown, side: "zh" | "en"): string {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return "";
+  return textOf((value as Record<string, unknown>)[side]);
+}
+
+/** Fill separate Chinese and English columns. A legacy single string lands on the side that matches its script. */
+function attachBilingual<T extends Record<(typeof BILINGUAL_FIELDS)[number], string>>(
+  row: T,
+  source: Record<string, unknown>,
+): T & Record<`${(typeof BILINGUAL_FIELDS)[number]}Zh` | `${(typeof BILINGUAL_FIELDS)[number]}En`, string> {
+  const extra: Record<string, string> = {};
+  for (const key of BILINGUAL_FIELDS) {
+    const explicitZh = textOf(source[`${key}Zh`]) || nestedLang(source[key], "zh");
+    const explicitEn = textOf(source[`${key}En`]) || nestedLang(source[key], "en");
+    const legacy = row[key];
+    const skip = legacy === "" || legacy === "—" || legacy === "short";
+    const zh = explicitZh || (!skip && hasCjk(legacy) ? legacy : "");
+    const en = explicitEn || (!skip && legacy && !hasCjk(legacy) ? legacy : "");
+    extra[`${key}Zh`] = key === "teachingContent" ? tidyTeachingContent(zh) : zh;
+    extra[`${key}En`] = key === "teachingContent" ? tidyTeachingContent(en) : en;
+  }
+  return { ...row, ...extra } as T &
+    Record<`${(typeof BILINGUAL_FIELDS)[number]}Zh` | `${(typeof BILINGUAL_FIELDS)[number]}En`, string>;
 }
 
 function marks(value: unknown, fallback: number): number {
@@ -114,20 +185,23 @@ export function flattenRawQuestion(raw: Record<string, unknown>): FlatStructureQ
   if (!partsRaw || partsRaw.length === 0) {
     const partKey = split.partKey;
     return [
-      {
-        questionKey: formatQuestionKey(parentKey, partKey),
-        parentKey,
-        partKey,
-        stem: partKey ? "" : stem,
-        prompt: stem,
-        topic,
-        itemType,
-        questionCategory,
-        maxScore: marks(raw.maxScore, 1),
-        assessmentObjective,
-        difficultyPoints,
-        teachingContent: textOf(raw.teachingContent),
-      },
+      attachBilingual(
+        {
+          questionKey: formatQuestionKey(parentKey, partKey),
+          parentKey,
+          partKey,
+          stem: partKey ? "" : stem,
+          prompt: stem,
+          topic,
+          itemType,
+          questionCategory,
+          maxScore: marks(raw.maxScore, 1),
+          assessmentObjective,
+          difficultyPoints,
+          teachingContent: textOf(raw.teachingContent),
+        },
+        raw,
+      ),
     ];
   }
 
@@ -139,23 +213,26 @@ export function flattenRawQuestion(raw: Record<string, unknown>): FlatStructureQ
     const prompt =
       textOf(record.prompt || record.stem || record.text || record.content) || stem;
     return [
-      {
-        questionKey: formatQuestionKey(parentKey, resolvedPart),
-        parentKey,
-        partKey: resolvedPart,
-        stem,
-        prompt,
-        topic: textOf(record.topic) || topic,
-        itemType: textOf(record.itemType || record.type) || itemType,
-        questionCategory: textOf(record.questionCategory) || questionCategory,
-        maxScore: marks(record.maxScore, partsRaw.length === 1 ? marks(raw.maxScore, 1) : 0),
-        assessmentObjective:
-          textOf(record.assessmentObjective || record.objective) || assessmentObjective,
-        difficultyPoints:
-          textOf(record.difficultyPoints || record.difficulty || record.hardPoints) ||
-          difficultyPoints,
-        teachingContent: textOf(record.teachingContent) || textOf(raw.teachingContent),
-      },
+      attachBilingual(
+        {
+          questionKey: formatQuestionKey(parentKey, resolvedPart),
+          parentKey,
+          partKey: resolvedPart,
+          stem,
+          prompt,
+          topic: textOf(record.topic) || topic,
+          itemType: textOf(record.itemType || record.type) || itemType,
+          questionCategory: textOf(record.questionCategory) || questionCategory,
+          maxScore: marks(record.maxScore, partsRaw.length === 1 ? marks(raw.maxScore, 1) : 0),
+          assessmentObjective:
+            textOf(record.assessmentObjective || record.objective) || assessmentObjective,
+          difficultyPoints:
+            textOf(record.difficultyPoints || record.difficulty || record.hardPoints) ||
+            difficultyPoints,
+          teachingContent: textOf(record.teachingContent) || textOf(raw.teachingContent),
+        },
+        { ...raw, ...record },
+      ),
     ];
   });
 }
@@ -195,21 +272,41 @@ export function groupStructureQuestions(rows: FlatStructureQuestion[]): Structur
       prompt: item.prompt,
       maxScore: item.maxScore,
       itemType: item.itemType,
+      itemTypeZh: item.itemTypeZh,
+      itemTypeEn: item.itemTypeEn,
       questionCategory: item.questionCategory,
+      questionCategoryZh: item.questionCategoryZh,
+      questionCategoryEn: item.questionCategoryEn,
       assessmentObjective: item.assessmentObjective,
+      assessmentObjectiveZh: item.assessmentObjectiveZh,
+      assessmentObjectiveEn: item.assessmentObjectiveEn,
       difficultyPoints: item.difficultyPoints,
+      difficultyPointsZh: item.difficultyPointsZh,
+      difficultyPointsEn: item.difficultyPointsEn,
       teachingContent: item.teachingContent,
+      teachingContentZh: item.teachingContentZh,
+      teachingContentEn: item.teachingContentEn,
     }));
     const sum = parts.reduce((total, part) => total + (part.maxScore || 0), 0);
     return {
       questionKey: parent,
       stem,
       topic: first.topic,
+      topicZh: first.topicZh,
+      topicEn: first.topicEn,
       itemType: first.itemType,
+      itemTypeZh: first.itemTypeZh,
+      itemTypeEn: first.itemTypeEn,
       questionCategory: first.questionCategory,
+      questionCategoryZh: first.questionCategoryZh,
+      questionCategoryEn: first.questionCategoryEn,
       maxScore: sum || first.maxScore,
       assessmentObjective: first.assessmentObjective,
+      assessmentObjectiveZh: first.assessmentObjectiveZh,
+      assessmentObjectiveEn: first.assessmentObjectiveEn,
       difficultyPoints: first.difficultyPoints,
+      difficultyPointsZh: first.difficultyPointsZh,
+      difficultyPointsEn: first.difficultyPointsEn,
       parts,
     };
   });
@@ -302,18 +399,52 @@ export function selectSyllabusText(
   return excerpt.trim();
 }
 
+export type SyllabusLabel = {
+  questionKey?: string;
+  itemType?: string;
+  itemTypeZh?: string;
+  itemTypeEn?: string;
+  questionCategory?: string;
+  questionCategoryZh?: string;
+  questionCategoryEn?: string;
+  topic?: string;
+  topicZh?: string;
+  topicEn?: string;
+  teachingContent?: string;
+  teachingContentZh?: string;
+  teachingContentEn?: string;
+  assessmentObjective?: string;
+  assessmentObjectiveZh?: string;
+  assessmentObjectiveEn?: string;
+  difficultyPoints?: string;
+  difficultyPointsZh?: string;
+  difficultyPointsEn?: string;
+};
+
+function mergeBilingualField(
+  row: FlatStructureQuestion,
+  label: SyllabusLabel,
+  key: (typeof BILINGUAL_FIELDS)[number],
+): { text: string; zh: string; en: string } {
+  const source = label as Record<string, unknown>;
+  const explicitZh = textOf(source[`${key}Zh`]) || nestedLang(source[key], "zh");
+  const explicitEn = textOf(source[`${key}En`]) || nestedLang(source[key], "en");
+  const legacy = typeof source[key] === "string" ? textOf(source[key]) : "";
+  const zhRaw = explicitZh || (legacy && hasCjk(legacy) ? legacy : "") || row[`${key}Zh`];
+  const enRaw = explicitEn || (legacy && !hasCjk(legacy) ? legacy : "") || row[`${key}En`];
+  const zh = key === "teachingContent" ? tidyTeachingContent(zhRaw) : zhRaw;
+  const en = key === "teachingContent" ? tidyTeachingContent(enRaw) : enRaw;
+  const preferZh = key !== "topic";
+  const text = (preferZh ? zh || en : en || zh) || legacy || row[key];
+  return { text, zh, en };
+}
+
 /** Replace 題型 and 題目種類 from a syllabus classification, leaving the question wording in place. */
 export function applySyllabusLabels(
   rows: FlatStructureQuestion[],
-  labels: Array<{
-    questionKey?: string;
-    itemType?: string;
-    questionCategory?: string;
-    topic?: string;
-    teachingContent?: string;
-  }>,
+  labels: SyllabusLabel[],
 ): FlatStructureQuestion[] {
-  const byKey = new Map<string, (typeof labels)[number]>();
+  const byKey = new Map<string, SyllabusLabel>();
   for (const label of labels) {
     const key = textOf(label.questionKey);
     if (key) byKey.set(key, label);
@@ -323,12 +454,32 @@ export function applySyllabusLabels(
       byKey.get(row.questionKey) ||
       byKey.get(formatQuestionKey(row.parentKey, row.partKey));
     if (!label) return row;
+    const topic = mergeBilingualField(row, label, "topic");
+    const itemType = mergeBilingualField(row, label, "itemType");
+    const questionCategory = mergeBilingualField(row, label, "questionCategory");
+    const assessmentObjective = mergeBilingualField(row, label, "assessmentObjective");
+    const difficultyPoints = mergeBilingualField(row, label, "difficultyPoints");
+    const teachingContent = mergeBilingualField(row, label, "teachingContent");
     return {
       ...row,
-      itemType: textOf(label.itemType) || row.itemType,
-      questionCategory: textOf(label.questionCategory) || row.questionCategory,
-      topic: textOf(label.topic) || row.topic,
-      teachingContent: tidyTeachingContent(textOf(label.teachingContent)) || row.teachingContent,
+      topic: topic.text,
+      topicZh: topic.zh,
+      topicEn: topic.en,
+      itemType: itemType.text,
+      itemTypeZh: itemType.zh,
+      itemTypeEn: itemType.en,
+      questionCategory: questionCategory.text,
+      questionCategoryZh: questionCategory.zh,
+      questionCategoryEn: questionCategory.en,
+      assessmentObjective: assessmentObjective.text,
+      assessmentObjectiveZh: assessmentObjective.zh,
+      assessmentObjectiveEn: assessmentObjective.en,
+      difficultyPoints: difficultyPoints.text,
+      difficultyPointsZh: difficultyPoints.zh,
+      difficultyPointsEn: difficultyPoints.en,
+      teachingContent: teachingContent.text,
+      teachingContentZh: teachingContent.zh,
+      teachingContentEn: teachingContent.en,
     };
   });
 }
@@ -535,18 +686,33 @@ export function coerceFlatQuestion(value: Partial<FlatStructureQuestion>): FlatS
   const split = splitQuestionKey(String(value.questionKey));
   const parentKey = textOf(value.parentKey) || split.parentKey;
   const partKey = textOf(value.partKey) || split.partKey;
-  return {
-    questionKey: formatQuestionKey(parentKey, partKey),
-    parentKey,
-    partKey,
-    stem: textOf(value.stem),
-    prompt: textOf(value.prompt),
-    topic: textOf(value.topic) || "—",
-    itemType: textOf(value.itemType) || "short",
-    questionCategory: textOf(value.questionCategory),
-    maxScore: marks(value.maxScore, 1),
-    assessmentObjective: textOf(value.assessmentObjective),
-    difficultyPoints: textOf(value.difficultyPoints),
-    teachingContent: textOf(value.teachingContent),
-  };
+  return attachBilingual(
+    {
+      questionKey: formatQuestionKey(parentKey, partKey),
+      parentKey,
+      partKey,
+      stem: textOf(value.stem),
+      prompt: textOf(value.prompt),
+      topic: textOf(value.topic) || textOf(value.topicEn) || textOf(value.topicZh) || "—",
+      itemType: textOf(value.itemType) || textOf(value.itemTypeZh) || textOf(value.itemTypeEn) || "short",
+      questionCategory:
+        textOf(value.questionCategory) ||
+        textOf(value.questionCategoryZh) ||
+        textOf(value.questionCategoryEn),
+      maxScore: marks(value.maxScore, 1),
+      assessmentObjective:
+        textOf(value.assessmentObjective) ||
+        textOf(value.assessmentObjectiveZh) ||
+        textOf(value.assessmentObjectiveEn),
+      difficultyPoints:
+        textOf(value.difficultyPoints) ||
+        textOf(value.difficultyPointsZh) ||
+        textOf(value.difficultyPointsEn),
+      teachingContent:
+        textOf(value.teachingContent) ||
+        textOf(value.teachingContentZh) ||
+        textOf(value.teachingContentEn),
+    },
+    value as Record<string, unknown>,
+  );
 }

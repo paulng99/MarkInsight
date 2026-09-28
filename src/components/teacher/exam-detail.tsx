@@ -757,7 +757,6 @@ export function TeacherExamDetail({
 function QuestionStructureList({
   groups,
   activeKey,
-  t,
 }: {
   groups: StructureQuestionGroup[];
   activeKey: string | null;
@@ -775,6 +774,7 @@ function QuestionStructureList({
           activeKey === group.questionKey ||
           group.parts.some((part) => part.questionKey === activeKey);
         const single = group.parts.length <= 1 && !group.parts[0]?.partKey;
+        const only = group.parts[0];
         return (
           <li
             key={group.questionKey}
@@ -786,60 +786,70 @@ function QuestionStructureList({
                 <span className="flex h-7 min-w-7 items-center justify-center rounded-md bg-primary-50 px-1.5 text-xs font-bold text-primary-700">
                   {group.questionKey}
                 </span>
-                {t.examStructureQuestion} {group.questionKey}
+                <BilingualLabel zh="題號" en="Question" /> {group.questionKey}
               </p>
               <p className="text-sm tabular-nums text-[var(--muted)]">
-                {t.examStructureMaxScore}:{" "}
+                <BilingualLabel zh="滿分" en="Max" />{" "}
                 <span className="font-semibold text-[var(--ink)]">{group.maxScore}</span>
               </p>
             </div>
-            {single ? <TeachingBlock content={group.parts[0]?.teachingContent} t={t} /> : null}
+            {single ? (
+              <TeachingBlock zh={only?.teachingContentZh} en={only?.teachingContentEn} />
+            ) : null}
             <div className="mt-2 flex flex-wrap gap-1.5">
               <span className="chip chip--hue" style={{ ["--chip-hue" as string]: 222 + (index % 5) * 28 }}>
-                {t.topicChip}: {group.topic}
+                <BilingualLabel zh="課題" en="Topic" />:{" "}
+                <BilingualValue zh={group.topicZh} en={group.topicEn} />
               </span>
               {single ? (
                 <>
                   <span className="chip">
-                    {t.itemTypeChip}: {group.itemType}
+                    <BilingualLabel zh="題型" en="Type" />:{" "}
+                    <BilingualValue zh={only?.itemTypeZh ?? ""} en={only?.itemTypeEn ?? ""} />
                   </span>
-                  {group.questionCategory.trim() ? (
-                    <span className="chip">
-                      {t.examStructureCategory}: {group.questionCategory}
-                    </span>
-                  ) : null}
+                  <span className="chip">
+                    <BilingualLabel zh="題目種類" en="Question category" />:{" "}
+                    <BilingualValue
+                      zh={only?.questionCategoryZh ?? ""}
+                      en={only?.questionCategoryEn ?? ""}
+                    />
+                  </span>
                 </>
               ) : null}
             </div>
             {single ? (
               <QuestionMeta
-                objective={group.parts[0]?.assessmentObjective || group.assessmentObjective}
-                difficulty={group.parts[0]?.difficultyPoints || group.difficultyPoints}
-                t={t}
+                objectiveZh={only?.assessmentObjectiveZh || group.assessmentObjectiveZh}
+                objectiveEn={only?.assessmentObjectiveEn || group.assessmentObjectiveEn}
+                difficultyZh={only?.difficultyPointsZh || group.difficultyPointsZh}
+                difficultyEn={only?.difficultyPointsEn || group.difficultyPointsEn}
               />
             ) : (
               <ul className="mt-3 space-y-3">
                 {group.parts.map((part) => (
                   <li key={part.questionKey} className="rounded-lg border border-[var(--border)] bg-[var(--surface)] px-3 py-3">
                     <p className="text-sm font-semibold text-primary-800">
-                      {t.examStructurePart} ({part.partKey})
+                      <BilingualLabel zh="分題" en="Part" /> ({part.partKey})
                       <span className="ml-2 font-medium text-[var(--muted)]">
-                        {t.examStructureMaxScore} {part.maxScore}
+                        <BilingualLabel zh="滿分" en="Max" /> {part.maxScore}
                       </span>
                     </p>
-                    <TeachingBlock content={part.teachingContent} t={t} />
+                    <TeachingBlock zh={part.teachingContentZh} en={part.teachingContentEn} />
                     <div className="mt-2 flex flex-wrap gap-1.5">
-                      {part.itemType.trim() ? (
-                        <span className="chip">{t.itemTypeChip}: {part.itemType}</span>
-                      ) : null}
-                      {part.questionCategory.trim() ? (
-                        <span className="chip">{t.examStructureCategory}: {part.questionCategory}</span>
-                      ) : null}
+                      <span className="chip">
+                        <BilingualLabel zh="題型" en="Type" />:{" "}
+                        <BilingualValue zh={part.itemTypeZh} en={part.itemTypeEn} />
+                      </span>
+                      <span className="chip">
+                        <BilingualLabel zh="題目種類" en="Question category" />:{" "}
+                        <BilingualValue zh={part.questionCategoryZh} en={part.questionCategoryEn} />
+                      </span>
                     </div>
                     <QuestionMeta
-                      objective={part.assessmentObjective}
-                      difficulty={part.difficultyPoints}
-                      t={t}
+                      objectiveZh={part.assessmentObjectiveZh}
+                      objectiveEn={part.assessmentObjectiveEn}
+                      difficultyZh={part.difficultyPointsZh}
+                      difficultyEn={part.difficultyPointsEn}
                     />
                   </li>
                 ))}
@@ -852,41 +862,89 @@ function QuestionStructureList({
   );
 }
 
-function TeachingBlock({
-  content,
-  t,
-}: {
-  content?: string;
-  t: Dictionary;
-}) {
+function BilingualLabel({ zh, en }: { zh: string; en: string }) {
+  return (
+    <span>
+      <span lang="zh-HK">{zh}</span>
+      <span className="mx-1 font-normal text-[var(--muted)]">/</span>
+      <span lang="en">{en}</span>
+    </span>
+  );
+}
+
+function BilingualValue({ zh, en }: { zh?: string; en?: string }) {
+  const chinese = zh?.trim() ?? "";
+  const english = en?.trim() ?? "";
+  if (!chinese && !english) return <span>—</span>;
+  if (chinese && english && chinese !== english) {
+    return (
+      <span>
+        <span lang="zh-HK">{chinese}</span>
+        <span className="mx-1 text-[var(--muted)]">/</span>
+        <span lang="en">{english}</span>
+      </span>
+    );
+  }
+  return <span lang={chinese ? "zh-HK" : "en"}>{chinese || english}</span>;
+}
+
+function BilingualBody({ zh, en }: { zh?: string; en?: string }) {
+  const chinese = zh?.trim() ?? "";
+  const english = en?.trim() ?? "";
+  if (!chinese && !english) {
+    return <p className="mt-1 text-sm text-[var(--muted)]">—</p>;
+  }
+  return (
+    <div className="mt-1 space-y-1 text-sm leading-relaxed">
+      {chinese ? (
+        <p lang="zh-HK" className="whitespace-pre-wrap text-[var(--ink)]">
+          {chinese}
+        </p>
+      ) : null}
+      {english ? (
+        <p lang="en" className="whitespace-pre-wrap text-[var(--muted)]">
+          {english}
+        </p>
+      ) : null}
+    </div>
+  );
+}
+
+function TeachingBlock({ zh, en }: { zh?: string; en?: string }) {
   return (
     <div className="mt-2">
-      <p className="text-xs font-semibold text-primary-700">{t.examStructureTeaching}</p>
-      <p className="mt-1 whitespace-pre-wrap text-sm leading-relaxed text-[var(--ink)]">
-        {content?.trim() || "—"}
+      <p className="text-xs font-semibold text-primary-700">
+        <BilingualLabel zh="教學內容" en="Teaching content" />
       </p>
+      <BilingualBody zh={zh} en={en} />
     </div>
   );
 }
 
 function QuestionMeta({
-  objective,
-  difficulty,
-  t,
+  objectiveZh,
+  objectiveEn,
+  difficultyZh,
+  difficultyEn,
 }: {
-  objective: string;
-  difficulty: string;
-  t: Dictionary;
+  objectiveZh: string;
+  objectiveEn: string;
+  difficultyZh: string;
+  difficultyEn: string;
 }) {
   return (
     <dl className="mt-3 grid gap-3 text-sm sm:grid-cols-2">
       <div className="rounded-lg bg-[var(--surface-muted)] px-3 py-2">
-        <dt className="text-xs font-semibold text-primary-700">{t.examStructureObjective}</dt>
-        <dd className="mt-0.5 whitespace-pre-wrap text-[var(--ink)]">{objective.trim() || "—"}</dd>
+        <dt className="text-xs font-semibold text-primary-700">
+          <BilingualLabel zh="考核要求" en="Assessment requirement" />
+        </dt>
+        <BilingualBody zh={objectiveZh} en={objectiveEn} />
       </div>
       <div className="rounded-lg bg-[var(--surface-muted)] px-3 py-2">
-        <dt className="text-xs font-semibold text-[var(--teal-600)]">{t.examStructureDifficulty}</dt>
-        <dd className="mt-0.5 whitespace-pre-wrap text-[var(--ink)]">{difficulty.trim() || "—"}</dd>
+        <dt className="text-xs font-semibold text-[var(--teal-600)]">
+          <BilingualLabel zh="難點" en="Difficulty points" />
+        </dt>
+        <BilingualBody zh={difficultyZh} en={difficultyEn} />
       </div>
     </dl>
   );

@@ -3,6 +3,7 @@ import {
   flattenRawQuestion,
   flattenStructurePayload,
   applySyllabusLabels,
+  type SyllabusLabel,
   dedupePartRows,
   mergeParentRows,
   parentsMissingParts,
@@ -738,7 +739,7 @@ export class OpenRouterLlmClient implements LlmClient {
       total: parents.size,
       questionKey: null,
       partKeys: [],
-      note: "正在對照已上載的教學大綱，寫出教學內容、題型同題目種類。",
+      note: "正在對照已上載的教學大綱，以中英對照寫出教學內容、題型同題目種類。 Matching the uploaded syllabus and writing teaching content, item type, and question category in Chinese and English.",
       commit: false,
     });
 
@@ -756,89 +757,41 @@ export class OpenRouterLlmClient implements LlmClient {
     }
     if (!excerpt) return questions;
 
-    const brief = questions.map((row) => ({
-      questionKey: row.questionKey,
-      stem: row.stem.slice(0, 400),
-      prompt: row.prompt.slice(0, 500),
-    }));
-    const request: LlmChatRequest = {
-      model: llmModel,
-      temperature: 0.1,
-      maxTokens: 12000,
-      responseFormat: "json_object",
-      messages: [
-        {
-          role: "system",
-          content:
-            "You classify exam parts against an uploaded syllabus. Reply with JSON only: " +
-            '{"questions":[{"questionKey":"1(a)","itemType":"string","questionCategory":"string","topic":"string","teachingContent":"string"}]}',
-        },
-        {
-          role: "user",
-          content: [
-            {
-              type: "text",
-              text:
-                "Use only the syllabus excerpt below.\n" +
-                "itemType is 題型. Use only the kinds of items the syllabus lists together. " +
-                "Translate them as 多項選擇題, 短題目, 結構題, or 論述題 when those are the kinds named. " +
-                "Use 短題目 for a brief reason, a single fact, or a direction. Use 結構題 for a calculation, derivation, or multi-step account. " +
-                "Use 論述題 only for an extended discussion, and 多項選擇題 only when options are printed. " +
-                "Do not invent formats such as 計算題, 推導題, 解釋題, 選擇題, or 實驗設計題.\n" +
-                "questionCategory is 題目種類. Choose the one assessment objective in the syllabus that best fits that part, in Traditional Chinese (Hong Kong). " +
-                "Do not give every part the same category. " +
-                "Apparatus or an experimental procedure maps to the experiment objective. Uncertainty or error maps to the errors objective. " +
-                "A table, graph, or reading maps to presenting or analysing data. A numerical solution maps to applying knowledge to solve a problem. " +
-                "An explanation of a phenomenon maps to applying knowledge to explain. Stating a fact maps to recall and understanding. " +
-                "Do not use a curriculum heading such as Skills and Processes or Values and Attitudes as the category.\n" +
-                "topic is the syllabus topic name for this part.\n" +
-                "teachingContent is 教學內容. From Students should learn / Students should be able to, write the curriculum points this part assesses, in Traditional Chinese (Hong Kong). " +
-                "State what students are taught. Do not copy or paraphrase the exam question.\n" +
-                "Return one object for every questionKey.\n\n" +
-                `Syllabus excerpt:\n${excerpt}\n\nParts:\n${JSON.stringify(brief)}`,
-            },
-          ],
-        },
-      ],
-    };
-
-    let content = "";
-    try {
-      const chat = await this.chat(request);
-      content = chat.content;
-    } catch (error) {
-      console.error(
-        "[llm] syllabus classification failed",
-        error instanceof Error ? error.name : "error",
-      );
-      return questions;
+    const labels: SyllabusLabel[] = [];
+    const size = 6;
+    for (let start = 0; start < questions.length; start += size) {
+      const slice = questions.slice(start, start + size);
+      try {
+        labels.push(...(await this.classifySyllabusSlice(llmModel, excerpt, slice)));
+      } catch (error) {
+        console.error(
+          "[llm] syllabus classification failed",
+          error instanceof Error ? error.name : "error",
+        );
+      }
     }
-
-    let labels: Array<{
-      questionKey?: string;
-      itemType?: string;
-      questionCategory?: string;
-      topic?: string;
-      teachingContent?: string;
-    }> = [];
-    try {
-      const parsed = extractJsonObject(content) as {
-        questions?: typeof labels;
-      };
-      labels = Array.isArray(parsed.questions) ? parsed.questions : [];
-    } catch {
-      return questions;
-    }
+    if (labels.length === 0) return questions;
     const next = applySyllabusLabels(questions, labels);
     const changed = new Set<string>();
     for (let i = 0; i < questions.length; i++) {
+      const before = questions[i];
+      const after = next[i];
+      if (!before || !after) continue;
       if (
-        next[i]?.itemType !== questions[i]?.itemType ||
-        next[i]?.questionCategory !== questions[i]?.questionCategory ||
-        next[i]?.topic !== questions[i]?.topic ||
-        next[i]?.teachingContent !== questions[i]?.teachingContent
+        after.itemTypeZh !== before.itemTypeZh ||
+        after.itemTypeEn !== before.itemTypeEn ||
+        after.questionCategoryZh !== before.questionCategoryZh ||
+        after.questionCategoryEn !== before.questionCategoryEn ||
+        after.topicZh !== before.topicZh ||
+        after.topicEn !== before.topicEn ||
+        after.teachingContentZh !== before.teachingContentZh ||
+        after.teachingContentEn !== before.teachingContentEn ||
+        after.assessmentObjectiveZh !== before.assessmentObjectiveZh ||
+        after.assessmentObjectiveEn !== before.assessmentObjectiveEn ||
+        after.difficultyPointsZh !== before.difficultyPointsZh ||
+        after.difficultyPointsEn !== before.difficultyPointsEn
       ) {
-        changed.add(next[i].parentKey);
+        changed.add(after.parentKey);
       }
     }
     let cursor = 0;
@@ -851,13 +804,73 @@ export class OpenRouterLlmClient implements LlmClient {
         total: changed.size,
         questionKey: parent,
         partKeys: rows.map((row) => row.partKey).filter(Boolean),
-        note: "已按教學大綱寫出教學內容、題型與題目種類。",
+        note: "已按教學大綱以中英對照寫出教學內容、題型與題目種類。 Wrote teaching content, item type, and question category in Chinese and English from the syllabus.",
         commit: true,
         replaceParentKeys: [parent],
         questions: rows,
       });
     }
     return next;
+  }
+
+  private async classifySyllabusSlice(
+    llmModel: string,
+    excerpt: string,
+    questions: FlatStructureQuestion[],
+  ): Promise<SyllabusLabel[]> {
+    const brief = questions.map((row) => ({
+      questionKey: row.questionKey,
+      prompt: row.prompt.slice(0, 400),
+      assessmentObjective: row.assessmentObjectiveZh || row.assessmentObjective,
+      difficultyPoints: row.difficultyPointsZh || row.difficultyPoints,
+    }));
+    const request: LlmChatRequest = {
+      model: llmModel,
+      temperature: 0.1,
+      maxTokens: 8000,
+      responseFormat: "json_object",
+      messages: [
+        {
+          role: "system",
+          content:
+            "You classify exam parts against an uploaded syllabus. Reply with JSON only. " +
+            "Every text field must have a Traditional Chinese (Hong Kong) version and an English version. " +
+            '{"questions":[{"questionKey":"1(a)","itemTypeZh":"","itemTypeEn":"","questionCategoryZh":"","questionCategoryEn":"","topicZh":"","topicEn":"","teachingContentZh":"","teachingContentEn":"","assessmentObjectiveZh":"","assessmentObjectiveEn":"","difficultyPointsZh":"","difficultyPointsEn":""}]}',
+        },
+        {
+          role: "user",
+          content: [
+            {
+              type: "text",
+              text:
+                "Use only the syllabus excerpt below. Write every field in Traditional Chinese (Hong Kong) and in English. Do not leave either language blank.\n" +
+                "itemTypeZh is 題型 and itemTypeEn is its English name. Use only the kinds of items the syllabus lists together: " +
+                "多項選擇題 / Multiple-choice question, 短題目 / Short question, 結構題 / Structured question, 論述題 / Essay. " +
+                "Use 短題目 for a brief reason, a single fact, or a direction. Use 結構題 for a calculation, derivation, or multi-step account. " +
+                "Use 論述題 only for an extended discussion, and 多項選擇題 only when options are printed. " +
+                "Do not invent formats such as 計算題, 推導題, 解釋題, 選擇題, or 實驗設計題.\n" +
+                "questionCategory is 題目種類. Choose the one assessment objective in the syllabus that best fits that part. " +
+                "questionCategoryZh is Traditional Chinese and questionCategoryEn is the matching English. " +
+                "Do not give every part the same category. " +
+                "Apparatus or an experimental procedure maps to the experiment objective. Uncertainty or error maps to the errors objective. " +
+                "A table, graph, or reading maps to presenting or analysing data. A numerical solution maps to applying knowledge to solve a problem. " +
+                "An explanation of a phenomenon maps to applying knowledge to explain. Stating a fact maps to recall and understanding. " +
+                "Do not use a curriculum heading such as Skills and Processes or Values and Attitudes as the category.\n" +
+                "topicZh and topicEn are the syllabus topic name in Chinese and English.\n" +
+                "teachingContent is 教學內容 / Teaching content. From Students should learn / Students should be able to, write the curriculum points this part assesses. " +
+                "teachingContentZh and teachingContentEn must say the same points. State what students are taught. Do not copy or paraphrase the exam question.\n" +
+                "assessmentObjective is 考核要求 / Assessment requirement. Translate the supplied assessment into both languages, keeping the same demand. " +
+                "difficultyPoints is 難點 / Difficulty points. Translate the supplied difficulty into both languages, keeping the same point.\n" +
+                "Return one object for every questionKey.\n\n" +
+                `Syllabus excerpt:\n${excerpt}\n\nParts:\n${JSON.stringify(brief)}`,
+            },
+          ],
+        },
+      ],
+    };
+    const chat = await this.chat(request);
+    const parsed = extractJsonObject(chat.content) as { questions?: SyllabusLabel[] };
+    return Array.isArray(parsed.questions) ? parsed.questions : [];
   }
 
   private async readLetterParts(

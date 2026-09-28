@@ -301,8 +301,7 @@ async function runExamStructure(
     updatedAt: new Date().toISOString(),
   });
 
-  // Schema has no ExamStructure table — cache questions on disk for scoring.
-  await structureCache.set(examId, result.questions);
+  await persistExamStructure(schoolId, examId, result.questions);
 
   await prisma.exam.update({
     where: { id: examId },
@@ -354,7 +353,7 @@ async function runSubmissionScoring(
     throw new AppError("請檢查檔案", 400, "missing_script");
   }
 
-  let questions = await structureCache.get(examId);
+  let questions = await getExamStructureQuestions(examId);
   if (!questions || questions.length === 0) {
     // Rebuild from a prior successful structure job is not stored — use demo structure
     // if exam has structureLlmModel set, fall back to default questions for scoring MVP.
@@ -406,7 +405,7 @@ async function runSubmissionScoring(
       ],
     });
     questions = recovered.questions;
-    await structureCache.set(examId, questions);
+    await persistExamStructure(schoolId, examId, questions);
   }
 
   const llm = createLlmClient();
@@ -508,11 +507,96 @@ async function applyStructureProgress(
   });
 }
 
-/**
- * Persist exam structure JSON on AnalysisJob is not in schema.
- * We store via a lightweight Prisma model workaround: encode in SubjectAggregate
- * is wrong. Use filesystem cache next to uploads instead.
- */
+/** Chinese and English are stored in separate columns. The JSON file remains a fallback. */
+export async function persistExamStructure(
+  schoolId: string,
+  examId: string,
+  questions: QuestionShape[],
+) {
+  await structureCache.set(examId, questions);
+  await prisma.$transaction(async (tx) => {
+    await tx.examStructureItem.deleteMany({ where: { examId, schoolId } });
+    if (questions.length === 0) return;
+    const byKey = new Map<string, { row: QuestionShape; sortIndex: number }>();
+    questions.forEach((row, sortIndex) => {
+      byKey.set(row.questionKey, { row, sortIndex });
+    });
+    await tx.examStructureItem.createMany({
+      data: [...byKey.values()].map(({ row, sortIndex }) => ({
+        schoolId,
+        examId,
+        questionKey: row.questionKey,
+        parentKey: row.parentKey,
+        partKey: row.partKey,
+        sortIndex,
+        maxScore: row.maxScore,
+        stem: row.stem,
+        prompt: row.prompt,
+        topicZh: row.topicZh,
+        topicEn: row.topicEn,
+        itemTypeZh: row.itemTypeZh,
+        itemTypeEn: row.itemTypeEn,
+        questionCategoryZh: row.questionCategoryZh,
+        questionCategoryEn: row.questionCategoryEn,
+        assessmentObjectiveZh: row.assessmentObjectiveZh,
+        assessmentObjectiveEn: row.assessmentObjectiveEn,
+        difficultyPointsZh: row.difficultyPointsZh,
+        difficultyPointsEn: row.difficultyPointsEn,
+        teachingContentZh: row.teachingContentZh,
+        teachingContentEn: row.teachingContentEn,
+      })),
+    });
+  });
+}
+
+function structureItemToQuestion(row: {
+  questionKey: string;
+  parentKey: string;
+  partKey: string;
+  maxScore: number;
+  stem: string;
+  prompt: string;
+  topicZh: string;
+  topicEn: string;
+  itemTypeZh: string;
+  itemTypeEn: string;
+  questionCategoryZh: string;
+  questionCategoryEn: string;
+  assessmentObjectiveZh: string;
+  assessmentObjectiveEn: string;
+  difficultyPointsZh: string;
+  difficultyPointsEn: string;
+  teachingContentZh: string;
+  teachingContentEn: string;
+}): QuestionShape | null {
+  return coerceFlatQuestion({
+    questionKey: row.questionKey,
+    parentKey: row.parentKey,
+    partKey: row.partKey,
+    maxScore: row.maxScore,
+    stem: row.stem,
+    prompt: row.prompt,
+    topic: row.topicEn || row.topicZh,
+    topicZh: row.topicZh,
+    topicEn: row.topicEn,
+    itemType: row.itemTypeZh || row.itemTypeEn,
+    itemTypeZh: row.itemTypeZh,
+    itemTypeEn: row.itemTypeEn,
+    questionCategory: row.questionCategoryZh || row.questionCategoryEn,
+    questionCategoryZh: row.questionCategoryZh,
+    questionCategoryEn: row.questionCategoryEn,
+    assessmentObjective: row.assessmentObjectiveZh || row.assessmentObjectiveEn,
+    assessmentObjectiveZh: row.assessmentObjectiveZh,
+    assessmentObjectiveEn: row.assessmentObjectiveEn,
+    difficultyPoints: row.difficultyPointsZh || row.difficultyPointsEn,
+    difficultyPointsZh: row.difficultyPointsZh,
+    difficultyPointsEn: row.difficultyPointsEn,
+    teachingContent: row.teachingContentZh || row.teachingContentEn,
+    teachingContentZh: row.teachingContentZh,
+    teachingContentEn: row.teachingContentEn,
+  });
+}
+
 const structureCache = {
   async set(examId: string, questions: QuestionShape[]) {
     const { mkdir, writeFile } = await import("fs/promises");
@@ -546,10 +630,21 @@ const structureCache = {
   },
 };
 
-/** Read persisted exam structure questions (filesystem cache). */
+/** Read persisted exam structure. Database rows win; the JSON file is the fallback. */
 export async function getExamStructureQuestions(
   examId: string,
 ): Promise<QuestionShape[] | null> {
+  const stored = await prisma.examStructureItem.findMany({
+    where: { examId },
+    orderBy: { sortIndex: "asc" },
+  });
+  if (stored.length > 0) {
+    const questions = stored.flatMap((row) => {
+      const question = structureItemToQuestion(row);
+      return question ? [question] : [];
+    });
+    if (questions.length > 0) return questions;
+  }
   return structureCache.get(examId);
 }
 

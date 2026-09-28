@@ -85,7 +85,7 @@ test("drops a repeated part when the same wording is stored twice", () => {
   assert.equal(kept[0].partKey, "b(i)");
 });
 
-test("applies syllabus labels without changing the question wording", () => {
+test("stores Chinese and English syllabus labels separately", () => {
   const rows = flattenRawQuestion({
     questionKey: "1",
     stem: "題幹",
@@ -96,17 +96,27 @@ test("applies syllabus labels without changing the question wording", () => {
   const next = applySyllabusLabels(rows, [
     {
       questionKey: "1(a)",
-      itemType: "結構題",
-      questionCategory: "應用知識解釋現象及解題",
-      topic: "Heat and Gases",
-      teachingContent: "理解熱、內能與比熱容，並用 Q = mcΔT 處理傳熱。",
+      itemTypeZh: "結構題",
+      itemTypeEn: "Structured question",
+      questionCategoryZh: "應用知識以解決問題",
+      questionCategoryEn: "Apply knowledge to solve problems",
+      topicZh: "熱和氣體",
+      topicEn: "Heat and Gases",
+      teachingContentZh: "理解熱、內能與比熱容，並用 Q = mcΔT 處理傳熱。",
+      teachingContentEn: "Understand heat, internal energy, and specific heat capacity, and use Q = mcΔT.",
+      assessmentObjectiveZh: "學生需要計算熱水器供應給自來水的功率。",
+      assessmentObjectiveEn: "Students calculate the power supplied by the heater to the mains water.",
     },
   ]);
   assert.equal(next[0].prompt, "估算功率");
-  assert.equal(next[0].itemType, "結構題");
-  assert.equal(next[0].questionCategory, "應用知識解釋現象及解題");
-  assert.equal(next[0].topic, "Heat and Gases");
-  assert.match(next[0].teachingContent, /比熱容/);
+  assert.equal(next[0].itemTypeZh, "結構題");
+  assert.equal(next[0].itemTypeEn, "Structured question");
+  assert.equal(next[0].questionCategoryEn, "Apply knowledge to solve problems");
+  assert.equal(next[0].topicZh, "熱和氣體");
+  assert.equal(next[0].topicEn, "Heat and Gases");
+  assert.match(next[0].teachingContentZh, /比熱容/);
+  assert.match(next[0].teachingContentEn, /specific heat/);
+  assert.match(next[0].assessmentObjectiveEn, /heater/);
 });
 
 test("keeps the learning-content pages for the question topic", () => {

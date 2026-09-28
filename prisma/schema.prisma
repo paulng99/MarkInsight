@@ -97,6 +97,7 @@ model School {
   subjectSyllabi    SubjectSyllabus[]
   systemPrompts     SystemPrompt[]
   subjectArchives   SubjectArchive[]
+  examStructureItems ExamStructureItem[]
 }
 
 /// Admin-edited system prompts for this school's analysis jobs.
@@ -285,6 +286,7 @@ model Exam {
   assets       Asset[]
   submissions  Submission[]
   analysisJobs AnalysisJob[]
+  structureItems ExamStructureItem[]
   distributed  Exam[] @relation("DistributedExams")
 
   @@index([schoolId])
@@ -349,6 +351,40 @@ model Submission {
   @@index([schoolId])
   @@index([studentId])
   @@index([status])
+}
+
+/// One analysed part. Chinese and English are stored in separate columns.
+model ExamStructureItem {
+  id         String @id @default(cuid())
+  schoolId   String
+  school     School @relation(fields: [schoolId], references: [id], onDelete: Cascade)
+  examId     String
+  exam       Exam   @relation(fields: [examId], references: [id], onDelete: Cascade)
+  questionKey String
+  parentKey   String
+  partKey     String @default("")
+  sortIndex   Int    @default(0)
+  maxScore    Float  @default(0)
+  stem        String @default("") @db.Text
+  prompt      String @default("") @db.Text
+  topicZh     String @default("")
+  topicEn     String @default("")
+  itemTypeZh  String @default("")
+  itemTypeEn  String @default("")
+  questionCategoryZh String @default("")
+  questionCategoryEn String @default("")
+  assessmentObjectiveZh String @default("") @db.Text
+  assessmentObjectiveEn String @default("") @db.Text
+  difficultyPointsZh    String @default("") @db.Text
+  difficultyPointsEn    String @default("") @db.Text
+  teachingContentZh     String @default("") @db.Text
+  teachingContentEn     String @default("") @db.Text
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([examId, questionKey])
+  @@index([schoolId])
+  @@index([examId])
 }
 
 /// Per-question result with topic + item_type tags for weak-point aggregates.
