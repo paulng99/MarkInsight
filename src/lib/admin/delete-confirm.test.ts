@@ -1,9 +1,11 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
+  ADMIN_BULK_DELETE_ARCHIVED_CONFIRM,
   ADMIN_DELETE_REJECTED_CODE,
   ADMIN_DELETE_REJECTED_MESSAGE_EN,
   deleteHasProtectedData,
+  evaluateBulkDeleteArchivedGuards,
   evaluateDeleteConfirmation,
   evaluateDeleteImpactFreshness,
   fillDeleteImpactTemplate,
@@ -166,4 +168,62 @@ test("evaluateDeleteImpactFreshness rejects when exams or submissions change", (
     }),
     { ok: true },
   );
+});
+
+test("evaluateBulkDeleteArchivedGuards requires 刪除 and matching counts", () => {
+  assert.equal(ADMIN_BULK_DELETE_ARCHIVED_CONFIRM, "刪除");
+
+  const missingConfirm = evaluateBulkDeleteArchivedGuards({
+    confirm: undefined,
+    expectedClasses: 2,
+    expectedExams: 1,
+    expectedSubmissions: 0,
+    actualClasses: 2,
+    actualExams: 1,
+    actualSubmissions: 0,
+  });
+  assert.deepEqual(missingConfirm, {
+    ok: false,
+    status: 400,
+    error: ADMIN_DELETE_REJECTED_MESSAGE_EN,
+    code: ADMIN_DELETE_REJECTED_CODE,
+  });
+
+  const wrongConfirm = evaluateBulkDeleteArchivedGuards({
+    confirm: "DELETE",
+    expectedClasses: 2,
+    expectedExams: 1,
+    expectedSubmissions: 0,
+    actualClasses: 2,
+    actualExams: 1,
+    actualSubmissions: 0,
+  });
+  assert.equal(wrongConfirm.ok, false);
+
+  const staleSubmissions = evaluateBulkDeleteArchivedGuards({
+    confirm: "刪除",
+    expectedClasses: 2,
+    expectedExams: 1,
+    expectedSubmissions: 0,
+    actualClasses: 2,
+    actualExams: 1,
+    actualSubmissions: 3,
+  });
+  assert.deepEqual(staleSubmissions, {
+    ok: false,
+    status: 400,
+    error: ADMIN_DELETE_REJECTED_MESSAGE_EN,
+    code: ADMIN_DELETE_REJECTED_CODE,
+  });
+
+  const ok = evaluateBulkDeleteArchivedGuards({
+    confirm: " 刪除 ",
+    expectedClasses: 2,
+    expectedExams: 1,
+    expectedSubmissions: 4,
+    actualClasses: 2,
+    actualExams: 1,
+    actualSubmissions: 4,
+  });
+  assert.deepEqual(ok, { ok: true });
 });

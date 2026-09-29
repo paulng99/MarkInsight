@@ -19,6 +19,12 @@ export const ADMIN_DELETE_REJECTED_CODE = "delete_rejected";
 export const ADMIN_DELETE_REJECTED_MESSAGE_EN =
   "Could not delete: the data has changed or you do not have permission. Refresh the page and try again.";
 
+/**
+ * Fixed confirm token for bulk delete of archived classes.
+ * Locale-independent — UI always asks for this exact string.
+ */
+export const ADMIN_BULK_DELETE_ARCHIVED_CONFIRM = "刪除";
+
 /** @deprecated Use ADMIN_DELETE_REJECTED_CODE — kept as alias for older tests. */
 export const DELETE_CONFIRM_REQUIRED_CODE = ADMIN_DELETE_REJECTED_CODE;
 
@@ -33,7 +39,7 @@ export function matchesDeleteConfirmText(
   return input.trim() === expected;
 }
 
-/** True when deleting would remove answer scripts or analysis results. */
+/** True when deleting would remove answer scripts, exams, or analysis results. */
 export function deleteHasProtectedData(input: {
   submissionCount: number;
   analysisJobCount?: number;
@@ -64,15 +70,17 @@ function rejected(): {
  * Server-side delete confirmation.
  * When the target has exams / submissions / analysis results, `confirm` must
  * equal the expected token (subject code or class name).
+ * Pass `requireConfirm: true` to always require a matching confirm (bulk delete).
  */
 export function evaluateDeleteConfirmation(input: {
   confirm: unknown;
   expectedToken: string;
   hasProtectedData: boolean;
+  requireConfirm?: boolean;
 }):
   | { ok: true }
   | { ok: false; status: 400; error: string; code: string } {
-  if (!input.hasProtectedData) {
+  if (!input.hasProtectedData && !input.requireConfirm) {
     return { ok: true };
   }
   if (
@@ -85,28 +93,60 @@ export function evaluateDeleteConfirmation(input: {
 }
 
 /**
- * Reject when exam/submission counts no longer match the dialog snapshot
- * (e.g. another user added an exam while the confirm dialog was open).
+ * Reject when exam/submission/(optional class) counts no longer match the
+ * dialog snapshot (e.g. another user added an exam while the dialog was open).
  */
 export function evaluateDeleteImpactFreshness(input: {
   expectedExams: unknown;
   expectedSubmissions: unknown;
   actualExams: number;
   actualSubmissions: number;
+  expectedClasses?: unknown;
+  actualClasses?: number;
 }):
   | { ok: true }
   | { ok: false; status: 400; error: string; code: string } {
+  const requireClasses = input.expectedClasses !== undefined;
+
   if (
     typeof input.expectedExams !== "number" ||
     typeof input.expectedSubmissions !== "number" ||
     !Number.isFinite(input.expectedExams) ||
     !Number.isFinite(input.expectedSubmissions)
   ) {
-    if (input.actualExams > 0 || input.actualSubmissions > 0) {
+    if (
+      input.actualExams > 0 ||
+      input.actualSubmissions > 0 ||
+      (input.actualClasses ?? 0) > 0
+    ) {
       return rejected();
     }
-    return { ok: true };
+    if (!requireClasses) return { ok: true };
   }
+
+  if (requireClasses) {
+    if (
+      typeof input.expectedClasses !== "number" ||
+      typeof input.actualClasses !== "number" ||
+      !Number.isFinite(input.expectedClasses) ||
+      !Number.isFinite(input.actualClasses)
+    ) {
+      return rejected();
+    }
+    if (input.actualClasses !== input.expectedClasses) {
+      return rejected();
+    }
+  }
+
+  if (
+    typeof input.expectedExams !== "number" ||
+    typeof input.expectedSubmissions !== "number" ||
+    !Number.isFinite(input.expectedExams) ||
+    !Number.isFinite(input.expectedSubmissions)
+  ) {
+    return rejected();
+  }
+
   if (
     input.actualExams !== input.expectedExams ||
     input.actualSubmissions !== input.expectedSubmissions
@@ -114,6 +154,36 @@ export function evaluateDeleteImpactFreshness(input: {
     return rejected();
   }
   return { ok: true };
+}
+
+/** Bulk delete_archived: always require confirm「刪除」plus class/exam/submission counts. */
+export function evaluateBulkDeleteArchivedGuards(input: {
+  confirm: unknown;
+  expectedClasses: unknown;
+  expectedExams: unknown;
+  expectedSubmissions: unknown;
+  actualClasses: number;
+  actualExams: number;
+  actualSubmissions: number;
+}):
+  | { ok: true }
+  | { ok: false; status: 400; error: string; code: string } {
+  const confirmResult = evaluateDeleteConfirmation({
+    confirm: input.confirm,
+    expectedToken: ADMIN_BULK_DELETE_ARCHIVED_CONFIRM,
+    hasProtectedData: true,
+    requireConfirm: true,
+  });
+  if (!confirmResult.ok) return confirmResult;
+
+  return evaluateDeleteImpactFreshness({
+    expectedClasses: input.expectedClasses,
+    expectedExams: input.expectedExams,
+    expectedSubmissions: input.expectedSubmissions,
+    actualClasses: input.actualClasses,
+    actualExams: input.actualExams,
+    actualSubmissions: input.actualSubmissions,
+  });
 }
 
 /** Replace `{key}` placeholders in impact / prompt copy. */

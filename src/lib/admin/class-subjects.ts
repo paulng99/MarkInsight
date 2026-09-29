@@ -7,18 +7,23 @@ import {
   ADMIN_DELETE_REJECTED_CODE,
   ADMIN_DELETE_REJECTED_MESSAGE_EN,
   deleteHasProtectedData,
+  evaluateBulkDeleteArchivedGuards,
   evaluateDeleteConfirmation,
   evaluateDeleteImpactFreshness,
 } from "@/lib/admin/delete-confirm";
 import { AppError } from "@/lib/errors";
 import { prisma } from "@/lib/prisma";
 import { assertSubjectCode } from "@/lib/subjects/syllabus";
+import type { Prisma } from "@prisma/client";
 
 export type AdminDeleteOptions = {
   confirm?: unknown;
   expectedExams?: unknown;
   expectedSubmissions?: unknown;
+  expectedClasses?: unknown;
 };
+
+type DbClient = Prisma.TransactionClient | typeof prisma;
 
 function throwDeleteRejected(): never {
   throw new AppError(
@@ -158,19 +163,6 @@ async function requireClassInSchool(schoolId: string, classSubjectId: string) {
   return row;
 }
 
-async function requireClassInSchoolForDelete(
-  schoolId: string,
-  classSubjectId: string,
-) {
-  const row = await prisma.classSubject.findFirst({
-    where: { id: classSubjectId, schoolId },
-  });
-  if (!row) {
-    throwDeleteRejected();
-  }
-  return row;
-}
-
 export async function setClassArchived(
   schoolId: string,
   classSubjectId: string,
@@ -184,6 +176,7 @@ export async function setClassArchived(
 }
 
 async function countDeleteImpactForClass(
+  db: DbClient,
   schoolId: string,
   classSubjectId: string,
 ): Promise<{
@@ -192,13 +185,13 @@ async function countDeleteImpactForClass(
   analysisJobCount: number;
 }> {
   const [examCount, submissionCount, analysisJobCount] = await Promise.all([
-    prisma.exam.count({
+    db.exam.count({
       where: { schoolId, classSubjectId },
     }),
-    prisma.submission.count({
+    db.submission.count({
       where: { schoolId, exam: { classSubjectId } },
     }),
-    prisma.analysisJob.count({
+    db.analysisJob.count({
       where: {
         schoolId,
         OR: [
@@ -212,6 +205,7 @@ async function countDeleteImpactForClass(
 }
 
 async function countDeleteImpactForSubject(
+  db: DbClient,
   schoolId: string,
   subjectCode: string,
 ): Promise<{
@@ -220,13 +214,13 @@ async function countDeleteImpactForSubject(
   analysisJobCount: number;
 }> {
   const [examCount, submissionCount, analysisJobCount] = await Promise.all([
-    prisma.exam.count({
+    db.exam.count({
       where: { schoolId, classSubject: { subjectCode } },
     }),
-    prisma.submission.count({
+    db.submission.count({
       where: { schoolId, exam: { classSubject: { subjectCode } } },
     }),
-    prisma.analysisJob.count({
+    db.analysisJob.count({
       where: {
         schoolId,
         OR: [
@@ -237,6 +231,30 @@ async function countDeleteImpactForSubject(
     }),
   ]);
   return { examCount, submissionCount, analysisJobCount };
+}
+
+async function countDeleteImpactForArchivedClasses(
+  db: DbClient,
+  schoolId: string,
+): Promise<{
+  classCount: number;
+  examCount: number;
+  submissionCount: number;
+}> {
+  const archivedWhere = { schoolId, archivedAt: { not: null } } as const;
+  const [classCount, examCount, submissionCount] = await Promise.all([
+    db.classSubject.count({ where: archivedWhere }),
+    db.exam.count({
+      where: { schoolId, classSubject: { archivedAt: { not: null } } },
+    }),
+    db.submission.count({
+      where: {
+        schoolId,
+        exam: { classSubject: { archivedAt: { not: null } } },
+      },
+    }),
+  ]);
+  return { classCount, examCount, submissionCount };
 }
 
 function assertDeleteGuardsOrThrow(input: {
@@ -280,16 +298,23 @@ export async function deleteClassSubject(
   classSubjectId: string,
   options: AdminDeleteOptions = {},
 ) {
-  const row = await requireClassInSchoolForDelete(schoolId, classSubjectId);
-  const impact = await countDeleteImpactForClass(schoolId, classSubjectId);
-  assertDeleteGuardsOrThrow({
-    confirm: options.confirm,
-    expectedToken: row.name,
-    expectedExams: options.expectedExams,
-    expectedSubmissions: options.expectedSubmissions,
-    ...impact,
+  await prisma.$transaction(async (tx) => {
+    const row = await tx.classSubject.findFirst({
+      where: { id: classSubjectId, schoolId },
+    });
+    if (!row) {
+      throwDeleteRejected();
+    }
+    const impact = await countDeleteImpactForClass(tx, schoolId, classSubjectId);
+    assertDeleteGuardsOrThrow({
+      confirm: options.confirm,
+      expectedToken: row.name,
+      expectedExams: options.expectedExams,
+      expectedSubmissions: options.expectedSubmissions,
+      ...impact,
+    });
+    await tx.classSubject.delete({ where: { id: classSubjectId } });
   });
-  await prisma.classSubject.delete({ where: { id: classSubjectId } });
 }
 
 export async function setSubjectArchived(
@@ -315,15 +340,15 @@ export async function deleteSubject(
   options: AdminDeleteOptions = {},
 ) {
   const subjectCode = assertSubjectCode(subjectCodeRaw);
-  const impact = await countDeleteImpactForSubject(schoolId, subjectCode);
-  assertDeleteGuardsOrThrow({
-    confirm: options.confirm,
-    expectedToken: subjectCode,
-    expectedExams: options.expectedExams,
-    expectedSubmissions: options.expectedSubmissions,
-    ...impact,
-  });
   const deleted = await prisma.$transaction(async (tx) => {
+    const impact = await countDeleteImpactForSubject(tx, schoolId, subjectCode);
+    assertDeleteGuardsOrThrow({
+      confirm: options.confirm,
+      expectedToken: subjectCode,
+      expectedExams: options.expectedExams,
+      expectedSubmissions: options.expectedSubmissions,
+      ...impact,
+    });
     const removed = await tx.classSubject.deleteMany({
       where: { schoolId, subjectCode },
     });
@@ -345,14 +370,31 @@ export async function archiveAllClassSubjects(schoolId: string) {
 }
 
 /** Permanently delete every archived class in the school. */
-export async function deleteAllArchivedClassSubjects(schoolId: string) {
-  const archived = await prisma.classSubject.findMany({
-    where: { schoolId, archivedAt: { not: null } },
-    select: { subjectCode: true },
-  });
-  const codes = [...new Set(archived.map((c) => c.subjectCode))];
-
+export async function deleteAllArchivedClassSubjects(
+  schoolId: string,
+  options: AdminDeleteOptions = {},
+) {
   const deleted = await prisma.$transaction(async (tx) => {
+    const impact = await countDeleteImpactForArchivedClasses(tx, schoolId);
+    const guards = evaluateBulkDeleteArchivedGuards({
+      confirm: options.confirm,
+      expectedClasses: options.expectedClasses,
+      expectedExams: options.expectedExams,
+      expectedSubmissions: options.expectedSubmissions,
+      actualClasses: impact.classCount,
+      actualExams: impact.examCount,
+      actualSubmissions: impact.submissionCount,
+    });
+    if (!guards.ok) {
+      throw new AppError(guards.error, guards.status, guards.code);
+    }
+
+    const archived = await tx.classSubject.findMany({
+      where: { schoolId, archivedAt: { not: null } },
+      select: { subjectCode: true },
+    });
+    const codes = [...new Set(archived.map((c) => c.subjectCode))];
+
     const removed = await tx.classSubject.deleteMany({
       where: { schoolId, archivedAt: { not: null } },
     });

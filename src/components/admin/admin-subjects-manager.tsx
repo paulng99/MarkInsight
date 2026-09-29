@@ -5,6 +5,7 @@ import { AdminDeleteDialog } from "@/components/admin/admin-delete-dialog";
 import { Alert, EmptyState, LoadingBlock } from "@/components/ui/feedback";
 import { Icon } from "@/components/ui/icons";
 import {
+  ADMIN_BULK_DELETE_ARCHIVED_CONFIRM,
   fillDeleteImpactTemplate,
   sumClassImpact,
   sumClassesImpact,
@@ -170,7 +171,7 @@ export function AdminSubjectsManager({ t, schoolId }: Props) {
     if (!res.ok) throw new Error(t.adminSubjectsDeleteRejected);
   }
 
-  async function bulk(action: "archive_all" | "delete_archived") {
+  async function bulk(action: "archive_all") {
     const res = await fetch("/api/admin/class-subjects", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -178,6 +179,26 @@ export function AdminSubjectsManager({ t, schoolId }: Props) {
     });
     const data = await res.json();
     if (!res.ok) throw new Error(data.error || t.adminSubjectsErrorAction);
+  }
+
+  async function deleteArchived(expected: {
+    classes: number;
+    exams: number;
+    submissions: number;
+  }) {
+    const res = await fetch("/api/admin/class-subjects", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        action: "delete_archived",
+        schoolId,
+        confirm: ADMIN_BULK_DELETE_ARCHIVED_CONFIRM,
+        expectedClasses: expected.classes,
+        expectedExams: expected.exams,
+        expectedSubmissions: expected.submissions,
+      }),
+    });
+    if (!res.ok) throw new Error(t.adminSubjectsDeleteRejected);
   }
 
   if (!subjects) {
@@ -263,10 +284,15 @@ export function AdminSubjectsManager({ t, schoolId }: Props) {
         t.adminSubjectsDeleteImpactArchived,
         counts,
       ),
-      confirmToken: t.adminSubjectsDeleteConfirmWord,
+      confirmToken: ADMIN_BULK_DELETE_ARCHIVED_CONFIRM,
       onConfirm: () =>
         runDelete(
-          () => bulk("delete_archived"),
+          () =>
+            deleteArchived({
+              classes: counts.classes,
+              exams: counts.exams,
+              submissions: counts.submissions,
+            }),
           t.adminSubjectsDeleteArchivedSuccess,
         ),
     };
