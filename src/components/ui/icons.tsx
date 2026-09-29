@@ -77,6 +77,13 @@ export const Icon = {
       <path d="m9 18 6-6-6-6" />
     </svg>
   ),
+  Sidebar: (p: IconProps) => (
+    <svg {...base(p)}>
+      <rect x="3" y="3" width="18" height="18" rx="2" />
+      <path d="M9 3v18" />
+      <path d="m14 15 3-3-3-3" />
+    </svg>
+  ),
   ChevronDown: (p: IconProps) => (
     <svg {...base(p)}>
       <path d="m6 9 6 6 6-6" />
@@ -278,9 +285,9 @@ export const Icon = {
   ),
   Archive: (p: IconProps) => (
     <svg {...base(p)}>
-      <path d="M3 5h18l-1 4H4z" />
-      <path d="M5 9v10a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V9" />
-      <path d="M10 13h4" />
+      <path d="M21 8v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8" />
+      <path d="M3 3h18v5H3z" />
+      <path d="M10 12h4" />
     </svg>
   ),
   Trash: (p: IconProps) => (
@@ -290,6 +297,18 @@ export const Icon = {
       <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6" />
       <path d="M10 11v6" />
       <path d="M14 11v6" />
+    </svg>
+  ),
+  RotateCcw: (p: IconProps) => (
+    <svg {...base(p)}>
+      <path d="M3 12a9 9 0 1 0 3-6.7L3 8" />
+      <path d="M3 3v5h5" />
+    </svg>
+  ),
+  Search: (p: IconProps) => (
+    <svg {...base(p)}>
+      <circle cx="11" cy="11" r="7" />
+      <path d="m20 20-3.5-3.5" />
     </svg>
   ),
 };

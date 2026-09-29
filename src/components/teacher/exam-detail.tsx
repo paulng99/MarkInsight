@@ -1,26 +1,28 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useEffect, useState, useTransition } from "react";
+import { useCallback, useEffect, useRef, useState, useTransition } from "react";
 import { countLabel, type Dictionary, type Locale } from "@/lib/i18n/dictionaries";
+import {
+  groupStructureQuestions,
+  type FlatStructureQuestion,
+  type StructureQuestionGroup,
+} from "@/lib/exams/structure-questions";
 import { examAssetTitle, scriptAssetTitle, uploadExtension } from "@/lib/files/display-name";
-import { JobProgressPanel } from "@/components/jobs/job-progress-panel";
+import { EXAM_UPLOAD_ACCEPT } from "@/lib/files/exam-upload";
+import { JobProgressPanel, type JobSnapshot } from "@/components/jobs/job-progress-panel";
 import { PdfPreview } from "@/components/teacher/pdf-preview";
-import { JobStatusBadge } from "@/components/jobs/job-status-badge";
 import { Alert, EmptyState, LoadingBlock } from "@/components/ui/feedback";
 import { FileField } from "@/components/ui/file-field";
 import { Icon } from "@/components/ui/icons";
 import { PageHeader, SectionHeader } from "@/components/ui/page-header";
-
-type StructureQuestion = {
-  questionKey: string;
-  topic: string;
-  itemType: string;
-  questionCategory?: string;
-  maxScore: number;
-  assessmentObjective?: string;
-  difficultyPoints?: string;
-};
+import type { AnalysisProgress } from "@/lib/jobs/progress-types";
+import { emptyAnalysisProgress } from "@/lib/jobs/progress-types";
+import {
+  describeAnalysisActivity,
+  formatElapsed,
+  normalizeJobStatus,
+} from "@/lib/jobs/status-copy";
 
 type ExamDetail = {
   id: string;
@@ -28,7 +30,7 @@ type ExamDetail = {
   examDate: string;
   classSubject: { id: string; name: string; subjectCode: string };
   structureLlmModel: string | null;
-  structureQuestions: StructureQuestion[];
+  structureQuestions: FlatStructureQuestion[];
   assets: Array<{
     id: string;
     kind: string;
@@ -41,7 +43,9 @@ type ExamDetail = {
     id: string;
     status: string;
     errorMessage: string | null;
+    startedAt?: string | null;
   }>;
+  archived?: boolean;
 };
 
 function studentAnswerGroups(exam: ExamDetail) {
@@ -117,6 +121,10 @@ export function TeacherExamDetail({
   const [error, setError] = useState<string | null>(null);
   const [banner, setBanner] = useState<string | null>(null);
   const [jobId, setJobId] = useState<string | null>(null);
+  const [liveJob, setLiveJob] = useState<JobSnapshot | null>(null);
+  const [now, setNow] = useState(() => Date.now());
+  const [startingAnalysis, setStartingAnalysis] = useState(false);
+  const pinJob = useRef(false);
   const [pending, startTransition] = useTransition();
   const [uploadKind, setUploadKind] = useState<"QUESTION_PAPER" | "ANSWER_KEY">(
     "QUESTION_PAPER",
@@ -142,7 +150,10 @@ export function TeacherExamDetail({
         ...data.exam,
         structureQuestions: data.exam.structureQuestions ?? [],
       });
-      setJobId(data.exam.latestStructureJobs?.[0]?.id ?? null);
+      setJobId((current) => {
+        if (pinJob.current) return current;
+        return data.exam.latestStructureJobs?.[0]?.id ?? current;
+      });
       setError(null);
     } catch {
       setError(t.stateError);
@@ -157,6 +168,14 @@ export function TeacherExamDetail({
     setBanner(t.examStructureReady);
     void load();
   }, [load, t.examStructureReady]);
+
+  useEffect(() => {
+    const status = liveJob?.status;
+    const active = status === "PENDING" || status === "RUNNING" || status === "ANALYZING";
+    if (!active) return;
+    const id = window.setInterval(() => setNow(Date.now()), 1000);
+    return () => window.clearInterval(id);
+  }, [liveJob?.status]);
 
   function onUpload(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
@@ -185,9 +204,28 @@ export function TeacherExamDetail({
     });
   }
 
+  const onJobSnapshot = useCallback((job: JobSnapshot) => {
+    setLiveJob(job);
+    if (job.status === "SUCCEEDED" && job.progress && job.progress.questions.length > 0) {
+      setExam((current) =>
+        current ? { ...current, structureQuestions: job.progress?.questions ?? [] } : current,
+      );
+    }
+  }, []);
+
   function startAnalyze() {
     setBanner(null);
-    startTransition(async () => {
+    setStartingAnalysis(true);
+    pinJob.current = true;
+    const startedAt = new Date().toISOString();
+    setJobId(null);
+    setLiveJob({
+      id: "pending",
+      status: "PENDING",
+      startedAt,
+      progress: emptyAnalysisProgress(startedAt),
+    });
+    void (async () => {
       try {
         const res = await fetch(`/api/exams/${examId}/analyze`, {
           method: "POST",
@@ -195,26 +233,49 @@ export function TeacherExamDetail({
         const data = await res.json();
         if (!res.ok) {
           setBanner(data.error || t.examAnalyzeError);
+          setLiveJob(null);
+          pinJob.current = false;
+          await load();
           return;
         }
         setJobId(data.jobId);
-        setBanner(t.examAnalyzeSuccess);
+        setBanner(null);
+        pinJob.current = false;
         await load();
       } catch {
         setBanner(t.examAnalyzeError);
+        setLiveJob(null);
+        pinJob.current = false;
+        await load();
+      } finally {
+        pinJob.current = false;
+        setStartingAnalysis(false);
       }
-    });
+    })();
   }
 
   async function retryJob() {
     if (!jobId) return;
-    const res = await fetch(`/api/jobs/${jobId}`, { method: "POST" });
+    const previous = jobId;
+    pinJob.current = true;
+    const startedAt = new Date().toISOString();
+    setJobId(null);
+    setLiveJob({
+      id: "pending",
+      status: "PENDING",
+      startedAt,
+      progress: emptyAnalysisProgress(startedAt),
+    });
+    const res = await fetch(`/api/jobs/${previous}`, { method: "POST" });
     const data = await res.json();
+    pinJob.current = false;
     if (res.ok) {
       setJobId(data.jobId);
-      setBanner(t.examAnalyzeSuccess);
+      setBanner(null);
     } else {
       setBanner(data.error || t.examAnalyzeError);
+      setLiveJob(null);
+      await load();
     }
   }
 
@@ -243,17 +304,60 @@ export function TeacherExamDetail({
     );
   }
 
-  const questions = exam.structureQuestions ?? [];
+  const savedQuestions = exam.structureQuestions ?? [];
   const latest = exam.latestStructureJobs[0];
-  const jobSucceeded = latest?.status === "SUCCEEDED";
+  const displayStatus = liveJob?.status ?? (startingAnalysis ? "PENDING" : latest?.status ?? "");
+  const jobPhase = displayStatus ? normalizeJobStatus(displayStatus) : null;
+  const jobActive = jobPhase === "PENDING" || jobPhase === "ANALYZING";
+  const jobSucceeded = jobPhase === "SUCCEEDED";
+  const jobFailed = jobPhase === "FAILED";
+  const progress: AnalysisProgress | null = liveJob?.progress ?? null;
+  const touchedAt = progress?.updatedAt ?? liveJob?.startedAt ?? latest?.startedAt ?? null;
+  const idleMs = touchedAt ? now - new Date(touchedAt).getTime() : 0;
+  const stalled = jobActive && !startingAnalysis && idleMs > 3 * 60 * 1000;
+  const running = startingAnalysis || (jobActive && !stalled);
+  const questions = running && progress ? progress.questions : savedQuestions;
+  const groups = groupStructureQuestions(questions);
+  const activity = describeAnalysisActivity(
+    {
+      status: displayStatus || "PENDING",
+      stage: progress?.stage ?? null,
+      completed: progress?.completed ?? 0,
+      total: progress?.total ?? 0,
+      questionKey: progress?.questionKey ?? null,
+      partKeys: progress?.partKeys ?? [],
+    },
+    {
+      queued: t.analysisQueued,
+      reading: t.analysisReading,
+      live: t.analysisLive,
+      done: t.analysisDone,
+      liveNoKey: t.analysisLiveNoKey,
+      saving: t.analysisSaving,
+      succeeded: t.examStructureReady,
+      failed: t.jobStatusFailed,
+      open: locale === "zh-HK" ? "（" : " (",
+      close: locale === "zh-HK" ? "）" : ")",
+      sep: locale === "zh-HK" ? "、" : ", ",
+    },
+  );
+  const elapsed = formatElapsed(liveJob?.startedAt ?? progress?.startedAt, now);
+  const headline = stalled
+    ? t.analysisStalled
+    : running && elapsed
+      ? `${activity.headline} · ${elapsed}`
+      : activity.headline;
   const hasPaper = exam.assets.length > 0;
-  const isSuccessBanner =
-    banner === t.uploadSuccess ||
-    banner === t.examAnalyzeSuccess ||
-    banner === t.examStructureReady;
+  const isSuccessBanner = banner === t.uploadSuccess || banner === t.examStructureReady;
 
   const step = !hasPaper ? 0 : !jobSucceeded ? 1 : 2;
-  const nextStepCopy = [t.nextStepUploadPaper, t.nextStepAnalyse, t.nextStepDistribute][step];
+  const nextStepCopy =
+    running || stalled
+      ? headline
+      : jobFailed
+        ? liveJob?.errorMessage || latest?.errorMessage || t.stateError
+        : [t.nextStepUploadPaper, t.nextStepAnalyse, t.nextStepDistribute][step];
+  const archived = exam.archived === true;
 
   return (
     <div className="space-y-8">
@@ -275,10 +379,12 @@ export function TeacherExamDetail({
         description={`${t.dateLabel}: ${exam.examDate}`}
         actions={
           <>
-            <Link href={`/teacher/exams/${examId}/upload?locale=${locale}`} className="btn btn-secondary">
-              <Icon.Upload size={16} />
-              {t.proxyUploadTitle}
-            </Link>
+            {archived ? null : (
+              <Link href={`/teacher/exams/${examId}/upload?locale=${locale}`} className="btn btn-secondary">
+                <Icon.Upload size={16} />
+                {t.proxyUploadTitle}
+              </Link>
+            )}
             <Link href={`/teacher/exams/${examId}/results?locale=${locale}`} className="btn btn-primary">
               <Icon.BarChart size={16} />
               {t.classResults}
@@ -287,9 +393,15 @@ export function TeacherExamDetail({
         }
       />
 
+      {archived ? <Alert tone="warn">{t.classArchivedBanner}</Alert> : null}
+
       <Stepper
         step={step}
-        labels={[t.stepUpload, t.stepAnalyse, t.stepReview]}
+        labels={[
+          t.stepUpload,
+          running && activity.fraction ? `${t.stepAnalyse} ${activity.fraction}` : t.stepAnalyse,
+          t.stepReview,
+        ]}
         nextStep={nextStepCopy}
         t={t}
       />
@@ -345,16 +457,18 @@ export function TeacherExamDetail({
                     <Icon.Eye size={14} />
                     {t.previewFile}
                   </button>
-                  <button
-                    type="button"
-                    className="btn btn-ghost btn-sm"
-                    onClick={() =>
-                      setPendingDelete({ id: a.id, title: assetTitle(exam, a, t) })
-                    }
-                  >
-                    <Icon.X size={14} />
-                    {t.deleteAsset}
-                  </button>
+                  {archived ? null : (
+                    <button
+                      type="button"
+                      className="btn btn-ghost btn-sm"
+                      onClick={() =>
+                        setPendingDelete({ id: a.id, title: assetTitle(exam, a, t) })
+                      }
+                    >
+                      <Icon.X size={14} />
+                      {t.deleteAsset}
+                    </button>
+                  )}
                   <span className={`badge ${a.kind === "ANSWER_KEY" ? "badge-violet" : "badge-info"}`}>
                     {a.kind === "ANSWER_KEY" ? t.assetKindKey : t.assetKindPaper}
                   </span>
@@ -433,6 +547,7 @@ export function TeacherExamDetail({
             )}
           </div>
 
+          {archived ? null : (
           <form onSubmit={onUpload} className="space-y-3 border-t border-[var(--border)] pt-4">
             <div className="grid grid-cols-2 gap-2">
               {(["QUESTION_PAPER", "ANSWER_KEY"] as const).map((kind) => (
@@ -458,7 +573,7 @@ export function TeacherExamDetail({
             <FileField
               required
               compact
-              accept="image/*,application/pdf"
+              accept={EXAM_UPLOAD_ACCEPT}
               title={t.dropzoneTitle}
               hint={t.dropzoneHint}
               selectedLabel={t.fileSelected}
@@ -473,6 +588,7 @@ export function TeacherExamDetail({
                   : t.examUploadKey}
             </button>
           </form>
+          )}
         </section>
 
         {/* Analysis */}
@@ -480,24 +596,40 @@ export function TeacherExamDetail({
           <SectionHeader
             icon={<Icon.Sparkles size={18} />}
             title={t.examAnalyze}
-            description={jobSucceeded ? t.examAnalyzeReadyHint : t.examStructureEmpty}
-            actions={latest ? <JobStatusBadge status={latest.status} t={t} pulse /> : undefined}
+            description={
+              running || stalled
+                ? undefined
+                : jobSucceeded
+                  ? t.examAnalyzeReadyHint
+                  : groups.length > 0
+                    ? undefined
+                    : t.examStructureEmpty
+            }
           />
-          <button
-            type="button"
-            onClick={startAnalyze}
-            disabled={pending || !hasPaper}
-            className="btn btn-accent w-full"
-          >
-            {pending ? <Icon.Loader size={16} /> : <Icon.Zap size={16} />}
-            {pending ? t.examAnalyzing : jobSucceeded ? t.examReanalyze : t.examAnalyze}
-          </button>
+          {archived ? null : (
+            <button
+              type="button"
+              onClick={startAnalyze}
+              disabled={running || !hasPaper}
+              className="btn btn-accent w-full"
+            >
+              {running ? <Icon.Loader size={16} /> : <Icon.Zap size={16} />}
+              {running ? headline : jobSucceeded || stalled ? t.examReanalyze : t.examAnalyze}
+            </button>
+          )}
           <JobProgressPanel
             jobId={jobId}
             t={t}
-            onRetry={() => void retryJob()}
+            onRetry={archived ? undefined : () => void retryJob()}
             successHint={t.examStructureReady}
             onSucceeded={onStructureSucceeded}
+            onSnapshot={onJobSnapshot}
+            placeholder={!jobId && running ? liveJob : null}
+            headline={running || stalled ? headline : undefined}
+            percent={running || jobSucceeded ? activity.percent : undefined}
+            indeterminate={running && activity.indeterminate}
+            badgeText={stalled ? t.analysisStalledBadge : undefined}
+            showThinking={!stalled}
           />
           {exam.structureLlmModel ? (
             <p className="inline-flex items-center gap-1.5 text-xs text-[var(--muted)]">
@@ -515,57 +647,36 @@ export function TeacherExamDetail({
             icon={<Icon.Layers size={18} />}
             title={t.examStructureTitle}
             description={
-              questions.length > 0
-                ? countLabel(questions.length, t.questionsCount, t.questionsCountOne)
-                : undefined
+              running
+                ? (activity.fraction ?? headline)
+                : groups.length > 0
+                  ? countLabel(groups.length, t.questionsCount, t.questionsCountOne)
+                  : undefined
             }
           />
         </div>
-        {questions.length === 0 ? (
+        {groups.length === 0 ? (
           <div className="p-5 sm:p-6">
-            <EmptyState icon={<Icon.Scan size={22} />} title={t.examStructureEmpty} compact />
+            <EmptyState
+              icon={<Icon.Scan size={22} />}
+              title={running ? t.examStructureLiveEmpty : t.examStructureEmpty}
+              compact
+            />
           </div>
         ) : (
-          <ul className="divide-y divide-[var(--border)]">
-            {questions.map((q, i) => (
-              <li key={q.questionKey} className="px-5 py-4 sm:px-6">
-                <div className="flex flex-wrap items-center justify-between gap-2">
-                  <p className="flex items-center gap-2 font-semibold text-[var(--ink)]">
-                    <span className="flex h-7 min-w-7 items-center justify-center rounded-md bg-primary-50 px-1.5 text-xs font-bold text-primary-700">
-                      {q.questionKey}
-                    </span>
-                    {t.examStructureQuestion} {q.questionKey}
-                  </p>
-                  <p className="text-sm tabular-nums text-[var(--muted)]">
-                    {t.examStructureMaxScore}: <span className="font-semibold text-[var(--ink)]">{q.maxScore}</span>
-                  </p>
-                </div>
-                <div className="mt-2 flex flex-wrap gap-1.5">
-                  <span className="chip chip--hue" style={{ ["--chip-hue" as string]: 222 + (i % 5) * 28 }}>
-                    {t.topicChip}: {q.topic}
-                  </span>
-                  <span className="chip">
-                    {t.itemTypeChip}: {q.itemType}
-                  </span>
-                  {q.questionCategory?.trim() ? (
-                    <span className="chip">
-                      {t.examStructureCategory}: {q.questionCategory}
-                    </span>
-                  ) : null}
-                </div>
-                <dl className="mt-3 grid gap-3 text-sm sm:grid-cols-2">
-                  <div className="rounded-lg bg-[var(--surface-muted)] px-3 py-2">
-                    <dt className="text-xs font-semibold text-primary-700">{t.examStructureObjective}</dt>
-                    <dd className="mt-0.5 text-[var(--ink)]">{q.assessmentObjective?.trim() || "—"}</dd>
-                  </div>
-                  <div className="rounded-lg bg-[var(--surface-muted)] px-3 py-2">
-                    <dt className="text-xs font-semibold text-[var(--teal-600)]">{t.examStructureDifficulty}</dt>
-                    <dd className="mt-0.5 text-[var(--ink)]">{q.difficultyPoints?.trim() || "—"}</dd>
-                  </div>
-                </dl>
-              </li>
-            ))}
-          </ul>
+          <>
+            {!running && groups.every((group) => group.parts.every((part) => !part.partKey)) ? (
+              <p className="border-b border-[var(--border)] bg-primary-50 px-5 py-3 text-sm text-primary-900 sm:px-6">
+                {t.examStructureNoParts}
+              </p>
+            ) : null}
+            <QuestionStructureList
+              groups={groups}
+              activeKey={running ? progress?.questionKey ?? null : null}
+              locale={locale}
+              t={t}
+            />
+          </>
         )}
       </section>
 
@@ -642,6 +753,181 @@ export function TeacherExamDetail({
         />
       ) : null}
     </div>
+  );
+}
+
+function QuestionStructureList({
+  groups,
+  activeKey,
+  locale,
+  t,
+}: {
+  groups: StructureQuestionGroup[];
+  activeKey: string | null;
+  locale: Locale;
+  t: Dictionary;
+}) {
+  useEffect(() => {
+    if (!activeKey) return;
+    document.getElementById(`structure-q-${activeKey}`)?.scrollIntoView({ block: "nearest" });
+  }, [activeKey]);
+
+  const text = (zh?: string, en?: string) => localizedText(locale, zh, en);
+
+  return (
+    <ul className="divide-y divide-[var(--border)]">
+      {groups.map((group, index) => {
+        const active =
+          activeKey === group.questionKey ||
+          group.parts.some((part) => part.questionKey === activeKey);
+        const single = group.parts.length <= 1 && !group.parts[0]?.partKey;
+        const only = group.parts[0];
+        return (
+          <li
+            key={group.questionKey}
+            id={`structure-q-${group.questionKey}`}
+            className={`px-5 py-4 sm:px-6 ${active ? "bg-primary-50/80" : ""}`}
+          >
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <p className="flex items-center gap-2 font-semibold text-[var(--ink)]">
+                <span className="flex h-7 min-w-7 items-center justify-center rounded-md bg-primary-50 px-1.5 text-xs font-bold text-primary-700">
+                  {group.questionKey}
+                </span>
+                {t.examStructureQuestion} {group.questionKey}
+              </p>
+              <p className="text-sm tabular-nums text-[var(--muted)]">
+                {t.examStructureMaxScore}:{" "}
+                <span className="font-semibold text-[var(--ink)]">{group.maxScore}</span>
+              </p>
+            </div>
+            {single ? (
+              <TeachingBlock
+                label={t.examStructureTeaching}
+                content={text(only?.teachingContentZh, only?.teachingContentEn)}
+                locale={locale}
+              />
+            ) : null}
+            <div className="mt-2 flex flex-wrap gap-1.5">
+              <span className="chip chip--hue" style={{ ["--chip-hue" as string]: 222 + (index % 5) * 28 }}>
+                {t.topicChip}: {text(group.topicZh, group.topicEn)}
+              </span>
+              {single ? (
+                <>
+                  <span className="chip">
+                    {t.itemTypeChip}: {text(only?.itemTypeZh, only?.itemTypeEn)}
+                  </span>
+                  <span className="chip">
+                    {t.examStructureCategory}: {text(only?.questionCategoryZh, only?.questionCategoryEn)}
+                  </span>
+                </>
+              ) : null}
+            </div>
+            {single ? (
+              <QuestionMeta
+                objectiveLabel={t.examStructureObjective}
+                difficultyLabel={t.examStructureDifficulty}
+                objective={text(
+                  only?.assessmentObjectiveZh || group.assessmentObjectiveZh,
+                  only?.assessmentObjectiveEn || group.assessmentObjectiveEn,
+                )}
+                difficulty={text(
+                  only?.difficultyPointsZh || group.difficultyPointsZh,
+                  only?.difficultyPointsEn || group.difficultyPointsEn,
+                )}
+                locale={locale}
+              />
+            ) : (
+              <ul className="mt-3 space-y-3">
+                {group.parts.map((part) => (
+                  <li key={part.questionKey} className="rounded-lg border border-[var(--border)] bg-[var(--surface)] px-3 py-3">
+                    <p className="text-sm font-semibold text-primary-800">
+                      {t.examStructurePart} ({part.partKey})
+                      <span className="ml-2 font-medium text-[var(--muted)]">
+                        {t.examStructureMaxScore} {part.maxScore}
+                      </span>
+                    </p>
+                    <TeachingBlock
+                      label={t.examStructureTeaching}
+                      content={text(part.teachingContentZh, part.teachingContentEn)}
+                      locale={locale}
+                    />
+                    <div className="mt-2 flex flex-wrap gap-1.5">
+                      <span className="chip">
+                        {t.itemTypeChip}: {text(part.itemTypeZh, part.itemTypeEn)}
+                      </span>
+                      <span className="chip">
+                        {t.examStructureCategory}: {text(part.questionCategoryZh, part.questionCategoryEn)}
+                      </span>
+                    </div>
+                    <QuestionMeta
+                      objectiveLabel={t.examStructureObjective}
+                      difficultyLabel={t.examStructureDifficulty}
+                      objective={text(part.assessmentObjectiveZh, part.assessmentObjectiveEn)}
+                      difficulty={text(part.difficultyPointsZh, part.difficultyPointsEn)}
+                      locale={locale}
+                    />
+                  </li>
+                ))}
+              </ul>
+            )}
+          </li>
+        );
+      })}
+    </ul>
+  );
+}
+
+function localizedText(locale: Locale, zh?: string, en?: string): string {
+  const chinese = zh?.trim() ?? "";
+  const english = en?.trim() ?? "";
+  if (locale === "zh-HK") return chinese || english || "—";
+  return english || chinese || "—";
+}
+
+function TeachingBlock({
+  label,
+  content,
+  locale,
+}: {
+  label: string;
+  content: string;
+  locale: Locale;
+}) {
+  return (
+    <div className="mt-2">
+      <p className="text-xs font-semibold text-primary-700">{label}</p>
+      <p lang={locale === "zh-HK" ? "zh-HK" : "en"} className="mt-1 whitespace-pre-wrap text-sm leading-relaxed text-[var(--ink)]">
+        {content}
+      </p>
+    </div>
+  );
+}
+
+function QuestionMeta({
+  objectiveLabel,
+  difficultyLabel,
+  objective,
+  difficulty,
+  locale,
+}: {
+  objectiveLabel: string;
+  difficultyLabel: string;
+  objective: string;
+  difficulty: string;
+  locale: Locale;
+}) {
+  const lang = locale === "zh-HK" ? "zh-HK" : "en";
+  return (
+    <dl className="mt-3 grid gap-3 text-sm sm:grid-cols-2">
+      <div className="rounded-lg bg-[var(--surface-muted)] px-3 py-2">
+        <dt className="text-xs font-semibold text-primary-700">{objectiveLabel}</dt>
+        <dd lang={lang} className="mt-0.5 whitespace-pre-wrap text-[var(--ink)]">{objective}</dd>
+      </div>
+      <div className="rounded-lg bg-[var(--surface-muted)] px-3 py-2">
+        <dt className="text-xs font-semibold text-[var(--teal-600)]">{difficultyLabel}</dt>
+        <dd lang={lang} className="mt-0.5 whitespace-pre-wrap text-[var(--ink)]">{difficulty}</dd>
+      </div>
+    </dl>
   );
 }
 

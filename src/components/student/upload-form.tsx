@@ -1,8 +1,10 @@
 "use client";
 
 import Link from "next/link";
-import { useState, useTransition } from "react";
+import { useEffect, useState, useTransition } from "react";
 import type { Dictionary, Locale } from "@/lib/i18n/dictionaries";
+import { FILE_CHECK_ERROR_CODES } from "@/lib/errors";
+import { EXAM_UPLOAD_ACCEPT } from "@/lib/files/exam-upload";
 import { JobProgressPanel } from "@/components/jobs/job-progress-panel";
 import { Alert } from "@/components/ui/feedback";
 import { FileField } from "@/components/ui/file-field";
@@ -18,17 +20,42 @@ export function StudentUploadForm({
   examId: string;
 }) {
   const [error, setError] = useState<string | null>(null);
+  const [showCheckFile, setShowCheckFile] = useState(false);
   const [success, setSuccess] = useState<string | null>(null);
   const [jobId, setJobId] = useState<string | null>(null);
   const [submissionId, setSubmissionId] = useState<string | null>(null);
   const [fileReset, setFileReset] = useState(0);
   const [pending, startTransition] = useTransition();
+  const [archived, setArchived] = useState(false);
+  const [structureReady, setStructureReady] = useState(true);
+  const [checked, setChecked] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      try {
+        const res = await fetch(`/api/exams/${examId}`);
+        const data = await res.json();
+        if (!cancelled && res.ok) {
+          if (data.exam?.archived) setArchived(true);
+          setStructureReady(Boolean(data.exam?.structureLlmModel));
+        }
+      } finally {
+        if (!cancelled) setChecked(true);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [examId]);
 
   function onSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
+    if (!structureReady) return;
     const form = e.currentTarget;
     const fd = new FormData(form);
     setError(null);
+    setShowCheckFile(false);
     setSuccess(null);
     startTransition(async () => {
       try {
@@ -39,6 +66,9 @@ export function StudentUploadForm({
         const data = await res.json();
         if (!res.ok) {
           setError(data.error || t.uploadError);
+          setShowCheckFile(
+            typeof data.code === "string" && FILE_CHECK_ERROR_CODES.has(data.code),
+          );
           return;
         }
         setSuccess(t.uploadSuccess);
@@ -48,6 +78,7 @@ export function StudentUploadForm({
         setFileReset((n) => n + 1);
       } catch {
         setError(t.uploadError);
+        setShowCheckFile(false);
       }
     });
   }
@@ -61,13 +92,29 @@ export function StudentUploadForm({
     if (res.ok) {
       setJobId(data.jobId);
       setError(null);
+      setShowCheckFile(false);
     } else {
       setError(data.error || t.examAnalyzeError);
+      setShowCheckFile(false);
     }
   }
 
   const steps = [t.stepUpload, t.stepAnalyse, t.stepReview];
   const current = submissionId ? 1 : 0;
+
+  if (!checked) return null;
+
+  if (archived) {
+    return (
+      <div className="mt-8 space-y-4">
+        <Alert tone="warn">{t.classArchivedBanner}</Alert>
+        <Link href={`/student?locale=${locale}`} className="btn btn-secondary">
+          <Icon.ArrowLeft size={16} />
+          {t.back}
+        </Link>
+      </div>
+    );
+  }
 
   return (
     <div className="mt-8 grid gap-6 lg:grid-cols-[minmax(0,1fr)_22rem]">
@@ -92,10 +139,14 @@ export function StudentUploadForm({
           ))}
         </ol>
 
+        {!structureReady ? (
+          <Alert tone="warn">{t.uploadStructureNotReady}</Alert>
+        ) : null}
+
         <FileField
           required
           multiple
-          accept="image/*,application/pdf"
+          accept={EXAM_UPLOAD_ACCEPT}
           title={t.dropzoneTitle}
           hint={t.uploadMultipleHint}
           selectedLabel={t.fileSelected}
@@ -112,13 +163,19 @@ export function StudentUploadForm({
             }
           >
             <p>{error}</p>
-            <p className="mt-0.5 text-xs opacity-80">{t.checkFile}</p>
+            {showCheckFile ? (
+              <p className="mt-0.5 text-xs opacity-80">{t.checkFile}</p>
+            ) : null}
           </Alert>
         ) : null}
         {success ? <Alert tone="success">{success}</Alert> : null}
 
         <div className="flex flex-wrap items-center gap-3 border-t border-[var(--border)] pt-5">
-          <button type="submit" disabled={pending} className="btn btn-primary">
+          <button
+            type="submit"
+            disabled={pending || !structureReady}
+            className="btn btn-primary"
+          >
             {pending ? <Icon.Loader size={16} /> : <Icon.Upload size={16} />}
             {pending ? t.uploadUploading : t.uploadSubmit}
           </button>

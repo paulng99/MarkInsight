@@ -1,8 +1,9 @@
 "use client";
 
 import { useState } from "react";
-import type { Dictionary } from "@/lib/i18n/dictionaries";
+import type { Dictionary, Locale } from "@/lib/i18n/dictionaries";
 import { Icon } from "@/components/ui/icons";
+import { QuestionStudyReport } from "@/components/results/study-report";
 
 export type ScoreRow = {
   questionKey: string;
@@ -11,6 +12,14 @@ export type ScoreRow = {
   score: number;
   maxScore: number;
   feedback?: string | null;
+  didWellZh?: string | null;
+  didWellEn?: string | null;
+  weaknessZh?: string | null;
+  weaknessEn?: string | null;
+  mistakesToWatchZh?: string | null;
+  mistakesToWatchEn?: string | null;
+  howToImproveZh?: string | null;
+  howToImproveEn?: string | null;
 };
 
 function ratioTone(r: number) {
@@ -22,13 +31,22 @@ function ratioTone(r: number) {
 export function ExpandableScoreCards({
   scores,
   t,
+  locale,
   colorful = true,
+  initiallyOpen = "first",
 }: {
   scores: ScoreRow[];
   t: Dictionary;
+  locale: Locale;
   colorful?: boolean;
+  /** Students open every question so the revision report can be read straight away. */
+  initiallyOpen?: "all" | "first";
 }) {
-  const [open, setOpen] = useState<string | null>(scores[0]?.questionKey ?? null);
+  const [open, setOpen] = useState<Set<string>>(() =>
+    initiallyOpen === "all"
+      ? new Set(scores.map((score) => score.questionKey))
+      : new Set(scores[0] ? [scores[0].questionKey] : []),
+  );
 
   if (scores.length === 0) {
     return <p className="text-sm text-[var(--muted)]">{t.noScoresYet}</p>;
@@ -62,18 +80,28 @@ export function ExpandableScoreCards({
 
       <ul className="grid gap-2">
         {scores.map((s) => {
-          const isOpen = open === s.questionKey;
+          const isOpen = open.has(s.questionKey);
           const ratio = s.maxScore > 0 ? s.score / s.maxScore : 0;
           const tone = ratioTone(ratio);
           return (
-            <li key={s.questionKey}>
+            <li
+              key={s.questionKey}
+              className={`score-card border border-[var(--border)] bg-[var(--surface)] px-4 py-3 transition-[box-shadow,border-color] duration-[var(--motion-fast)] ease-[var(--ease-out)] ${
+                colorful ? "score-card--student" : "score-card--teacher"
+              } ${isOpen ? "score-card--open" : ""}`}
+            >
               <button
                 type="button"
-                onClick={() => setOpen(isOpen ? null : s.questionKey)}
+                onClick={() =>
+                  setOpen((current) => {
+                    const next = new Set(current);
+                    if (next.has(s.questionKey)) next.delete(s.questionKey);
+                    else next.add(s.questionKey);
+                    return next;
+                  })
+                }
                 aria-expanded={isOpen}
-                className={`score-card w-full border border-[var(--border)] bg-[var(--surface)] px-4 py-3 text-left transition-[box-shadow,border-color] duration-[var(--motion-fast)] ease-[var(--ease-out)] hover:border-[var(--border-strong)] ${
-                  colorful ? "score-card--student" : "score-card--teacher"
-                } ${isOpen ? "score-card--open" : ""}`}
+                className="w-full text-left"
               >
                 <div className="flex items-center gap-3">
                   <span className="flex h-8 min-w-8 items-center justify-center rounded-md bg-[var(--surface-sunken)] px-2 text-xs font-bold text-[var(--ink)]">
@@ -106,18 +134,10 @@ export function ExpandableScoreCards({
                     </div>
                   </div>
                 </div>
-                {isOpen ? (
-                  <div className="score-card-body mt-3 border-t border-[var(--border)] pt-3 text-sm">
-                    {s.feedback ? (
-                      <p className="leading-relaxed text-[var(--ink)]">{s.feedback}</p>
-                    ) : (
-                      <p className="text-[var(--muted)]">
-                        {t.topicChip}: {s.topic} · {t.itemTypeChip}: {s.itemType}
-                      </p>
-                    )}
-                  </div>
-                ) : null}
               </button>
+              <div className={`score-card-body mt-3 border-t border-[var(--border)] pt-3 text-sm ${isOpen ? "" : "hidden"}`}>
+                <QuestionStudyReport locale={locale} t={t} {...s} />
+              </div>
             </li>
           );
         })}

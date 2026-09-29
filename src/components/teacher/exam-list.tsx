@@ -10,6 +10,12 @@ import { FileField } from "@/components/ui/file-field";
 import { Icon } from "@/components/ui/icons";
 import { SectionHeader } from "@/components/ui/page-header";
 import { StatCard } from "@/components/ui/stat-card";
+import {
+  ArchiveClassButton,
+  ArchiveSubjectButton,
+  ArchivedClassesMenu,
+  messageForArchiveCode,
+} from "@/components/teacher/archive-controls";
 import { ClassRoster } from "@/components/teacher/class-roster";
 
 type ExamRow = {
@@ -37,6 +43,7 @@ type SubjectGroup = {
     updatedAt: string;
   } | null;
   classes: ClassGroup[];
+  archivedClasses?: Array<{ id: string; name: string; archivedAt: string }>;
 };
 
 const NEW_SUBJECT_VALUE = "__new__";
@@ -47,8 +54,8 @@ async function createClassSubject(subjectCode: string, className: string) {
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ subjectCode, className }),
   });
-  const data = (await res.json()) as { error?: string };
-  return { ok: res.ok, error: data.error };
+  const data = (await res.json()) as { error?: string; code?: string };
+  return { ok: res.ok, error: data.error, code: data.code };
 }
 
 export function TeacherExamList({
@@ -74,7 +81,11 @@ export function TeacherExamList({
     m === t.syllabusUploaded ||
     m === t.addSubjectSuccess ||
     m === t.addClassSuccess ||
-    m === t.distributeSuccess;
+    m === t.distributeSuccess ||
+    m === t.archiveSubjectDone ||
+    m === t.archiveClassDone ||
+    m === t.restoreClassDone ||
+    m === t.deleteClassDone;
 
   const load = useCallback(async () => {
     setError(null);
@@ -134,7 +145,13 @@ export function TeacherExamList({
       try {
         const result = await createClassSubject(code, className);
         if (!result.ok) {
-          setNotice(result.error || (creatingNew ? t.addSubjectError : t.addClassError));
+          setNotice(
+            messageForArchiveCode(
+              result.code,
+              result.error || (creatingNew ? t.addSubjectError : t.addClassError),
+              t,
+            ),
+          );
           return;
         }
         setSubjectCode("");
@@ -435,6 +452,12 @@ function SubjectCard({
           <span className={`badge badge-dot ${subject.syllabus ? "badge-success" : "badge-warn"}`}>
             {subject.syllabus ? t.syllabusTitle : t.syllabusEmpty}
           </span>
+          <ArchiveSubjectButton
+            subjectCode={subject.subjectCode}
+            t={t}
+            onDone={onNotice}
+            onError={onNotice}
+          />
           <button
             type="button"
             className="btn btn-secondary btn-sm"
@@ -526,15 +549,23 @@ function SubjectCard({
                   · {countLabel(cls.exams.length, t.examsCount, t.examsCountOne)}
                 </span>
               </h4>
-              <Link
-                href={`/teacher/exams/new?locale=${locale}&classSubjectId=${cls.id}`}
-                className="link text-sm"
-              >
-                <span className="inline-flex items-center gap-1">
-                  <Icon.Plus size={14} />
-                  {t.examCreate}
-                </span>
-              </Link>
+              <div className="flex flex-wrap items-center gap-2">
+                <ArchiveClassButton
+                  classSubjectId={cls.id}
+                  t={t}
+                  onDone={onNotice}
+                  onError={onNotice}
+                />
+                <Link
+                  href={`/teacher/exams/new?locale=${locale}&classSubjectId=${cls.id}`}
+                  className="link text-sm"
+                >
+                  <span className="inline-flex items-center gap-1">
+                    <Icon.Plus size={14} />
+                    {t.examCreate}
+                  </span>
+                </Link>
+              </div>
             </div>
             <ClassRoster classSubjectId={cls.id} className={cls.name} t={t} />
             {cls.exams.length === 0 ? (
@@ -589,6 +620,13 @@ function SubjectCard({
             )}
           </div>
         ))}
+        <ArchivedClassesMenu
+          subjectCode={subject.subjectCode}
+          classes={subject.archivedClasses ?? []}
+          t={t}
+          onDone={onNotice}
+          onError={onNotice}
+        />
         {!addClassOpen ? (
           <button
             type="button"

@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { jsonError } from "@/lib/errors";
 import { requireSessionUser } from "@/lib/api/session";
 import { getJobForUser } from "@/lib/exams/service";
+import { readJobProgress } from "@/lib/jobs/job-progress";
 import { retryAnalysisJob, processJob } from "@/lib/jobs/analyze-exam";
 
 type Ctx = { params: Promise<{ jobId: string }> };
@@ -18,6 +19,8 @@ export async function GET(_request: Request, context: Ctx) {
       void processJob(job.id);
     }
 
+    const progress = job.kind === "EXAM_STRUCTURE" ? await readJobProgress(job.id) : null;
+
     return NextResponse.json({
       job: {
         id: job.id,
@@ -27,9 +30,10 @@ export async function GET(_request: Request, context: Ctx) {
         errorMessage: job.errorMessage,
         examId: job.examId,
         submissionId: job.submissionId,
-        startedAt: job.startedAt?.toISOString() ?? null,
+        startedAt: job.startedAt?.toISOString() ?? progress?.startedAt ?? null,
         finishedAt: job.finishedAt?.toISOString() ?? null,
         createdAt: job.createdAt.toISOString(),
+        progress,
       },
     });
   } catch (error) {

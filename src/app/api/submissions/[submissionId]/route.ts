@@ -3,6 +3,7 @@ import { jsonError } from "@/lib/errors";
 import { requireSessionUser } from "@/lib/api/session";
 import { assertStudentOwnsSubmission, formatDateYmd } from "@/lib/exams/service";
 import { prisma } from "@/lib/prisma";
+import { isClassInactive } from "@/lib/subjects/archive";
 
 type Ctx = { params: Promise<{ submissionId: string }> };
 
@@ -27,6 +28,8 @@ export async function GET(_request: Request, context: Ctx) {
         status: submission.status,
         errorMessage: submission.errorMessage,
         scoringLlmModel: submission.scoringLlmModel,
+        studyFocusZh: submission.studyFocusZh,
+        studyFocusEn: submission.studyFocusEn,
         analyzedAt: submission.analyzedAt?.toISOString() ?? null,
         exam: {
           id: submission.exam.id,
@@ -37,6 +40,7 @@ export async function GET(_request: Request, context: Ctx) {
             name: submission.exam.classSubject.name,
             subjectCode: submission.exam.classSubject.subjectCode,
           },
+          archived: isClassInactive(submission.exam.classSubject),
         },
         student: submission.student,
         questionScores: submission.questionScores.map((q) => ({
@@ -46,6 +50,14 @@ export async function GET(_request: Request, context: Ctx) {
           score: q.score,
           maxScore: q.maxScore,
           feedback: q.feedback,
+          didWellZh: q.didWellZh,
+          didWellEn: q.didWellEn,
+          weaknessZh: q.weaknessZh,
+          weaknessEn: q.weaknessEn,
+          mistakesToWatchZh: q.mistakesToWatchZh,
+          mistakesToWatchEn: q.mistakesToWatchEn,
+          howToImproveZh: q.howToImproveZh,
+          howToImproveEn: q.howToImproveEn,
         })),
         jobs: submission.analysisJobs.map((j) => ({
           id: j.id,

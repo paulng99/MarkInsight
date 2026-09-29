@@ -64,10 +64,11 @@ export function SidebarNav({
             key={item.href}
             href={`${item.href}?locale=${locale}`}
             aria-current={active ? "page" : undefined}
+            title={item.label}
             className="nav-item"
           >
             <span className="shrink-0 text-[var(--muted)]">{item.icon}</span>
-            <span className="truncate">{item.label}</span>
+            <span className="sidebar-label">{item.label}</span>
           </Link>
         );
       })}

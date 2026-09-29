@@ -3,6 +3,10 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { auth } from "@/auth";
 import { loginAction } from "./actions";
+import {
+  getDemoLoginPolicy,
+  shouldShowLoginDemoBlock,
+} from "@/lib/auth/demo-login-policy";
 import { getDictionary, parseLocale } from "@/lib/i18n/dictionaries";
 import { homePathForRole } from "@/lib/rbac";
 import { LoginForm } from "@/components/auth/login-form";
@@ -19,6 +23,7 @@ export default async function LoginPage({
   const params = await searchParams;
   const locale = parseLocale(params.locale);
   const t = getDictionary(locale);
+  const demoPolicy = getDemoLoginPolicy();
 
   if (session?.user) {
     redirect(`${homePathForRole(session.user.role)}?locale=${locale}`);
@@ -77,7 +82,13 @@ export default async function LoginPage({
             <h1 className="display mt-2 text-3xl text-[var(--ink)]">{t.signInTitle}</h1>
             <p className="mt-2 text-sm text-[var(--muted)]">{t.signInSubtitle}</p>
             <div className="mt-8">
-              <LoginForm action={loginAction} locale={locale} t={t} error={params.error} />
+              <LoginForm
+                action={loginAction}
+                locale={locale}
+                t={t}
+                error={params.error}
+                showDemoHint={shouldShowLoginDemoBlock(demoPolicy)}
+              />
             </div>
           </div>
         </main>

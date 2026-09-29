@@ -4,10 +4,10 @@ import { requireSessionUser } from "@/lib/api/session";
 import {
   assertTeacherOwnsExam,
   formatDateYmd,
-  listExamsForStudent,
 } from "@/lib/exams/service";
 import { getExamStructureQuestions } from "@/lib/jobs/analyze-exam";
 import { prisma } from "@/lib/prisma";
+import { isClassInactive } from "@/lib/subjects/archive";
 
 type Ctx = { params: Promise<{ examId: string }> };
 
@@ -62,47 +62,74 @@ export async function GET(_request: Request, context: Ctx) {
             status: j.status,
             llmModel: j.llmModel,
             errorMessage: j.errorMessage,
+            startedAt: j.startedAt?.toISOString() ?? null,
             createdAt: j.createdAt.toISOString(),
             finishedAt: j.finishedAt?.toISOString() ?? null,
           })),
+          archived: isClassInactive(exam.classSubject),
         },
       });
     }
 
     if (user.role === "STUDENT") {
-      const exams = await listExamsForStudent(user);
-      const exam = exams.find((e) => e.id === examId);
-      if (!exam) {
+      if (!user.schoolId) {
         return NextResponse.json({ error: "Forbidden" }, { status: 403 });
       }
-      const submission = exam.submissions[0]
-        ? await prisma.submission.findUnique({
-            where: { id: exam.submissions[0].id },
+      const exam = await prisma.exam.findFirst({
+        where: { id: examId, schoolId: user.schoolId },
+        include: {
+          classSubject: true,
+          submissions: {
+            where: { studentId: user.id },
             include: {
               analysisJobs: { orderBy: { createdAt: "desc" }, take: 3 },
             },
-          })
-        : null;
+          },
+        },
+      });
+      if (!exam) {
+        return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+      }
+      const enrolled = await prisma.enrollment.findFirst({
+        where: {
+          classSubjectId: exam.classSubjectId,
+          userId: user.id,
+          schoolId: user.schoolId,
+          role: "STUDENT",
+        },
+      });
+      if (!enrolled) {
+        return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+      }
+      const submission = exam.submissions[0] ?? null;
+      const archived = isClassInactive(exam.classSubject);
       return NextResponse.json({
         exam: {
           id: exam.id,
           title: exam.title,
           examDate: formatDateYmd(exam.examDate),
-          classSubject: exam.classSubject,
+          classSubject: {
+            id: exam.classSubject.id,
+            name: exam.classSubject.name,
+            subjectCode: exam.classSubject.subjectCode,
+          },
           structureLlmModel: exam.structureLlmModel,
-          submission: submission
-            ? {
-                id: submission.id,
-                status: submission.status,
-                scoringLlmModel: submission.scoringLlmModel,
-                errorMessage: submission.errorMessage,
-                jobs: submission.analysisJobs.map((j) => ({
-                  id: j.id,
-                  status: j.status,
-                  errorMessage: j.errorMessage,
-                })),
-              }
-            : null,
+          archived,
+          submission: archived
+            ? null
+            : submission
+              ? {
+                  id: submission.id,
+                  status: submission.status,
+                  scoringLlmModel: submission.scoringLlmModel,
+                  errorMessage: submission.errorMessage,
+                  jobs: submission.analysisJobs.map((j) => ({
+                    id: j.id,
+                    status: j.status,
+                    errorMessage: j.errorMessage,
+                  })),
+                }
+              : null,
         },
       });
     }

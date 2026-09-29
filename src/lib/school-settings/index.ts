@@ -6,15 +6,18 @@
  */
 
 import type { Role } from "@/lib/roles";
+import { getOpenRouterModelAllowlist } from "@/lib/config/openrouter-model-allowlist";
 import {
   assertAllowedAnalysisModel,
-  getOpenRouterModelAllowlist,
-} from "@/lib/config/openrouter-model-allowlist";
+  listAnalysisModelChoices as listCatalogModels,
+} from "@/lib/llm/openrouter-models";
 import { listSystemPrompts, saveSystemPrompts } from "@/lib/llm/system-prompts";
 import { prisma } from "@/lib/prisma";
 import type {
+  AnalysisModelChoiceDto,
   CreateSchoolYearInput,
   CreateTeacherInput,
+  CreateTeacherResult,
   SchoolSettingsDto,
   SchoolSettingsPageDto,
   SchoolYearDto,
@@ -23,6 +26,7 @@ import type {
   UpsertSchoolSettingsInput,
 } from "@/lib/school-settings/types";
 import bcrypt from "bcryptjs";
+import { randomBytes } from "node:crypto";
 
 /** Stub/demo school used when platform admin has no schoolId. */
 export const DEMO_SCHOOL_ID = "demo_school";
@@ -196,21 +200,24 @@ export async function getSchoolSettingsPage(
 ): Promise<SchoolSettingsPageDto> {
   const { schoolName } = await ensureSchoolBootstrap(schoolId);
 
-  const [settings, schoolYears, teachers] = await Promise.all([
-    prisma.schoolSettings.findUnique({
-      where: { schoolId },
-      include: { defaultSchoolYear: { select: { name: true } } },
-    }),
-    prisma.schoolYear.findMany({
-      where: { schoolId },
-      orderBy: { startsOn: "desc" },
-    }),
-    prisma.user.findMany({
-      where: { schoolId, role: "TEACHER" },
-      orderBy: { email: "asc" },
-      select: { id: true, email: true, name: true },
-    }),
-  ]);
+  const [settings, schoolYears, teachers, modelChoices, systemPrompts] =
+    await Promise.all([
+      prisma.schoolSettings.findUnique({
+        where: { schoolId },
+        include: { defaultSchoolYear: { select: { name: true } } },
+      }),
+      prisma.schoolYear.findMany({
+        where: { schoolId },
+        orderBy: { startsOn: "desc" },
+      }),
+      prisma.user.findMany({
+        where: { schoolId, role: "TEACHER" },
+        orderBy: { email: "asc" },
+        select: { id: true, email: true, name: true },
+      }),
+      listAnalysisModelChoices(),
+      listSystemPrompts(schoolId),
+    ]);
 
   return {
     schoolId,
@@ -218,15 +225,16 @@ export async function getSchoolSettingsPage(
     settings: settings ? toSettingsDto(settings) : null,
     schoolYears: schoolYears.map(toSchoolYearDto),
     teachers: teachers as TeacherAccountDto[],
-    analysisModelAllowlist: listAnalysisModelChoices(),
-    systemPrompts: await listSystemPrompts(schoolId),
+    analysisModelAllowlist: modelChoices.map((m) => m.id),
+    analysisModelChoices: modelChoices,
+    systemPrompts,
   };
 }
 
-/** Validate write payload (allowlist + shape). Does not touch the DB. */
-export function validateUpsertSchoolSettings(
+/** Validate write payload (catalog + shape). Does not touch the DB. */
+export async function validateUpsertSchoolSettings(
   input: UpsertSchoolSettingsInput,
-): UpsertSchoolSettingsInput {
+): Promise<UpsertSchoolSettingsInput> {
   const displayName = input.displayName.trim();
   if (!displayName) {
     throw new Error("displayName is required");
@@ -234,7 +242,7 @@ export function validateUpsertSchoolSettings(
   if (!input.schoolId?.trim()) {
     throw new Error("schoolId is required");
   }
-  assertAllowedAnalysisModel(input.analysisLlmModel);
+  await assertAllowedAnalysisModel(input.analysisLlmModel);
   return {
     ...input,
     schoolId: input.schoolId.trim(),
@@ -249,7 +257,7 @@ export function validateUpsertSchoolSettings(
 export async function upsertSchoolSettings(
   input: UpsertSchoolSettingsInput,
 ): Promise<SchoolSettingsDto> {
-  const validated = validateUpsertSchoolSettings(input);
+  const validated = await validateUpsertSchoolSettings(input);
   await ensureSchoolBootstrap(validated.schoolId);
 
   if (validated.defaultSchoolYearId) {
@@ -338,8 +346,10 @@ export async function createSchoolYear(
   }
 }
 
-/** Stub default password for newly created teacher accounts (dev only). */
-const TEACHER_STUB_PASSWORD = "password";
+/** Cryptographically random temporary password (≥16 chars). Never log this. */
+export function generateTemporaryPassword(): string {
+  return randomBytes(16).toString("base64url");
+}
 
 export async function listTeachersForSchool(
   schoolId: string,
@@ -353,7 +363,7 @@ export async function listTeachersForSchool(
 
 export async function createTeacherAccount(
   input: CreateTeacherInput,
-): Promise<TeacherAccountDto> {
+): Promise<CreateTeacherResult> {
   const schoolId = input.schoolId.trim();
   const email = input.email.toLowerCase().trim();
   const name = input.name.trim();
@@ -368,7 +378,8 @@ export async function createTeacherAccount(
     throw new Error("A user with this email already exists");
   }
 
-  const passwordHash = await bcrypt.hash(TEACHER_STUB_PASSWORD, 10);
+  const temporaryPassword = generateTemporaryPassword();
+  const passwordHash = await bcrypt.hash(temporaryPassword, 10);
   const user = await prisma.user.create({
     data: {
       email,
@@ -379,21 +390,22 @@ export async function createTeacherAccount(
     },
     select: { id: true, email: true, name: true },
   });
-  return user;
+  return { ...user, temporaryPassword };
 }
 
 /**
  * Resolve the analysis model for a **new** job.
- * Falls back to allowlist[0] if settings row is missing or DB is unavailable.
+ * Falls back to catalog[0] if settings row is missing or DB is unavailable.
  * Does not mutate historical Exam/Submission/AnalysisJob model ids.
+ * Stored settings models are trusted (validated at write time).
  */
 export async function resolveAnalysisLlmModelForNewJob(
   schoolId: string,
 ): Promise<string> {
-  const allowlist = getOpenRouterModelAllowlist();
-  const fallback = allowlist[0];
+  const choices = await listAnalysisModelChoices();
+  const fallback = choices[0]?.id ?? getOpenRouterModelAllowlist()[0];
   if (!fallback) {
-    throw new Error("Analysis model allowlist is empty");
+    throw new Error("Analysis model catalog is empty");
   }
 
   try {
@@ -401,25 +413,52 @@ export async function resolveAnalysisLlmModelForNewJob(
       where: { schoolId },
       select: { analysisLlmModel: true },
     });
-    if (settings?.analysisLlmModel) {
-      assertAllowedAnalysisModel(settings.analysisLlmModel);
-      return settings.analysisLlmModel;
+    if (settings?.analysisLlmModel?.trim()) {
+      return settings.analysisLlmModel.trim();
     }
   } catch {
-    // Stub / offline DB — use allowlist fallback for new jobs.
+    // Stub / offline DB — use catalog fallback for new jobs.
   }
   return fallback;
 }
 
-export function listAnalysisModelChoices(): string[] {
-  return getOpenRouterModelAllowlist();
+export async function listAnalysisModelChoices(): Promise<
+  AnalysisModelChoiceDto[]
+> {
+  return listCatalogModels();
+}
+
+/**
+ * Update only the analysis model (and optional system prompts) for a school.
+ * Used by the admin prompts page without rewriting the rest of school settings.
+ */
+export async function updateAnalysisLlmModel(
+  schoolId: string,
+  analysisLlmModel: string,
+): Promise<string> {
+  const id = schoolId.trim();
+  const model = analysisLlmModel.trim();
+  if (!id) throw new Error("schoolId is required");
+  await assertAllowedAnalysisModel(model);
+  await ensureSchoolBootstrap(id);
+  await prisma.schoolSettings.update({
+    where: { schoolId: id },
+    data: { analysisLlmModel: model },
+  });
+  return model;
+}
+
+export async function getAnalysisLlmModel(schoolId: string): Promise<string> {
+  return resolveAnalysisLlmModelForNewJob(schoolId);
 }
 
 export type {
+  AnalysisModelChoiceDto,
   SchoolSettingsDto,
   SchoolSettingsPageDto,
   SchoolYearDto,
   TeacherAccountDto,
+  CreateTeacherResult,
   UpsertSchoolSettingsInput,
   SystemPromptSettingDto,
   CreateTeacherInput,

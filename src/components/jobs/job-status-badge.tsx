@@ -14,16 +14,18 @@ export function JobStatusBadge({
   status,
   t,
   pulse = false,
+  label,
 }: {
   status: string;
   t: Dictionary;
   pulse?: boolean;
+  label?: string;
 }) {
   const key = jobStatusDictKey(status);
-  const live = key === "jobStatusRunning" || key === "jobStatusPending";
+  const live = !label && (key === "jobStatusRunning" || key === "jobStatusPending");
   return (
-    <span className={`badge badge-dot ${tone[key]} ${pulse && live ? "job-pulse" : ""}`}>
-      {t[key]}
+    <span className={`badge badge-dot ${label ? "badge-warn" : tone[key]} ${pulse && live ? "job-pulse" : ""}`}>
+      {label || t[key]}
     </span>
   );
 }

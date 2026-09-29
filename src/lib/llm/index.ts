@@ -13,6 +13,7 @@ export type {
   LlmChatResponse,
   LlmClient,
   LlmContentPart,
+  LlmUsageTotals,
   ScoreSubmissionInput,
   ScoreSubmissionResult,
 } from "@/lib/llm/types";

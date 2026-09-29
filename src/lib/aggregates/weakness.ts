@@ -6,6 +6,7 @@
 import { AppError } from "@/lib/errors";
 import { prisma } from "@/lib/prisma";
 import type { SessionUser } from "@/lib/rbac";
+import { activeClassWhere, assertClassIsActive } from "@/lib/subjects/archive";
 
 export type RelatedExam = {
   examId: string;
@@ -345,6 +346,7 @@ export async function getStudentWeaknessForUser(
   if (!classSubject) {
     throw new AppError("Class not found", 404, "class_not_found");
   }
+  assertClassIsActive(classSubject);
 
   let studentId: string;
   if (user.role === "STUDENT") {
@@ -439,7 +441,7 @@ export async function listStudentClassSubjects(user: SessionUser) {
       userId: user.id,
       schoolId,
       role: "STUDENT",
-      classSubject: { archivedAt: null },
+      classSubject: activeClassWhere,
     },
     include: {
       classSubject: {

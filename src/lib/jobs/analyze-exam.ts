@@ -11,9 +11,15 @@
 
 import type { AnalysisJobKind, Prisma } from "@prisma/client";
 import { refreshSubjectAggregates } from "@/lib/aggregates/weakness";
+import { coerceFlatQuestion, type FlatStructureQuestion } from "@/lib/exams/structure-questions";
 import { AppError, ANALYSIS_FAILED_GENERIC, sanitizeVendorLeak } from "@/lib/errors";
 import { createLlmClient } from "@/lib/llm";
+import type { LlmClient, LlmUsageTotals, StructureProgressUpdate } from "@/lib/llm/types";
+import { ANALYSIS_TIMEOUT_ZH } from "@/lib/llm/timeout";
+import { sumUsage } from "@/lib/llm/usage";
 import { resolveSystemPrompt } from "@/lib/llm/system-prompts";
+import { saveJobProgress } from "@/lib/jobs/job-progress";
+import { emptyAnalysisProgress, type AnalysisProgress } from "@/lib/jobs/progress-types";
 import { prisma } from "@/lib/prisma";
 import { resolveAnalysisLlmModelForNewJob } from "@/lib/school-settings";
 import { getSubjectSyllabus } from "@/lib/subjects/syllabus";
@@ -26,10 +32,35 @@ export type EnqueueResult = {
 };
 
 const running = new Set<string>();
+let orphanReclaimStarted = false;
+
+/**
+ * After process restart the in-memory runner is empty but DB rows may still say RUNNING.
+ * Mark those orphans FAILED so they never stick on the UI.
+ */
+async function reclaimOrphanRunningJobs(): Promise<void> {
+  if (orphanReclaimStarted) return;
+  orphanReclaimStarted = true;
+  try {
+    const stale = await prisma.analysisJob.findMany({
+      where: { status: "RUNNING" },
+      select: { id: true },
+    });
+    for (const job of stale) {
+      if (running.has(job.id)) continue;
+      await failJob(job.id, ANALYSIS_TIMEOUT_ZH);
+    }
+  } catch (error) {
+    console.error("[jobs] orphan RUNNING reclaim failed", error);
+    orphanReclaimStarted = false;
+  }
+}
 
 function schedule(jobId: string) {
   // Fire-and-forget; errors handled inside processJob.
-  void processJob(jobId);
+  void reclaimOrphanRunningJobs().finally(() => {
+    void processJob(jobId);
+  });
 }
 
 export async function enqueueAnalyzeExam(payload: {
@@ -54,7 +85,7 @@ export async function enqueueAnalyzeExam(payload: {
     },
   });
   if (assets.length === 0) {
-    throw new AppError("請檢查檔案 — upload a question paper first", 400, "missing_assets");
+    throw new AppError("請先上載試題紙。", 400, "missing_assets");
   }
 
   const job = await prisma.analysisJob.create({
@@ -96,7 +127,7 @@ export async function enqueueAnalyzeSubmission(payload: {
     throw new AppError("Submission not found", 404, "submission_not_found");
   }
   if (!submission.assetId) {
-    throw new AppError("請檢查檔案 — upload an answer script first", 400, "missing_script");
+    throw new AppError("請先上載答卷。", 400, "missing_script");
   }
 
   await prisma.submission.update({
@@ -205,6 +236,25 @@ export async function processJob(jobId: string): Promise<void> {
   }
 }
 
+async function persistAnalysisUsage(jobId: string, usage: LlmUsageTotals) {
+  if (usage.callCount === 0 && usage.costUsd == null) return;
+  try {
+    await prisma.analysisJob.update({
+      where: { id: jobId },
+      data: {
+        promptTokens: usage.promptTokens,
+        completionTokens: usage.completionTokens,
+        totalTokens: usage.totalTokens,
+        costUsd: usage.costUsd == null ? null : usage.costUsd.toFixed(8),
+        costComplete: usage.costComplete,
+        llmCallCount: usage.callCount,
+      },
+    });
+  } catch (error) {
+    console.error("[usage] persist failed", jobId, error);
+  }
+}
+
 async function failJob(jobId: string, message: string) {
   const safe = sanitizeVendorLeak(message || ANALYSIS_FAILED_GENERIC);
   const job = await prisma.analysisJob.update({
@@ -235,9 +285,10 @@ async function runExamStructure(
       schoolId,
       kind: { in: ["QUESTION_PAPER", "ANSWER_KEY"] },
     },
+    orderBy: { createdAt: "asc" },
   });
   if (assets.length === 0) {
-    throw new AppError("請檢查檔案", 400, "missing_assets");
+    throw new AppError("請先上載試題紙。", 400, "missing_assets");
   }
 
   const examRow = await prisma.exam.findFirst({
@@ -250,6 +301,15 @@ async function runExamStructure(
 
   const llm = createLlmClient();
   const structurePrompt = await resolveSystemPrompt(schoolId, "exam_structure");
+  let progress = emptyAnalysisProgress();
+  const publish = async (next: AnalysisProgress) => {
+    progress = next;
+    await saveJobProgress(jobId, progress);
+  };
+  await publish(progress);
+  let progressChain = Promise.resolve();
+
+  try {
   const result = await llm.analyzeExamStructure({
     schoolId,
     examId,
@@ -260,6 +320,7 @@ async function runExamStructure(
         kind: a.kind,
         storageKey: a.storageKey,
         mimeType: a.mimeType,
+        fileName: a.originalName,
       })),
       ...(syllabus
         ? [
@@ -271,10 +332,23 @@ async function runExamStructure(
           ]
         : []),
     ],
+    onProgress: (update) => {
+      progressChain = progressChain.then(() =>
+        applyStructureProgress(publish, () => progress, update),
+      );
+      return progressChain;
+    },
   });
 
-  // Schema has no ExamStructure table — cache questions on disk for scoring.
-  await structureCache.set(examId, result.questions);
+  await publish({
+    ...progress,
+    stage: "saving",
+    completed: progress.total > 0 ? progress.total : progress.completed,
+    note: null,
+    updatedAt: new Date().toISOString(),
+  });
+
+  await persistExamStructure(schoolId, examId, result.questions);
 
   await prisma.exam.update({
     where: { id: examId },
@@ -290,6 +364,9 @@ async function runExamStructure(
       errorMessage: null,
     },
   });
+  } finally {
+    await persistAnalysisUsage(jobId, llm.snapshotUsage());
+  }
 }
 
 async function runSubmissionScoring(
@@ -323,17 +400,19 @@ async function runSubmissionScoring(
     ...new Map(pages.map((page) => [page.id, page])).values(),
   ];
   if (scripts.length === 0) {
-    throw new AppError("請檢查檔案", 400, "missing_script");
+    throw new AppError("請先上載答卷。", 400, "missing_script");
   }
 
-  let questions = await structureCache.get(examId);
+  const clients: LlmClient[] = [];
+  try {
+  let questions = await getExamStructureQuestions(examId);
   if (!questions || questions.length === 0) {
     // Rebuild from a prior successful structure job is not stored — use demo structure
     // if exam has structureLlmModel set, fall back to default questions for scoring MVP.
     const exam = await prisma.exam.findUnique({ where: { id: examId } });
     if (!exam?.structureLlmModel) {
       throw new AppError(
-        "Exam structure analysis has not completed yet.",
+        "老師尚未完成試卷設定，暫時無法分析，請稍後再試。",
         400,
         "structure_required",
       );
@@ -354,6 +433,7 @@ async function runSubmissionScoring(
       ? await getSubjectSyllabus(schoolId, examWithSubject.classSubject.subjectCode)
       : null;
     const llmRecover = createLlmClient();
+    clients.push(llmRecover);
     const structurePrompt = await resolveSystemPrompt(schoolId, "exam_structure");
     const recovered = await llmRecover.analyzeExamStructure({
       schoolId,
@@ -378,10 +458,11 @@ async function runSubmissionScoring(
       ],
     });
     questions = recovered.questions;
-    await structureCache.set(examId, questions);
+    await persistExamStructure(schoolId, examId, questions);
   }
 
   const llm = createLlmClient();
+  clients.push(llm);
   const scoringPrompt = await resolveSystemPrompt(schoolId, "submission_scoring");
   const result = await llm.scoreSubmission({
     schoolId,
@@ -410,6 +491,14 @@ async function runSubmissionScoring(
           score: s.score,
           maxScore: s.maxScore,
           feedback: s.feedback ?? null,
+          didWellZh: s.didWellZh,
+          didWellEn: s.didWellEn,
+          weaknessZh: s.weaknessZh,
+          weaknessEn: s.weaknessEn,
+          mistakesToWatchZh: s.mistakesToWatchZh,
+          mistakesToWatchEn: s.mistakesToWatchEn,
+          howToImproveZh: s.howToImproveZh,
+          howToImproveEn: s.howToImproveEn,
         })),
       });
     }
@@ -419,6 +508,8 @@ async function runSubmissionScoring(
       data: {
         status: "DONE",
         scoringLlmModel: result.llmModel,
+        studyFocusZh: result.studyFocusZh,
+        studyFocusEn: result.studyFocusEn,
         analyzedAt: new Date(),
         errorMessage: null,
       },
@@ -436,24 +527,143 @@ async function runSubmissionScoring(
   });
 
   await refreshSubjectAggregates(schoolId, examId, submission.enrollmentId);
+  } finally {
+    await persistAnalysisUsage(jobId, sumUsage(clients.map((client) => client.snapshotUsage())));
+  }
 }
 
 /** In-memory + DB-backed structure cache (survives via ExamStructureBlob table avoidance). */
-type QuestionShape = {
-  questionKey: string;
-  topic: string;
-  itemType: string;
-  questionCategory: string;
-  maxScore: number;
-  assessmentObjective: string;
-  difficultyPoints: string;
-};
+type QuestionShape = FlatStructureQuestion;
 
-/**
- * Persist exam structure JSON on AnalysisJob is not in schema.
- * We store via a lightweight Prisma model workaround: encode in SubjectAggregate
- * is wrong. Use filesystem cache next to uploads instead.
- */
+async function applyStructureProgress(
+  publish: (next: AnalysisProgress) => Promise<void>,
+  current: () => AnalysisProgress,
+  update: StructureProgressUpdate,
+): Promise<void> {
+  const prev = current();
+  const note = update.note ? sanitizeVendorLeak(update.note).slice(0, 280) : null;
+  const drop = new Set(update.replaceParentKeys ?? []);
+  const kept = drop.size
+    ? prev.questions.filter((row) => !drop.has(row.parentKey))
+    : prev.questions;
+  const questions = update.questions ? [...kept, ...update.questions] : kept;
+  const log = update.commit
+    ? [
+        ...prev.log,
+        {
+          at: new Date().toISOString(),
+          questionKey: update.questionKey,
+          partKeys: update.partKeys,
+          note: note ?? "",
+          completed: update.completed,
+          total: update.total,
+        },
+      ].slice(-40)
+    : prev.log;
+  await publish({
+    stage: update.stage,
+    completed: update.completed,
+    total: update.total,
+    questionKey: update.questionKey,
+    partKeys: update.partKeys,
+    note,
+    updatedAt: new Date().toISOString(),
+    startedAt: prev.startedAt,
+    log,
+    questions,
+  });
+}
+
+/** Chinese and English are stored in separate columns. The JSON file remains a fallback. */
+export async function persistExamStructure(
+  schoolId: string,
+  examId: string,
+  questions: QuestionShape[],
+) {
+  await structureCache.set(examId, questions);
+  await prisma.$transaction(async (tx) => {
+    await tx.examStructureItem.deleteMany({ where: { examId, schoolId } });
+    if (questions.length === 0) return;
+    const byKey = new Map<string, { row: QuestionShape; sortIndex: number }>();
+    questions.forEach((row, sortIndex) => {
+      byKey.set(row.questionKey, { row, sortIndex });
+    });
+    await tx.examStructureItem.createMany({
+      data: [...byKey.values()].map(({ row, sortIndex }) => ({
+        schoolId,
+        examId,
+        questionKey: row.questionKey,
+        parentKey: row.parentKey,
+        partKey: row.partKey,
+        sortIndex,
+        maxScore: row.maxScore,
+        stem: row.stem,
+        prompt: row.prompt,
+        topicZh: row.topicZh,
+        topicEn: row.topicEn,
+        itemTypeZh: row.itemTypeZh,
+        itemTypeEn: row.itemTypeEn,
+        questionCategoryZh: row.questionCategoryZh,
+        questionCategoryEn: row.questionCategoryEn,
+        assessmentObjectiveZh: row.assessmentObjectiveZh,
+        assessmentObjectiveEn: row.assessmentObjectiveEn,
+        difficultyPointsZh: row.difficultyPointsZh,
+        difficultyPointsEn: row.difficultyPointsEn,
+        teachingContentZh: row.teachingContentZh,
+        teachingContentEn: row.teachingContentEn,
+      })),
+    });
+  });
+}
+
+function structureItemToQuestion(row: {
+  questionKey: string;
+  parentKey: string;
+  partKey: string;
+  maxScore: number;
+  stem: string;
+  prompt: string;
+  topicZh: string;
+  topicEn: string;
+  itemTypeZh: string;
+  itemTypeEn: string;
+  questionCategoryZh: string;
+  questionCategoryEn: string;
+  assessmentObjectiveZh: string;
+  assessmentObjectiveEn: string;
+  difficultyPointsZh: string;
+  difficultyPointsEn: string;
+  teachingContentZh: string;
+  teachingContentEn: string;
+}): QuestionShape | null {
+  return coerceFlatQuestion({
+    questionKey: row.questionKey,
+    parentKey: row.parentKey,
+    partKey: row.partKey,
+    maxScore: row.maxScore,
+    stem: row.stem,
+    prompt: row.prompt,
+    topic: row.topicEn || row.topicZh,
+    topicZh: row.topicZh,
+    topicEn: row.topicEn,
+    itemType: row.itemTypeZh || row.itemTypeEn,
+    itemTypeZh: row.itemTypeZh,
+    itemTypeEn: row.itemTypeEn,
+    questionCategory: row.questionCategoryZh || row.questionCategoryEn,
+    questionCategoryZh: row.questionCategoryZh,
+    questionCategoryEn: row.questionCategoryEn,
+    assessmentObjective: row.assessmentObjectiveZh || row.assessmentObjectiveEn,
+    assessmentObjectiveZh: row.assessmentObjectiveZh,
+    assessmentObjectiveEn: row.assessmentObjectiveEn,
+    difficultyPoints: row.difficultyPointsZh || row.difficultyPointsEn,
+    difficultyPointsZh: row.difficultyPointsZh,
+    difficultyPointsEn: row.difficultyPointsEn,
+    teachingContent: row.teachingContentZh || row.teachingContentEn,
+    teachingContentZh: row.teachingContentZh,
+    teachingContentEn: row.teachingContentEn,
+  });
+}
+
 const structureCache = {
   async set(examId: string, questions: QuestionShape[]) {
     const { mkdir, writeFile } = await import("fs/promises");
@@ -476,27 +686,32 @@ const structureCache = {
       );
       const parsed = JSON.parse(raw) as Array<Partial<QuestionShape>>;
       if (!Array.isArray(parsed)) return null;
-      return parsed
-        .filter((q) => q.questionKey && q.topic && q.itemType)
-        .map((q) => ({
-          questionKey: String(q.questionKey),
-          topic: String(q.topic),
-          itemType: String(q.itemType),
-          questionCategory: String(q.questionCategory ?? "").trim(),
-          maxScore: Number(q.maxScore) || 1,
-          assessmentObjective: String(q.assessmentObjective ?? "").trim(),
-          difficultyPoints: String(q.difficultyPoints ?? "").trim(),
-        }));
+      const questions = parsed.flatMap((item) => {
+        const row = coerceFlatQuestion(item);
+        return row ? [row] : [];
+      });
+      return questions.length > 0 ? questions : null;
     } catch {
       return null;
     }
   },
 };
 
-/** Read persisted exam structure questions (filesystem cache). */
+/** Read persisted exam structure. Database rows win; the JSON file is the fallback. */
 export async function getExamStructureQuestions(
   examId: string,
 ): Promise<QuestionShape[] | null> {
+  const stored = await prisma.examStructureItem.findMany({
+    where: { examId },
+    orderBy: { sortIndex: "asc" },
+  });
+  if (stored.length > 0) {
+    const questions = stored.flatMap((row) => {
+      const question = structureItemToQuestion(row);
+      return question ? [question] : [];
+    });
+    if (questions.length > 0) return questions;
+  }
   return structureCache.get(examId);
 }
 

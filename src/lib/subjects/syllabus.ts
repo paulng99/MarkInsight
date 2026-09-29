@@ -7,6 +7,7 @@ import { prisma } from "@/lib/prisma";
 import type { SessionUser } from "@/lib/rbac";
 import { ensureSchoolBootstrap } from "@/lib/school-settings";
 import { putObject } from "@/lib/storage";
+import { formatArchiveDate } from "@/lib/subjects/archive";
 
 function formatDateYmd(d: Date): string {
   return d.toISOString().slice(0, 10);
@@ -114,9 +115,33 @@ export async function createTeacherClassSubject(
     throw new AppError("No school year available", 400, "no_school_year");
   }
 
+  const subjectArchive = await prisma.subjectArchive.findUnique({
+    where: {
+      schoolId_teacherId_subjectCode: {
+        schoolId,
+        teacherId: user.id,
+        subjectCode,
+      },
+    },
+  });
+  if (subjectArchive) {
+    throw new AppError(
+      "此科目已封存。請先在封存頁回復使用，再新增班別。",
+      409,
+      "subject_archived",
+    );
+  }
+
   const existing = await prisma.classSubject.findFirst({
     where: { schoolId, schoolYearId: year.id, subjectCode, name: className },
   });
+  if (existing && (existing.classArchivedAt || existing.subjectArchivedAt)) {
+    throw new AppError(
+      "此班別已封存。請先回復使用，再使用相同班別名稱。",
+      409,
+      "class_name_archived",
+    );
+  }
   const row = existing
     ? existing.archivedAt
       ? await prisma.classSubject.update({
@@ -181,10 +206,16 @@ export async function listTeacherSubjectGroups(user: SessionUser) {
           latestStructureJob: { id: string; status: string } | null;
         }>;
       }>;
+      archivedClasses: Array<{
+        id: string;
+        name: string;
+        archivedAt: string;
+      }>;
     }
   >();
 
   for (const cs of classes) {
+    if (cs.subjectArchivedAt) continue;
     let group = groups.get(cs.subjectCode);
     if (!group) {
       const syllabus = syllabusByCode.get(cs.subjectCode);
@@ -198,8 +229,17 @@ export async function listTeacherSubjectGroups(user: SessionUser) {
             }
           : null,
         classes: [],
+        archivedClasses: [],
       };
       groups.set(cs.subjectCode, group);
+    }
+    if (cs.classArchivedAt) {
+      group.archivedClasses.push({
+        id: cs.id,
+        name: cs.name,
+        archivedAt: formatArchiveDate(cs.classArchivedAt),
+      });
+      continue;
     }
     group.classes.push({
       id: cs.id,
@@ -233,6 +273,18 @@ export async function uploadSubjectSyllabus(input: {
     input.user,
     input.subjectCode,
   );
+  const subjectArchive = await prisma.subjectArchive.findUnique({
+    where: {
+      schoolId_teacherId_subjectCode: {
+        schoolId,
+        teacherId: input.user.id,
+        subjectCode,
+      },
+    },
+  });
+  if (subjectArchive) {
+    throw new AppError("此科目已封存，不能再使用。", 409, "subject_archived");
+  }
   const mime = input.mimeType || "application/octet-stream";
   const allowed =
     mime.startsWith("image/") ||

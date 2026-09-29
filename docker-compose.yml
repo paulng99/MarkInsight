@@ -1,3 +1,5 @@
+# Local laptop / offline demo stack (behaviour unchanged).
+# For a public VPS deploy, use docker-compose.prod.example.yml — see docs/DEPLOYMENT.md.
 services:
   db:
     image: postgres:16-alpine
@@ -30,6 +32,10 @@ services:
       AUTH_TRUST_HOST: "true"
       STORAGE_PROVIDER: local
       STORAGE_LOCAL_DIR: /app/.data/uploads
+      # Local laptop demo: set MARKINSIGHT_ANALYSIS_DEMO=true in .env (example
+      # defaults to false). Then demo accounts accept "password". For a public
+      # URL keep it false/unset (and omit MARKINSIGHT_DEMO_PASSWORD unless you
+      # intentionally enable a strong demo password ≥12 chars).
     volumes:
       - markinsight_data:/app/.data
     depends_on:

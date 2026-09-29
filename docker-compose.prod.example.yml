@@ -1,0 +1,81 @@
+# MarkInsight — production-oriented example for any Linux VPS with Docker.
+#
+# Usage (from the repository root, with a filled-in `.env` — never commit secrets):
+#   docker compose -f docker-compose.prod.example.yml up -d --build
+#
+# This file is an EXAMPLE. Copy or pass `-f` as shown. Do not put real passwords here.
+# Local laptop demo continues to use `docker-compose.yml` (see README).
+#
+# Required in `.env` (no defaults for credentials — never hardcode passwords here):
+#   POSTGRES_USER, POSTGRES_PASSWORD, POSTGRES_DB, DATABASE_URL
+# DATABASE_URL must use the SAME user / password / database name as POSTGRES_*,
+# and must use Compose hostname `db` (not localhost), e.g.:
+#   DATABASE_URL=postgresql://USER:PASSWORD@db:5432/DBNAME?schema=public
+
+name: markinsight
+
+services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:?Set POSTGRES_USER in .env}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
+      POSTGRES_DB: ${POSTGRES_DB:?Set POSTGRES_DB in .env}
+    volumes:
+      # Named volume for Postgres data. Keep this name; replacing it loses the database.
+      - markinsight_pg:/var/lib/postgresql/data
+    # Do not publish 5432 to the host. Only the web service on this Docker network may connect.
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "pg_isready -U \"$$POSTGRES_USER\" -d \"$$POSTGRES_DB\"",
+        ]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  # MUST stay a single instance: analysis jobs run in-process
+  web:
+    build: .
+    restart: unless-stopped
+    ports:
+      # Bind to loopback so a host reverse proxy (Caddy / nginx) terminates HTTPS.
+      # Open 80/443 on the firewall; do not expose this port publicly unless you accept plain HTTP.
+      - "127.0.0.1:3000:3000"
+    env_file:
+      - .env
+    environment:
+      # DATABASE_URL is read from `.env` (via env_file). Do not hardcode credentials here.
+      # It must match POSTGRES_USER / POSTGRES_PASSWORD / POSTGRES_DB and use host `db`.
+      DATABASE_HOST: db
+      DATABASE_PORT: "5432"
+      AUTH_TRUST_HOST: "true"
+      STORAGE_PROVIDER: local
+      STORAGE_LOCAL_DIR: /app/.data/uploads
+      # Production default: offline demo analysis and legacy "password" demo login stay off.
+      MARKINSIGHT_ANALYSIS_DEMO: ${MARKINSIGHT_ANALYSIS_DEMO:-false}
+    volumes:
+      # Named volume at STORAGE_LOCAL_DIR — do not remove or turn into an anonymous volume; uploads are lost
+      - markinsight_uploads:/app/.data/uploads
+    depends_on:
+      db:
+        condition: service_healthy
+    # Cheap liveness probe (no new app code): TCP accept on the Next.js port.
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "node",
+          "-e",
+          "require('net').connect(3000,'127.0.0.1').on('connect',function(s){this.end();process.exit(0)}).on('error',function(){process.exit(1)})",
+        ]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 90s
+
+volumes:
+  markinsight_pg:
+  markinsight_uploads:

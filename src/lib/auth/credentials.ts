@@ -1,8 +1,13 @@
 import bcrypt from "bcryptjs";
-import { prisma } from "@/lib/prisma";
-import type { Role } from "@/lib/roles";
+import {
+  DEMO_STUB_USERS,
+  getDemoLoginPolicy,
+  matchDemoStubCredentials,
+  type DemoLoginPolicy,
+} from "./demo-login-policy";
+import type { Role } from "../roles";
 
-type CredentialUser = {
+export type CredentialUser = {
   id: string;
   email: string;
   name: string | null;
@@ -10,42 +15,68 @@ type CredentialUser = {
   schoolId: string | null;
 };
 
-const DEMO_USERS: CredentialUser[] = [
-  {
-    id: "demo_admin",
-    email: "admin@example.com",
-    name: "Demo Admin",
-    role: "ADMIN",
-    schoolId: null,
-  },
-  {
-    id: "demo_teacher",
-    email: "teacher@example.com",
-    name: "Demo Teacher",
-    role: "TEACHER",
-    schoolId: "demo_school",
-  },
-  {
-    id: "demo_student",
-    email: "student@example.com",
-    name: "Demo Student",
-    role: "STUDENT",
-    schoolId: "demo_school",
-  },
-];
+type DbCredentialUser = CredentialUser & {
+  passwordHash: string | null;
+};
 
-const DEMO_PASSWORD = "password";
+export type AuthorizeCredentialsDeps = {
+  findUserByEmail?: (email: string) => Promise<DbCredentialUser | null>;
+  getPolicy?: () => DemoLoginPolicy;
+  comparePassword?: (password: string, hash: string) => Promise<boolean>;
+};
+
+const DEMO_EMAILS = new Set(
+  DEMO_STUB_USERS.map((user) => user.email.toLowerCase()),
+);
+const DEMO_IDS = new Set(DEMO_STUB_USERS.map((user) => user.id));
+
+/**
+ * Reserved local-demo identities. When demo login policy is disabled these
+ * must never authenticate — even if a leftover DB row still has passwordHash.
+ */
+export function isReservedDemoIdentity(user: {
+  id: string;
+  email: string;
+}): boolean {
+  const email = user.email.toLowerCase().trim();
+  return DEMO_EMAILS.has(email) || DEMO_IDS.has(user.id);
+}
+
+async function findUserFromPrisma(addr: string): Promise<DbCredentialUser | null> {
+  const { prisma } = await import("../prisma");
+  const dbUser = await prisma.user.findUnique({ where: { email: addr } });
+  if (!dbUser) return null;
+  return {
+    id: dbUser.id,
+    email: dbUser.email,
+    name: dbUser.name,
+    role: dbUser.role,
+    schoolId: dbUser.schoolId,
+    passwordHash: dbUser.passwordHash,
+  };
+}
 
 export async function authorizeCredentials(
   email: string,
   password: string,
+  deps: AuthorizeCredentialsDeps = {},
 ): Promise<CredentialUser | null> {
   const normalized = email.toLowerCase().trim();
   if (!normalized || !password) return null;
 
-  const dbUser = await prisma.user.findUnique({ where: { email: normalized } });
+  const findUser = deps.findUserByEmail ?? findUserFromPrisma;
+  const resolvePolicy = deps.getPolicy ?? getDemoLoginPolicy;
+  const compare =
+    deps.comparePassword ?? ((pw, hash) => bcrypt.compare(pw, hash));
+
+  const policy = resolvePolicy();
+  const dbUser = await findUser(normalized);
   if (dbUser?.passwordHash) {
-    const ok = await bcrypt.compare(password, dbUser.passwordHash);
+    // Public / non-demo deploys: leftover demo rows must not accept "password".
+    if (!policy.enabled && isReservedDemoIdentity(dbUser)) {
+      return null;
+    }
+    const ok = await compare(password, dbUser.passwordHash);
     if (!ok) return null;
     return {
       id: dbUser.id,
@@ -56,7 +87,5 @@ export async function authorizeCredentials(
     };
   }
 
-  const demo = DEMO_USERS.find((user) => user.email === normalized);
-  if (!demo || password !== DEMO_PASSWORD) return null;
-  return demo;
+  return matchDemoStubCredentials(normalized, password, policy);
 }

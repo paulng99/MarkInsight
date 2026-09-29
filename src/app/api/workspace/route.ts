@@ -7,6 +7,7 @@ import {
 } from "@/lib/demo-bootstrap";
 import { DEMO_SCHOOL_ID } from "@/lib/school-settings";
 import { prisma } from "@/lib/prisma";
+import { activeClassWhere } from "@/lib/subjects/archive";
 
 /** Bootstrap teaching workspace for the signed-in teacher or student. */
 export async function GET() {
@@ -35,7 +36,12 @@ export async function GET() {
         where: { schoolId },
       });
       const enrollments = await prisma.enrollment.findMany({
-        where: { userId: user.id, schoolId, role: "STUDENT" },
+        where: {
+          userId: user.id,
+          schoolId,
+          role: "STUDENT",
+          classSubject: activeClassWhere,
+        },
         include: {
           classSubject: {
             include: { schoolYear: { select: { id: true, name: true } } },

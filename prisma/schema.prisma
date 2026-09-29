@@ -70,6 +70,7 @@ model User {
   uploadedSyllabi   SubjectSyllabus[]  @relation("SyllabusUploadedBy")
   submissions       Submission[]       @relation("SubmissionStudent")
   analysisJobs      AnalysisJob[]      @relation("AnalysisJobCreatedBy")
+  subjectArchives   SubjectArchive[]
 
   @@index([schoolId])
   @@index([role])
@@ -95,6 +96,8 @@ model School {
   analysisJobs      AnalysisJob[]
   subjectSyllabi    SubjectSyllabus[]
   systemPrompts     SystemPrompt[]
+  subjectArchives   SubjectArchive[]
+  examStructureItems ExamStructureItem[]
 }
 
 /// Admin-edited system prompts for this school's analysis jobs.
@@ -172,8 +175,12 @@ model ClassSubject {
   name         String
   subjectCode  String
   gradeLevel   String?
-  /// Soft-archive: hidden from teacher/student workspaces until restored or deleted.
+  /// Admin soft-archive: hidden from teacher/student workspaces until restored or deleted.
   archivedAt   DateTime?
+  /// Set when this class was archived on its own. Restoring the class clears it.
+  classArchivedAt   DateTime?
+  /// Set on every class when its teacher archives the subject. Restoring the subject clears it.
+  subjectArchivedAt DateTime?
   createdAt    DateTime   @default(now())
   updatedAt    DateTime   @updatedAt
 
@@ -186,6 +193,22 @@ model ClassSubject {
   @@index([schoolYearId])
   @@index([schoolId, subjectCode])
   @@index([schoolId, archivedAt])
+}
+
+/// A teacher archived every class they teach for this subject code.
+/// Other teachers' classes with the same code stay active.
+model SubjectArchive {
+  id          String   @id @default(cuid())
+  schoolId    String
+  school      School   @relation(fields: [schoolId], references: [id], onDelete: Cascade)
+  teacherId   String
+  teacher     User     @relation(fields: [teacherId], references: [id], onDelete: Cascade)
+  subjectCode String
+  archivedAt  DateTime @default(now())
+
+  @@unique([schoolId, teacherId, subjectCode])
+  @@index([schoolId])
+  @@index([teacherId])
 }
 
 /// One syllabus per subject code, shared by every class of that subject.
@@ -266,6 +289,7 @@ model Exam {
   assets       Asset[]
   submissions  Submission[]
   analysisJobs AnalysisJob[]
+  structureItems ExamStructureItem[]
   distributed  Exam[] @relation("DistributedExams")
 
   @@index([schoolId])
@@ -319,6 +343,10 @@ model Submission {
   /// Model id/name used for the latest successful submission scoring (persist always when scored).
   /// Product UI must not show vendor names — store model id only.
   scoringLlmModel String?
+  /// Whole-paper revision order the student should follow. Traditional Chinese (Hong Kong).
+  studyFocusZh String @default("") @db.Text
+  /// Whole-paper revision order the student should follow. English.
+  studyFocusEn String @default("") @db.Text
   createdAt   DateTime         @default(now())
   updatedAt   DateTime         @updatedAt
 
@@ -330,6 +358,40 @@ model Submission {
   @@index([schoolId])
   @@index([studentId])
   @@index([status])
+}
+
+/// One analysed part. Chinese and English are stored in separate columns.
+model ExamStructureItem {
+  id         String @id @default(cuid())
+  schoolId   String
+  school     School @relation(fields: [schoolId], references: [id], onDelete: Cascade)
+  examId     String
+  exam       Exam   @relation(fields: [examId], references: [id], onDelete: Cascade)
+  questionKey String
+  parentKey   String
+  partKey     String @default("")
+  sortIndex   Int    @default(0)
+  maxScore    Float  @default(0)
+  stem        String @default("") @db.Text
+  prompt      String @default("") @db.Text
+  topicZh     String @default("")
+  topicEn     String @default("")
+  itemTypeZh  String @default("")
+  itemTypeEn  String @default("")
+  questionCategoryZh String @default("")
+  questionCategoryEn String @default("")
+  assessmentObjectiveZh String @default("") @db.Text
+  assessmentObjectiveEn String @default("") @db.Text
+  difficultyPointsZh    String @default("") @db.Text
+  difficultyPointsEn    String @default("") @db.Text
+  teachingContentZh     String @default("") @db.Text
+  teachingContentEn     String @default("") @db.Text
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([examId, questionKey])
+  @@index([schoolId])
+  @@index([examId])
 }
 
 /// Per-question result with topic + item_type tags for weak-point aggregates.
@@ -344,8 +406,20 @@ model QuestionScore {
   itemType     String
   score        Float
   maxScore     Float
-  /// Optional LLM/short feedback; keep free of unnecessary PII.
+  /// Optional short comment; the study sections below are the revision report.
   feedback     String?
+  /// What this answer got right. Traditional Chinese (Hong Kong).
+  didWellZh    String @default("") @db.Text
+  didWellEn    String @default("") @db.Text
+  /// The specific gap in this answer. Traditional Chinese (Hong Kong) and English.
+  weaknessZh   String @default("") @db.Text
+  weaknessEn   String @default("") @db.Text
+  /// Concrete slips to avoid next time.
+  mistakesToWatchZh String @default("") @db.Text
+  mistakesToWatchEn String @default("") @db.Text
+  /// Steps the student can practise for this question.
+  howToImproveZh String @default("") @db.Text
+  howToImproveEn String @default("") @db.Text
   createdAt    DateTime   @default(now())
   updatedAt    DateTime   @updatedAt
 
@@ -393,6 +467,18 @@ model AnalysisJob {
   /// OpenRouter (or routed) model id/name actually used for this run — required once the job starts.
   /// Example: `google/gemini-2.5-flash`. Always persist; product UI must not display vendor names.
   llmModel    String?
+  /// Prompt tokens summed across every model call in this job.
+  promptTokens     Int      @default(0)
+  /// Completion tokens summed across every model call in this job.
+  completionTokens Int      @default(0)
+  /// prompt + completion, as reported (falls back to the sum when the provider omits total).
+  totalTokens      Int      @default(0)
+  /// USD charged for this job. Null when the provider did not report a cost.
+  costUsd          Decimal? @db.Decimal(14, 8)
+  /// False when one or more calls omitted cost, so costUsd is incomplete.
+  costComplete     Boolean  @default(true)
+  /// Number of model calls whose usage was recorded.
+  llmCallCount     Int      @default(0)
   createdById String?
   createdBy   User?             @relation("AnalysisJobCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
   errorMessage String?
@@ -402,6 +488,7 @@ model AnalysisJob {
   updatedAt   DateTime          @updatedAt
 
   @@index([schoolId])
+  @@index([schoolId, createdAt])
   @@index([status])
   @@index([kind])
 }

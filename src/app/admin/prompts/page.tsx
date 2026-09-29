@@ -7,7 +7,11 @@ import {
   requireRolePage,
 } from "@/components/workspace-chrome";
 import { listSystemPrompts } from "@/lib/llm/system-prompts";
-import { resolveAdminSchoolId } from "@/lib/school-settings";
+import {
+  getAnalysisLlmModel,
+  listAnalysisModelChoices,
+  resolveAdminSchoolId,
+} from "@/lib/school-settings";
 
 export default async function AdminSystemPromptsPage({
   searchParams,
@@ -19,7 +23,11 @@ export default async function AdminSystemPromptsPage({
   const t = getDictionary(locale);
   const session = await requireRolePage("ADMIN", locale, "/admin/prompts");
   const schoolId = resolveAdminSchoolId(session.user.schoolId, params.schoolId);
-  const prompts = await listSystemPrompts(schoolId);
+  const [prompts, analysisLlmModel, modelChoices] = await Promise.all([
+    listSystemPrompts(schoolId),
+    getAnalysisLlmModel(schoolId),
+    listAnalysisModelChoices(),
+  ]);
 
   return (
     <AppShell user={session.user} locale={locale} t={t}>
@@ -36,6 +44,8 @@ export default async function AdminSystemPromptsPage({
         t={t}
         schoolId={schoolId}
         initialPrompts={prompts}
+        initialAnalysisLlmModel={analysisLlmModel}
+        initialModelChoices={modelChoices}
       />
     </AppShell>
   );

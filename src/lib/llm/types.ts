@@ -1,3 +1,5 @@
+import type { FlatStructureQuestion } from "@/lib/exams/structure-questions";
+
 /**
  * Multimodal LLM client contract for MarkInsight.
  *
@@ -30,6 +32,19 @@ export type LlmChatRequest = {
   temperature?: number;
   /** Hint for JSON object responses when the model supports it. */
   responseFormat?: "json_object" | "text";
+  maxTokens?: number;
+};
+
+/** Token and USD totals for one model call, or a sum of calls. */
+export type LlmUsageTotals = {
+  promptTokens: number;
+  completionTokens: number;
+  totalTokens: number;
+  /** Provider-reported USD. Null when no call included a cost figure. */
+  costUsd: number | null;
+  /** False when at least one call omitted cost, so costUsd is a partial sum. */
+  costComplete: boolean;
+  callCount: number;
 };
 
 export type LlmChatResponse = {
@@ -39,6 +54,8 @@ export type LlmChatResponse = {
   usage?: {
     promptTokens?: number;
     completionTokens?: number;
+    totalTokens?: number;
+    costUsd?: number | null;
   };
 };
 
@@ -47,28 +64,38 @@ export type AnalyzeExamStructureInput = {
   schoolId: string;
   examId: string;
   /** Object-storage keys or signed URLs for question paper / answer key assets. */
-  assetRefs: Array<{ kind: string; storageKey: string; mimeType?: string | null }>;
+  assetRefs: Array<{
+    kind: string;
+    storageKey: string;
+    mimeType?: string | null;
+    fileName?: string | null;
+  }>;
   /** Allowlisted model id from SchoolSettings for this run. */
   modelOverride?: string;
   /** Admin-configured system prompt. Falls back to the built-in default when omitted. */
   systemPrompt?: string;
+  /** Called as questions are recognised so the exam page can show live progress. */
+  onProgress?: (update: StructureProgressUpdate) => void | Promise<void>;
+};
+
+export type StructureProgressUpdate = {
+  stage: "reading" | "receiving" | "question" | "saving";
+  completed: number;
+  total: number;
+  questionKey: string | null;
+  partKeys: string[];
+  note: string | null;
+  /** True when a whole numbered question has been committed. */
+  commit: boolean;
+  /** When set, drop existing rows for these parent keys before appending questions. */
+  replaceParentKeys?: string[];
+  questions?: FlatStructureQuestion[];
 };
 
 export type AnalyzeExamStructureResult = {
   /** Model id used for this structure analysis — must be persisted (Exam.structureLlmModel + AnalysisJob.llmModel). */
   llmModel: string;
-  questions: Array<{
-    questionKey: string;
-    topic: string;
-    itemType: string;
-    /** Syllabus-aligned category (題目種類), e.g. 概念題 / 應用題. */
-    questionCategory: string;
-    maxScore: number;
-    /** What the question is designed to assess (考核要求). */
-    assessmentObjective: string;
-    /** Key hard points / common pitfalls for this question (難點). */
-    difficultyPoints: string;
-  }>;
+  questions: FlatStructureQuestion[];
   rawModelText?: string;
 };
 
@@ -90,6 +117,9 @@ export type ScoreSubmissionInput = {
 export type ScoreSubmissionResult = {
   /** Model id used for this scoring — must be persisted (Submission.scoringLlmModel + AnalysisJob.llmModel). */
   llmModel: string;
+  /** Whole-paper revision order, Traditional Chinese (Hong Kong) and English. */
+  studyFocusZh: string;
+  studyFocusEn: string;
   scores: Array<{
     questionKey: string;
     topic: string;
@@ -97,6 +127,14 @@ export type ScoreSubmissionResult = {
     score: number;
     maxScore: number;
     feedback?: string;
+    didWellZh: string;
+    didWellEn: string;
+    weaknessZh: string;
+    weaknessEn: string;
+    mistakesToWatchZh: string;
+    mistakesToWatchEn: string;
+    howToImproveZh: string;
+    howToImproveEn: string;
   }>;
   rawModelText?: string;
 };
@@ -105,6 +143,9 @@ export type ScoreSubmissionResult = {
  * Provider-agnostic interface; MVP implementation MUST target OpenRouter.
  */
 export interface LlmClient {
+  /** Sum of token and cost figures from every call on this client instance. */
+  snapshotUsage(): LlmUsageTotals;
+
   /** Low-level chat/completions (OpenAI-compatible). */
   chat(request: LlmChatRequest): Promise<LlmChatResponse>;
 

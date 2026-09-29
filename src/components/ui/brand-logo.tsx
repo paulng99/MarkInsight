@@ -37,11 +37,14 @@ export function BrandLogo({
   label = "MarkInsight",
   compact = false,
   inverse = false,
+  wordmarkClassName = "",
 }: {
   href: string;
   label?: string;
   compact?: boolean;
   inverse?: boolean;
+  /** Extra classes on the wordmark, e.g. hide it on a narrow rail. */
+  wordmarkClassName?: string;
 }) {
   return (
     <Link
@@ -54,7 +57,7 @@ export function BrandLogo({
         <span
           className={`display text-[1.15rem] leading-none tracking-tight ${
             inverse ? "text-white" : "text-[var(--ink)]"
-          }`}
+          } ${wordmarkClassName}`}
         >
           Mark<span className={inverse ? "text-blue-200" : "text-primary-600"}>Insight</span>
         </span>

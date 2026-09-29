@@ -4,12 +4,23 @@
 
 import type { AssetKind, Role } from "@prisma/client";
 import { AppError } from "@/lib/errors";
+import {
+  EXAM_UPLOAD_FILE_TYPE_MESSAGE,
+  isAllowedExamUpload,
+} from "@/lib/files/exam-upload";
+import { isExamUploadMagicConsistent } from "@/lib/files/exam-upload-magic";
+import {
+  STRUCTURE_NOT_READY_MESSAGE,
+  isExamStructureReady,
+} from "@/lib/exams/structure-ready";
 import { prisma } from "@/lib/prisma";
 import type { SessionUser } from "@/lib/rbac";
 import { deleteObject, putObject } from "@/lib/storage";
+import { activeClassWhere, assertClassIsActive } from "@/lib/subjects/archive";
 import {
   enqueueAnalyzeExam,
   enqueueAnalyzeSubmission,
+  getExamStructureQuestions,
 } from "@/lib/jobs/analyze-exam";
 
 export function requireSchoolId(user: SessionUser): string {
@@ -17,6 +28,19 @@ export function requireSchoolId(user: SessionUser): string {
     throw new AppError("School context required", 403, "no_school");
   }
   return user.schoolId;
+}
+
+function assertExamUploadFile(
+  fileName: string,
+  mimeType: string,
+  bytes: Uint8Array,
+): void {
+  if (
+    !isAllowedExamUpload(fileName, mimeType) ||
+    !isExamUploadMagicConsistent(fileName, mimeType, bytes)
+  ) {
+    throw new AppError(EXAM_UPLOAD_FILE_TYPE_MESSAGE, 400, "unsupported_file_type");
+  }
 }
 
 export async function assertTeacherOwnsClass(
@@ -40,7 +64,7 @@ export async function assertTeacherOwnsClass(
     throw new AppError("Forbidden", 403, "forbidden");
   }
   const cs = await prisma.classSubject.findFirst({
-    where: { id: classSubjectId, schoolId, archivedAt: null },
+    where: { id: classSubjectId, schoolId, ...activeClassWhere },
   });
   if (!cs) {
     throw new AppError("Class not found", 404, "class_not_found");
@@ -110,12 +134,14 @@ export async function distributeExamToClasses(
       where: {
         id: classSubjectId,
         schoolId: source.schoolId,
-        archivedAt: null,
+        ...activeClassWhere,
       },
     });
     if (!target || target.subjectCode !== source.classSubject.subjectCode) {
       throw new AppError("只能分發到同一科目的班別", 400, "subject_mismatch");
     }
+    assertClassIsActive(source.classSubject);
+    assertClassIsActive(target);
     if (target.id === source.classSubjectId) continue;
 
     const existing = await prisma.exam.findFirst({
@@ -231,7 +257,11 @@ export async function listExamsForTeacher(user: SessionUser) {
   ).map((e) => e.classSubjectId);
 
   return prisma.exam.findMany({
-    where: { schoolId, classSubjectId: { in: classIds } },
+    where: {
+      schoolId,
+      classSubjectId: { in: classIds },
+      classSubject: activeClassWhere,
+    },
     include: {
       classSubject: { select: { id: true, name: true, subjectCode: true } },
       _count: { select: { submissions: true, assets: true } },
@@ -253,7 +283,11 @@ export async function listExamsForStudent(user: SessionUser) {
   });
   const classIds = enrollments.map((e) => e.classSubjectId);
   const exams = await prisma.exam.findMany({
-    where: { schoolId, classSubjectId: { in: classIds } },
+    where: {
+      schoolId,
+      classSubjectId: { in: classIds },
+      classSubject: activeClassWhere,
+    },
     include: {
       classSubject: { select: { id: true, name: true, subjectCode: true } },
       submissions: {
@@ -281,6 +315,13 @@ export async function createExam(
   input: { classSubjectId: string; title: string; examDate: string },
 ) {
   const { schoolId } = await assertTeacherOwnsClass(user, input.classSubjectId);
+  const target = await prisma.classSubject.findFirst({
+    where: { id: input.classSubjectId, schoolId },
+  });
+  if (!target) {
+    throw new AppError("Class not found", 404, "class_not_found");
+  }
+  assertClassIsActive(target);
   const title = input.title.trim();
   if (!title) {
     throw new AppError("Title is required", 400, "title_required");
@@ -308,6 +349,7 @@ export async function uploadExamAsset(
   },
 ) {
   const exam = await assertTeacherOwnsExam(user, examId);
+  assertClassIsActive(exam.classSubject);
   if (
     input.kind !== "QUESTION_PAPER" &&
     input.kind !== "ANSWER_KEY" &&
@@ -315,6 +357,8 @@ export async function uploadExamAsset(
   ) {
     throw new AppError("Invalid asset kind", 400, "invalid_kind");
   }
+
+  assertExamUploadFile(input.fileName, input.mimeType, input.bytes);
 
   const stored = await putObject({
     schoolId: exam.schoolId,
@@ -347,6 +391,7 @@ export async function startExamStructureAnalysis(
   examId: string,
 ) {
   const exam = await assertTeacherOwnsExam(user, examId);
+  assertClassIsActive(exam.classSubject);
   return enqueueAnalyzeExam({
     schoolId: exam.schoolId,
     examId,
@@ -396,6 +441,17 @@ export async function uploadSubmissionScript(input: {
   if (!exam) {
     throw new AppError("Exam not found", 404, "exam_not_found");
   }
+  assertClassIsActive(exam.classSubject);
+
+  const structureQuestions = await getExamStructureQuestions(examId);
+  if (
+    !isExamStructureReady({
+      structureLlmModel: exam.structureLlmModel,
+      questionCount: structureQuestions?.length ?? 0,
+    })
+  ) {
+    throw new AppError(STRUCTURE_NOT_READY_MESSAGE, 400, "structure_required");
+  }
 
   let studentId = actor.id;
   if (actor.role === "TEACHER") {
@@ -439,10 +495,13 @@ export async function uploadSubmissionScript(input: {
 
   const files = input.files.filter((file) => file.bytes.length > 0);
   if (files.length === 0) {
-    throw new AppError("請檢查檔案", 400, "missing_file");
+    throw new AppError("尚未選擇檔案。", 400, "missing_file");
   }
   if (files.length > MAX_SCRIPT_PAGES) {
-    throw new AppError("Too many files", 400, "too_many_files");
+    throw new AppError("檔案數量過多。", 400, "too_many_files");
+  }
+  for (const file of files) {
+    assertExamUploadFile(file.fileName, file.mimeType, file.bytes);
   }
 
   const studentLabel =
@@ -579,6 +638,7 @@ export async function deleteExamAsset(
     throw new AppError("Forbidden", 403, "forbidden");
   }
   const exam = await assertTeacherOwnsExam(user, examId);
+  assertClassIsActive(exam.classSubject);
   const asset = exam.assets.find((row) => row.id === assetId);
   if (!asset) {
     throw new AppError("File not found", 404, "file_not_found");
