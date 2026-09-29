@@ -110,6 +110,7 @@ npm run build && npm run start
 - 設定 `NEXTAUTH_URL=https://你的公開網域`（必須與瀏覽器網址一致）。
 - 為 **Postgres** 與 **上載目錄**（`STORAGE_LOCAL_DIR` / Compose 的 `markinsight_data`）各自掛載**持久化 volume**。
 - **只跑一個 web 實例**（見上文 in-process job runner）；不要水平擴充 MarkInsight web。
+- **公開站台必須使用 HTTPS**：管理後台新建教師時，一次性臨時密碼會以 JSON 回應回傳；若以明文 HTTP 提供，密碼可能被竊聽。
 
 ---
 
@@ -182,11 +183,19 @@ npm run db:seed-admin
 
    有 `passwordHash` 的資料庫使用者**優先**於示範登入政策。本地 bootstrap 可能留下 id `demo_admin` / `demo_teacher` / `demo_student`，或電郵 `*@example.com`，其雜湊仍可能對應字面 `password`。
 
-   - [ ] **已刪除或重設**上述示範帳戶（或改用全新資料庫——**強烈建議**正式環境用全新 Postgres volume）
+   Compose 預設資料庫名稱為 **`markinsight`**（使用者／密碼同為 `markinsight`，見 `docker-compose.yml` 的 `POSTGRES_DB`／`POSTGRES_USER`）。
+
+   - [ ] **已刪除或重設**上述示範帳戶（或改用全新資料庫——**強烈建議**正式環境用全新 Postgres volume）；刪除後以 `admin@example.com`／`password` 登入**必須失敗**
 
    **優先：全新資料庫**（Compose 範例：`docker compose down -v` 後再 `up`，會清掉 DB 與上載 volume——只在確定可丟資料時使用）。
 
-   **可選 SQL**（外鍵可能連帶刪除 enrollment／相關列；執行前請備份。表名以 Prisma 預設為準）：
+   **可選 SQL**（外鍵可能連帶刪除 enrollment／相關列；執行前請備份。表名以 Prisma 預設為準）。在已啟動的 Compose 環境執行：
+
+   ```bash
+   docker compose exec db psql -U markinsight -d markinsight
+   ```
+
+   進入 `psql` 後執行：
 
    ```sql
    DELETE FROM "User"
@@ -198,6 +207,8 @@ npm run db:seed-admin
       )
       OR email LIKE '%@example.com';
    ```
+
+   驗證：刪除後嘗試以 `admin@example.com`／`password` 登入，必須失敗。
 
 5. **持久化驗證**
    - [ ] 上載一份檔案 → 重新部署／重建 web 容器 → 該檔仍可開啟（確認 volume 生效）
