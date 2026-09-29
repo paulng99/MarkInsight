@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { jsonError, AppError } from "@/lib/errors";
+import { jsonError, AppError, UPLOAD_FAILED_ZH } from "@/lib/errors";
 import { requireSessionUser } from "@/lib/api/session";
 import {
   listClassStudentsForExam,
@@ -64,7 +64,7 @@ export async function POST(request: Request, context: Ctx) {
       .getAll("file")
       .filter((item): item is File => item instanceof File && item.size > 0);
     if (files.length === 0) {
-      throw new AppError("請檢查檔案", 400, "missing_file");
+      throw new AppError("尚未選擇檔案。", 400, "missing_file");
     }
     const studentId = form.get("studentId")
       ? String(form.get("studentId"))
@@ -97,7 +97,7 @@ export async function POST(request: Request, context: Ctx) {
       job: result.job,
     });
   } catch (error) {
-    const { body, status } = jsonError(error, "請檢查檔案", 500);
+    const { body, status } = jsonError(error, UPLOAD_FAILED_ZH, 500);
     return NextResponse.json(body, { status });
   }
 }

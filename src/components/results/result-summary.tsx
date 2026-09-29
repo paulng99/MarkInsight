@@ -1,4 +1,5 @@
 import type { Dictionary } from "@/lib/i18n/dictionaries";
+import { clampScoreRatio } from "@/lib/exams/study-report";
 import { Icon } from "@/components/ui/icons";
 import type { ScoreRow } from "./expandable-score-cards";
 
@@ -21,7 +22,7 @@ export function topicRatios(scores: ScoreRow[]): Array<{ topic: string; ratio: n
   }
   return [...byTopic.entries()]
     .filter(([, v]) => v.max > 0)
-    .map(([topic, v]) => ({ topic, ratio: v.score / v.max }));
+    .map(([topic, v]) => ({ topic, ratio: clampScoreRatio(v.score, v.max) }));
 }
 
 export function summarize(scores: ScoreRow[]): Summary {
@@ -35,7 +36,7 @@ export function summarize(scores: ScoreRow[]): Summary {
   return {
     score,
     maxScore,
-    ratio: maxScore > 0 ? score / maxScore : 0,
+    ratio: clampScoreRatio(score, maxScore),
     strongest: topics[0] ?? null,
     weakest: topics.length > 1 ? topics[topics.length - 1] : null,
   };

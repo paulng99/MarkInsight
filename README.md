@@ -26,7 +26,9 @@ Web MVP (Next.js App Router + TypeScript + Prisma). This knife delivers **same-s
 | Analysis model | New jobs read `SchoolSettings.analysisLlmModel` (allowlist) |
 | Live multimodal | `OPENROUTER_API_KEY` → chat completions; product UI never shows vendor names |
 | Missing key | Job fails with vendor-neutral copy (or set `MARKINSIGHT_ANALYSIS_DEMO=true` for offline deterministic results) |
+| Model timeout | `MARKINSIGHT_LLM_TIMEOUT_MS` (default `120000`); timed-out jobs become **FAILED** with retry copy |
 | Storage | `STORAGE_PROVIDER=local` → `.data/uploads` |
+| Exam / script files | PDF, JPG, PNG only (extension + MIME checked server-side; HEIC rejected) |
 
 Every successful analysis persists the model id on `AnalysisJob.llmModel` plus `Exam.structureLlmModel` or `Submission.scoringLlmModel`.
 
@@ -103,7 +105,9 @@ See **[docs/architecture.md](./docs/architecture.md)**.
 - Local object storage + in-process job runner (MVP)
 - i18n: English + 繁體中文（香港）; dates **yyyy-mm-dd**
 
-### Dev sign-in
+### Dev sign-in (local only)
+
+These demo accounts are for **local development** (`NODE_ENV` ≠ `production`). They are not shown on the login page, and production builds do not create them.
 
 | Email | Password | Role |
 |-------|----------|------|
@@ -111,7 +115,7 @@ See **[docs/architecture.md](./docs/architecture.md)**.
 | `teacher@example.com` | `password` | Teacher |
 | `student@example.com` | `password` | Student |
 
-Demo teacher/student are upserted into Postgres on first workspace/exam API call (`demo_school`).
+In local/dev, demo teacher/student are upserted into Postgres on first workspace/exam API call (`demo_school`).
 
 ## License
 

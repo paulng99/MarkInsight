@@ -8,7 +8,8 @@ preferRequestHostForLoopbackAuthUrl();
 
 /**
  * Credentials auth. Registered users are checked against Prisma passwordHash.
- * Demo accounts still sign in with password "password" before the database row exists.
+ * Local/dev demo accounts may sign in with password "password" before the DB row exists.
+ * Production never creates or accepts those demo password fallbacks.
  */
 
 declare module "next-auth" {

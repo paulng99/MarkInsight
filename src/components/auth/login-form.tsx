@@ -7,12 +7,6 @@ import type { Dictionary, Locale } from "@/lib/i18n/dictionaries";
 import { Icon } from "@/components/ui/icons";
 import { Alert } from "@/components/ui/feedback";
 
-const demoAccounts = [
-  { email: "admin@example.com", roleKey: "roleAdminLabel", tone: "badge-violet", avatar: "bg-[var(--role-admin)]" },
-  { email: "teacher@example.com", roleKey: "roleTeacherLabel", tone: "badge-info", avatar: "bg-[var(--role-teacher)]" },
-  { email: "student@example.com", roleKey: "roleStudentLabel", tone: "badge-teal", avatar: "bg-[var(--role-student)]" },
-] as const;
-
 function SubmitButton({ t }: { t: Dictionary }) {
   const { pending } = useFormStatus();
   return (
@@ -37,11 +31,6 @@ export function LoginForm({
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
-
-  function fill(demoEmail: string) {
-    setEmail(demoEmail);
-    setPassword("password");
-  }
 
   return (
     <div className="space-y-6">
@@ -102,52 +91,6 @@ export function LoginForm({
           {t.registerLink}
         </Link>
       </p>
-
-      <div>
-        <div className="flex items-center gap-3">
-          <span className="h-px flex-1 bg-[var(--border)]" />
-          <span className="text-xs font-semibold uppercase tracking-wider text-[var(--faint)]">
-            {t.demoTitle}
-          </span>
-          <span className="h-px flex-1 bg-[var(--border)]" />
-        </div>
-        <p className="mt-3 text-xs leading-relaxed text-[var(--muted)]">{t.demoHint}</p>
-        <ul className="mt-3 grid gap-2">
-          {demoAccounts.map((acc) => {
-            const selected = email === acc.email;
-            return (
-              <li key={acc.email}>
-                <button
-                  type="button"
-                  onClick={() => fill(acc.email)}
-                  aria-pressed={selected}
-                  className={`flex w-full items-center gap-3 rounded-xl border px-3 py-2.5 text-left transition-colors ${
-                    selected
-                      ? "border-primary-300 bg-primary-50"
-                      : "border-[var(--border)] bg-[var(--surface)] hover:border-[var(--border-strong)] hover:bg-[var(--surface-muted)]"
-                  }`}
-                >
-                  <span
-                    className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-[11px] font-bold text-white ${acc.avatar}`}
-                    aria-hidden
-                  >
-                    {acc.email[0]?.toUpperCase()}
-                  </span>
-                  <span className="min-w-0 flex-1">
-                    <span className="block truncate text-sm font-semibold text-[var(--ink)]">
-                      {acc.email}
-                    </span>
-                    <span className={`badge ${acc.tone} mt-0.5`}>{t[acc.roleKey]}</span>
-                  </span>
-                  <span className="text-xs font-semibold text-primary-600">
-                    {selected ? <Icon.Check size={16} /> : t.demoFill}
-                  </span>
-                </button>
-              </li>
-            );
-          })}
-        </ul>
-      </div>
     </div>
   );
 }

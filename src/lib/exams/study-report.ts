@@ -130,7 +130,20 @@ export function readStudyReport(source: Record<string, unknown>): StudyReportFie
 
 function finiteScore(value: unknown): number {
   const n = typeof value === "number" ? value : Number(value);
-  return Number.isFinite(n) ? Math.max(0, n) : 0;
+  return Number.isFinite(n) ? n : 0;
+}
+
+/** Clamp a per-question mark into [0, maxScore]. */
+export function clampQuestionScore(score: number, maxScore: number): number {
+  const ceiling = Number.isFinite(maxScore) && maxScore > 0 ? maxScore : 0;
+  const raw = Number.isFinite(score) ? score : 0;
+  return Math.min(ceiling, Math.max(0, raw));
+}
+
+/** Clamp an overall mark ratio into [0, 1] (0%–100%). */
+export function clampScoreRatio(score: number, maxScore: number): number {
+  if (!(maxScore > 0) || !Number.isFinite(score)) return 0;
+  return Math.min(1, Math.max(0, score / maxScore));
 }
 
 export function parseSubmissionScorePayload(
@@ -153,12 +166,14 @@ export function parseSubmissionScorePayload(
     const question = byKey.get(questionKey);
     if (!question) continue;
     const feedback = textOf(record.feedback);
+    const maxScore =
+      question.maxScore > 0 ? question.maxScore : Math.max(0, finiteScore(record.maxScore));
     scores.push({
       questionKey: question.questionKey,
       topic: textOf(record.topic) || question.topic,
       itemType: textOf(record.itemType) || question.itemType,
-      score: finiteScore(record.score),
-      maxScore: finiteScore(record.maxScore) || question.maxScore,
+      score: clampQuestionScore(finiteScore(record.score), maxScore),
+      maxScore,
       ...(feedback ? { feedback } : {}),
       ...readStudyReport(record),
     });

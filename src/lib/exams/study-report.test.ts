@@ -1,6 +1,11 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { buildDemoStudyReport, parseSubmissionScorePayload } from "./study-report.ts";
+import {
+  buildDemoStudyReport,
+  clampQuestionScore,
+  clampScoreRatio,
+  parseSubmissionScorePayload,
+} from "./study-report.ts";
 
 const questions = [
   {
@@ -133,4 +138,31 @@ test("demo report covers every question in both languages", () => {
     assert.ok(row.howToImproveZh.includes("\n"));
     assert.ok(row.howToImproveEn.includes("\n"));
   }
+});
+
+test("clamps each question score to 0..maxScore and overall ratio to 0..1", () => {
+  assert.equal(clampQuestionScore(-3, 4), 0);
+  assert.equal(clampQuestionScore(9, 4), 4);
+  assert.equal(clampQuestionScore(2.5, 4), 2.5);
+  assert.equal(clampScoreRatio(50, 40), 1);
+  assert.equal(clampScoreRatio(-1, 40), 0);
+  assert.equal(clampScoreRatio(20, 40), 0.5);
+
+  const parsed = parseSubmissionScorePayload(
+    {
+      scores: [
+        { questionKey: "1(a)", score: -2, maxScore: 99 },
+        { questionKey: "2", score: 99, maxScore: 1 },
+      ],
+    },
+    questions,
+  );
+  assert.equal(parsed.scores[0].score, 0);
+  assert.equal(parsed.scores[0].maxScore, 4);
+  assert.equal(parsed.scores[1].score, 3);
+  assert.equal(parsed.scores[1].maxScore, 3);
+  const totalScore = parsed.scores.reduce((sum, row) => sum + row.score, 0);
+  const totalMax = parsed.scores.reduce((sum, row) => sum + row.maxScore, 0);
+  const pct = clampScoreRatio(totalScore, totalMax) * 100;
+  assert.ok(pct >= 0 && pct <= 100);
 });

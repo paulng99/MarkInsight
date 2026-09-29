@@ -254,7 +254,10 @@ export function JobProgressPanel({
       {n === "FAILED" ? (
         <div className="mt-3 rounded-lg bg-[var(--color-error-soft)] px-3 py-2.5 text-sm text-[#9f1239]">
           <p>{view.errorMessage || t.stateError}</p>
-          <p className="mt-1 text-xs opacity-80">{t.checkFile}</p>
+          {view.errorMessage?.includes("請檢查檔案") ||
+          view.errorMessage?.toLowerCase().includes("check the file") ? (
+            <p className="mt-1 text-xs opacity-80">{t.checkFile}</p>
+          ) : null}
           {onRetry ? (
             <button type="button" onClick={onRetry} className="btn btn-primary btn-sm mt-3">
               <Icon.Refresh size={14} />
