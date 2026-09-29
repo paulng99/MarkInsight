@@ -115,24 +115,32 @@ npm run build && npm run start
 
 ## 更改管理員／教師密碼
 
-目前**沒有**自助更改密碼功能（已知缺口）。重設方式：
+### 已知缺口（本 knife 不做）
 
-1. 以新密碼再跑一次 seed（idempotent，會更新 `passwordHash`）：
+- **沒有**使用者自助更改密碼
+- **沒有**管理後台「重新產生臨時密碼」按鈕
+
+管理後台「建立教師」會產生**隨機臨時密碼**（≥16 字元），**只在建立當下的回應／畫面顯示一次**。明文不會寫入 log，也不會再出現在教師列表。
+
+### 若管理員沒有複製該一次性臨時密碼
+
+任選其一：
+
+1. **刪除該教師帳戶，再於管理後台重新建立一次**（會產生新的一次性臨時密碼，請立即複製並交給老師）。
+2. **由操作者用 seed 重設密碼**（見下方；idempotent，會覆寫 `passwordHash`）：
 
 ```bash
 export DATABASE_URL='postgresql://…'
 export MARKINSIGHT_SEED_ADMIN_EMAIL='you@school.edu.hk'
 export MARKINSIGHT_SEED_ADMIN_PASSWORD='new-strong-password-here'
-# 可選：同步重設教師
-# export MARKINSIGHT_SEED_TEACHER_EMAIL='teacher@school.edu.hk'
-# export MARKINSIGHT_SEED_TEACHER_PASSWORD='another-new-strong-password'
-# export MARKINSIGHT_SEED_SCHOOL_ID='your_school_id'
+# 重設教師：
+export MARKINSIGHT_SEED_TEACHER_EMAIL='teacher@school.edu.hk'
+export MARKINSIGHT_SEED_TEACHER_PASSWORD='another-new-strong-password'
+export MARKINSIGHT_SEED_SCHOOL_ID='your_school_id'
 npm run db:seed-admin
 ```
 
-2. 管理後台「建立教師」會產生**隨機臨時密碼**（≥16 字元），只在建立回應／畫面顯示一次；之後若要改密，同樣用上面的 seed 覆寫雜湊。
-
-腳本**不會**把密碼印到 log。
+管理員本人改密：同樣用上面的 seed，只設 `MARKINSIGHT_SEED_ADMIN_*` 即可。腳本**不會**把密碼印到 log。
 
 ---
 
