@@ -56,9 +56,6 @@ export async function authorizeCredentials(
     };
   }
 
-  // Demo password fallback is local/dev only — never in production.
-  if (process.env.NODE_ENV === "production") return null;
-
   const demo = DEMO_USERS.find((user) => user.email === normalized);
   if (!demo || password !== DEMO_PASSWORD) return null;
   return demo;

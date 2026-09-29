@@ -67,23 +67,35 @@ export async function ensureDemoTeachingWorkspace(
     where: { schoolId },
   });
 
-  // Production must never create demo teacher/student accounts.
-  if (process.env.NODE_ENV !== "production") {
-    await upsertDemoUser({
-      id: DEMO_TEACHER_ID,
-      email: "teacher@example.com",
-      name: "Demo Teacher",
-      role: "TEACHER",
-      schoolId,
-    });
-    await upsertDemoUser({
-      id: DEMO_STUDENT_ID,
-      email: "student@example.com",
-      name: "Demo Student",
-      role: "STUDENT",
-      schoolId,
-    });
+  const year =
+    (settings.defaultSchoolYearId
+      ? await prisma.schoolYear.findUnique({
+          where: { id: settings.defaultSchoolYearId },
+        })
+      : null) ??
+    (await prisma.schoolYear.findFirst({
+      where: { schoolId },
+      orderBy: { startsOn: "desc" },
+    }));
+
+  if (!year) {
+    throw new Error("No school year available for workspace bootstrap");
   }
+
+  await upsertDemoUser({
+    id: DEMO_TEACHER_ID,
+    email: "teacher@example.com",
+    name: "Demo Teacher",
+    role: "TEACHER",
+    schoolId,
+  });
+  await upsertDemoUser({
+    id: DEMO_STUDENT_ID,
+    email: "student@example.com",
+    name: "Demo Student",
+    role: "STUDENT",
+    schoolId,
+  });
 
   const classSubjects = await prisma.classSubject.findMany({
     where: {

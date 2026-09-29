@@ -105,9 +105,7 @@ See **[docs/architecture.md](./docs/architecture.md)**.
 - Local object storage + in-process job runner (MVP)
 - i18n: English + 繁體中文（香港）; dates **yyyy-mm-dd**
 
-### Dev sign-in (local only)
-
-These demo accounts are for **local development** (`NODE_ENV` ≠ `production`). They are not shown on the login page, and production builds do not create them.
+### Dev sign-in
 
 | Email | Password | Role |
 |-------|----------|------|
@@ -115,7 +113,11 @@ These demo accounts are for **local development** (`NODE_ENV` ≠ `production`).
 | `teacher@example.com` | `password` | Teacher |
 | `student@example.com` | `password` | Student |
 
-In local/dev, demo teacher/student are upserted into Postgres on first workspace/exam API call (`demo_school`).
+Demo teacher/student are upserted into Postgres on first workspace/exam API call (`demo_school`).
+
+### 已知風險
+
+登入頁目前公開示範帳戶與預設密碼（`password`）。正式給老師試用前必須重新評估（例如關閉示範登入、改為邀請制帳戶，或強制更換密碼）。
 
 ## License
 
