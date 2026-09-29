@@ -307,6 +307,16 @@ body {
   .btn-danger:hover:not(:disabled) {
     background: #fbd5dc;
   }
+  .btn-danger-ghost {
+    background: transparent;
+    color: var(--color-error);
+    border-color: transparent;
+    box-shadow: none;
+  }
+  .btn-danger-ghost:hover:not(:disabled) {
+    background: var(--color-error-soft);
+    color: var(--color-error);
+  }
   .btn-inverse {
     background: #fff;
     color: var(--color-primary-deep);

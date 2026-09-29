@@ -19,6 +19,7 @@ export default async function AdminPage({
   const user = session.user;
   const displayName = user.name?.trim() || user.email?.split("@")[0] || "";
   const settingsHref = `/admin/settings?locale=${locale}`;
+  const subjectsHref = `/admin/subjects?locale=${locale}`;
   const usageHref = `/admin/usage?locale=${locale}`;
 
   const checklist = [t.adminCheck1, t.adminCheck2, t.adminCheck3, t.adminCheck4];
@@ -46,12 +47,23 @@ export default async function AdminPage({
       </section>
 
       <div className="mt-8 grid gap-6 lg:grid-cols-[minmax(0,1fr)_20rem]">
-        <div className="grid gap-4 sm:grid-cols-2 animate-fade-up-delay">
-          <Link href={settingsHref} className="card card-hover card-pad group flex flex-col">
+        <div className="grid gap-4 sm:grid-cols-2 animate-fade-up-delay lg:grid-cols-3">
+          <Link href={subjectsHref} className="card card-hover card-pad group flex flex-col">
             <span
               className="icon-tile !h-12 !w-12 !rounded-2xl"
               style={{ ["--tile-bg" as string]: "var(--role-admin-soft)", ["--tile-fg" as string]: "var(--role-admin)" }}
             >
+              <Icon.Layers size={22} />
+            </span>
+            <h2 className="mt-4 text-lg font-bold text-[var(--ink)]">{t.adminSubjectsTitle}</h2>
+            <p className="mt-1 flex-1 text-sm leading-relaxed text-[var(--muted)]">{t.adminCardSubjectsDesc}</p>
+            <span className="mt-4 inline-flex items-center gap-1 text-sm font-semibold text-primary-600">
+              {t.manage}
+              <Icon.ArrowRight size={14} className="transition-transform group-hover:translate-x-0.5" />
+            </span>
+          </Link>
+          <Link href={settingsHref} className="card card-hover card-pad group flex flex-col">
+            <span className="icon-tile !h-12 !w-12 !rounded-2xl">
               <Icon.School size={22} />
             </span>
             <h2 className="mt-4 text-lg font-bold text-[var(--ink)]">{t.settingsTitle}</h2>

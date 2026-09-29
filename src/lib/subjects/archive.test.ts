@@ -2,11 +2,24 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { formatArchiveDate, isClassInactive } from "./archive-state.ts";
 
-test("a class is inactive when either archive timestamp is set", () => {
+test("a class is inactive when any archive timestamp is set", () => {
   const now = new Date("2026-09-27T02:00:00.000Z");
-  assert.equal(isClassInactive({ classArchivedAt: null, subjectArchivedAt: null }), false);
-  assert.equal(isClassInactive({ classArchivedAt: now, subjectArchivedAt: null }), true);
-  assert.equal(isClassInactive({ classArchivedAt: null, subjectArchivedAt: now }), true);
+  assert.equal(
+    isClassInactive({ archivedAt: null, classArchivedAt: null, subjectArchivedAt: null }),
+    false,
+  );
+  assert.equal(
+    isClassInactive({ archivedAt: now, classArchivedAt: null, subjectArchivedAt: null }),
+    true,
+  );
+  assert.equal(
+    isClassInactive({ archivedAt: null, classArchivedAt: now, subjectArchivedAt: null }),
+    true,
+  );
+  assert.equal(
+    isClassInactive({ archivedAt: null, classArchivedAt: null, subjectArchivedAt: now }),
+    true,
+  );
 });
 
 test("archive dates render as yyyy-mm-dd in Hong Kong", () => {

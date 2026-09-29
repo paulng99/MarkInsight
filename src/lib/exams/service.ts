@@ -64,7 +64,7 @@ export async function assertTeacherOwnsClass(
     throw new AppError("Forbidden", 403, "forbidden");
   }
   const cs = await prisma.classSubject.findFirst({
-    where: { id: classSubjectId, schoolId },
+    where: { id: classSubjectId, schoolId, ...activeClassWhere },
   });
   if (!cs) {
     throw new AppError("Class not found", 404, "class_not_found");
@@ -131,7 +131,11 @@ export async function distributeExamToClasses(
   for (const classSubjectId of targets) {
     await assertTeacherOwnsClass(user, classSubjectId);
     const target = await prisma.classSubject.findFirst({
-      where: { id: classSubjectId, schoolId: source.schoolId },
+      where: {
+        id: classSubjectId,
+        schoolId: source.schoolId,
+        ...activeClassWhere,
+      },
     });
     if (!target || target.subjectCode !== source.classSubject.subjectCode) {
       throw new AppError("只能分發到同一科目的班別", 400, "subject_mismatch");

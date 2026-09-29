@@ -1,10 +1,11 @@
 /**
- * Archive, restore, and permanent delete for subjects and classes.
+ * Teacher archive, restore, and permanent delete for subjects and classes.
  *
- * A class is usable only when both timestamps are empty.
- * Archiving a subject stamps subjectArchivedAt on every class this teacher
- * teaches for that subject code. Restoring the subject clears that stamp and
- * leaves classArchivedAt untouched.
+ * A class is usable only when admin archivedAt and both teacher timestamps
+ * (classArchivedAt / subjectArchivedAt) are empty. Archiving a subject stamps
+ * subjectArchivedAt on every class this teacher teaches for that subject code.
+ * Restoring the subject clears that stamp and leaves classArchivedAt untouched.
+ * Admin school-wide archive uses ClassSubject.archivedAt (see admin/class-subjects).
  */
 
 import { unlink } from "fs/promises";
@@ -22,6 +23,7 @@ import {
 export { activeClassWhere, formatArchiveDate, isClassInactive };
 
 export function assertClassIsActive(row: {
+  archivedAt?: Date | null;
   classArchivedAt: Date | null;
   subjectArchivedAt: Date | null;
 }) {

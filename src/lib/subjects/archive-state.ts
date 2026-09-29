@@ -1,15 +1,21 @@
-/** Pure archive rules. A class is usable only when both timestamps are empty. */
+/** Pure archive rules. A class is usable only when every archive timestamp is empty. */
 
 export const activeClassWhere = {
+  archivedAt: null,
   classArchivedAt: null,
   subjectArchivedAt: null,
 } as const;
 
 export function isClassInactive(row: {
+  archivedAt?: Date | null;
   classArchivedAt: Date | null;
   subjectArchivedAt: Date | null;
 }): boolean {
-  return row.classArchivedAt != null || row.subjectArchivedAt != null;
+  return (
+    row.archivedAt != null ||
+    row.classArchivedAt != null ||
+    row.subjectArchivedAt != null
+  );
 }
 
 /** Archive timestamps shown in the UI use yyyy-mm-dd in Hong Kong. */
