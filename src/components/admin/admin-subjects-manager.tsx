@@ -44,6 +44,14 @@ export function AdminSubjectsManager({ t, schoolId }: Props) {
   const [deleteDialog, setDeleteDialog] = useState<DeleteDialogState | null>(
     null,
   );
+  const [deleteDialogError, setDeleteDialogError] = useState<string | null>(
+    null,
+  );
+
+  const openDeleteDialog = useCallback((state: DeleteDialogState) => {
+    setDeleteDialogError(null);
+    setDeleteDialog(state);
+  }, []);
 
   const load = useCallback(async () => {
     setError(null);
@@ -75,10 +83,29 @@ export function AdminSubjectsManager({ t, schoolId }: Props) {
       try {
         await action();
         setDeleteDialog(null);
+        setDeleteDialogError(null);
         setNotice(successMsg);
         await load();
       } catch (e) {
         setError(e instanceof Error ? e.message : t.adminSubjectsErrorAction);
+      }
+    });
+  }
+
+  /** Delete failures keep the confirm dialog open with opaque copy. */
+  function runDelete(action: () => Promise<void>, successMsg: string) {
+    startTransition(async () => {
+      setError(null);
+      setNotice(null);
+      setDeleteDialogError(null);
+      try {
+        await action();
+        setDeleteDialog(null);
+        setDeleteDialogError(null);
+        setNotice(successMsg);
+        await load();
+      } catch {
+        setDeleteDialogError(t.adminSubjectsDeleteRejected);
       }
     });
   }
@@ -93,14 +120,21 @@ export function AdminSubjectsManager({ t, schoolId }: Props) {
     if (!res.ok) throw new Error(data.error || t.adminSubjectsErrorAction);
   }
 
-  async function deleteClass(cls: AdminClassSubjectDto) {
+  async function deleteClass(
+    cls: AdminClassSubjectDto,
+    expected: { exams: number; submissions: number },
+  ) {
     const res = await fetch(`/api/admin/class-subjects/${cls.id}`, {
       method: "DELETE",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ schoolId, confirm: cls.name }),
+      body: JSON.stringify({
+        schoolId,
+        confirm: cls.name,
+        expectedExams: expected.exams,
+        expectedSubmissions: expected.submissions,
+      }),
     });
-    const data = await res.json().catch(() => ({}));
-    if (!res.ok) throw new Error(data.error || t.adminSubjectsErrorAction);
+    if (!res.ok) throw new Error(t.adminSubjectsDeleteRejected);
   }
 
   async function patchSubject(subjectCode: string, archived: boolean) {
@@ -116,17 +150,24 @@ export function AdminSubjectsManager({ t, schoolId }: Props) {
     if (!res.ok) throw new Error(data.error || t.adminSubjectsErrorAction);
   }
 
-  async function deleteSubject(subjectCode: string) {
+  async function deleteSubject(
+    subjectCode: string,
+    expected: { exams: number; submissions: number },
+  ) {
     const res = await fetch(
       `/api/admin/subjects/${encodeURIComponent(subjectCode)}`,
       {
         method: "DELETE",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ schoolId, confirm: subjectCode }),
+        body: JSON.stringify({
+          schoolId,
+          confirm: subjectCode,
+          expectedExams: expected.exams,
+          expectedSubmissions: expected.submissions,
+        }),
       },
     );
-    const data = await res.json().catch(() => ({}));
-    if (!res.ok) throw new Error(data.error || t.adminSubjectsErrorAction);
+    if (!res.ok) throw new Error(t.adminSubjectsDeleteRejected);
   }
 
   async function bulk(action: "archive_all" | "delete_archived") {
@@ -171,8 +212,12 @@ export function AdminSubjectsManager({ t, schoolId }: Props) {
       impact: fillDeleteImpactTemplate(t.adminSubjectsDeleteImpactClass, counts),
       confirmToken: deleteDialog.cls.name,
       onConfirm: () =>
-        run(
-          () => deleteClass(deleteDialog.cls),
+        runDelete(
+          () =>
+            deleteClass(deleteDialog.cls, {
+              exams: counts.exams,
+              submissions: counts.submissions,
+            }),
           t.adminSubjectsDeleteClassSuccess,
         ),
       onArchiveInstead: deleteDialog.cls.archivedAt
@@ -193,8 +238,12 @@ export function AdminSubjectsManager({ t, schoolId }: Props) {
       ),
       confirmToken: deleteDialog.group.subjectCode,
       onConfirm: () =>
-        run(
-          () => deleteSubject(deleteDialog.group.subjectCode),
+        runDelete(
+          () =>
+            deleteSubject(deleteDialog.group.subjectCode, {
+              exams: counts.exams,
+              submissions: counts.submissions,
+            }),
           t.adminSubjectsDeleteSubjectSuccess,
         ),
       onArchiveInstead:
@@ -216,7 +265,7 @@ export function AdminSubjectsManager({ t, schoolId }: Props) {
       ),
       confirmToken: t.adminSubjectsDeleteConfirmWord,
       onConfirm: () =>
-        run(
+        runDelete(
           () => bulk("delete_archived"),
           t.adminSubjectsDeleteArchivedSuccess,
         ),
@@ -261,7 +310,7 @@ export function AdminSubjectsManager({ t, schoolId }: Props) {
             type="button"
             className="btn btn-danger-ghost btn-sm"
             disabled={pending || archivedTotal === 0}
-            onClick={() => setDeleteDialog({ kind: "archived" })}
+            onClick={() => openDeleteDialog({ kind: "archived" })}
           >
             <Icon.Trash size={16} />
             {t.adminSubjectsDeleteArchived}
@@ -344,7 +393,7 @@ export function AdminSubjectsManager({ t, schoolId }: Props) {
                   type="button"
                   className="btn btn-danger-ghost btn-sm"
                   disabled={pending}
-                  onClick={() => setDeleteDialog({ kind: "subject", group })}
+                  onClick={() => openDeleteDialog({ kind: "subject", group })}
                 >
                   <Icon.Trash size={14} />
                   {t.adminSubjectsDeleteSubject}
@@ -429,7 +478,7 @@ export function AdminSubjectsManager({ t, schoolId }: Props) {
                           className="btn btn-danger-ghost btn-sm"
                           disabled={pending}
                           onClick={() =>
-                            setDeleteDialog({ kind: "class", group, cls })
+                            openDeleteDialog({ kind: "class", group, cls })
                           }
                         >
                           <Icon.Trash size={14} />
@@ -452,10 +501,14 @@ export function AdminSubjectsManager({ t, schoolId }: Props) {
           impact={deleteDialogView.impact}
           confirmToken={deleteDialogView.confirmToken}
           pending={pending}
+          errorMessage={deleteDialogError}
           onConfirm={deleteDialogView.onConfirm}
           onArchiveInstead={deleteDialogView.onArchiveInstead}
           onCancel={() => {
-            if (!pending) setDeleteDialog(null);
+            if (!pending) {
+              setDeleteDialog(null);
+              setDeleteDialogError(null);
+            }
           }}
         />
       ) : null}

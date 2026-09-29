@@ -9,10 +9,21 @@ export type DeleteImpactCounts = {
   submissions: number;
 };
 
-export const DELETE_CONFIRM_REQUIRED_CODE = "delete_confirm_required";
+/** Opaque code for any failed admin subject/class delete. */
+export const ADMIN_DELETE_REJECTED_CODE = "delete_rejected";
 
-export const DELETE_CONFIRM_REQUIRED_MESSAGE =
-  "Deletion requires confirm to match the subject code or class name";
+/**
+ * Opaque English API copy — must not reveal cross-school existence,
+ * confirm mismatch details, or whether a row was found.
+ */
+export const ADMIN_DELETE_REJECTED_MESSAGE_EN =
+  "Could not delete: the data has changed or you do not have permission. Refresh the page and try again.";
+
+/** @deprecated Use ADMIN_DELETE_REJECTED_CODE — kept as alias for older tests. */
+export const DELETE_CONFIRM_REQUIRED_CODE = ADMIN_DELETE_REJECTED_CODE;
+
+/** @deprecated Use ADMIN_DELETE_REJECTED_MESSAGE_EN */
+export const DELETE_CONFIRM_REQUIRED_MESSAGE = ADMIN_DELETE_REJECTED_MESSAGE_EN;
 
 /** Confirm is enabled only when the trimmed input equals the expected token exactly. */
 export function matchesDeleteConfirmText(
@@ -26,16 +37,33 @@ export function matchesDeleteConfirmText(
 export function deleteHasProtectedData(input: {
   submissionCount: number;
   analysisJobCount?: number;
+  examCount?: number;
 }): boolean {
   return (
-    input.submissionCount > 0 || (input.analysisJobCount ?? 0) > 0
+    input.submissionCount > 0 ||
+    (input.analysisJobCount ?? 0) > 0 ||
+    (input.examCount ?? 0) > 0
   );
+}
+
+function rejected(): {
+  ok: false;
+  status: 400;
+  error: string;
+  code: string;
+} {
+  return {
+    ok: false,
+    status: 400,
+    error: ADMIN_DELETE_REJECTED_MESSAGE_EN,
+    code: ADMIN_DELETE_REJECTED_CODE,
+  };
 }
 
 /**
  * Server-side delete confirmation.
- * When the target has submissions / analysis results, `confirm` must equal
- * the expected token (subject code or class name). Otherwise deletion may proceed.
+ * When the target has exams / submissions / analysis results, `confirm` must
+ * equal the expected token (subject code or class name).
  */
 export function evaluateDeleteConfirmation(input: {
   confirm: unknown;
@@ -51,12 +79,39 @@ export function evaluateDeleteConfirmation(input: {
     typeof input.confirm !== "string" ||
     !matchesDeleteConfirmText(input.confirm, input.expectedToken)
   ) {
-    return {
-      ok: false,
-      status: 400,
-      error: DELETE_CONFIRM_REQUIRED_MESSAGE,
-      code: DELETE_CONFIRM_REQUIRED_CODE,
-    };
+    return rejected();
+  }
+  return { ok: true };
+}
+
+/**
+ * Reject when exam/submission counts no longer match the dialog snapshot
+ * (e.g. another user added an exam while the confirm dialog was open).
+ */
+export function evaluateDeleteImpactFreshness(input: {
+  expectedExams: unknown;
+  expectedSubmissions: unknown;
+  actualExams: number;
+  actualSubmissions: number;
+}):
+  | { ok: true }
+  | { ok: false; status: 400; error: string; code: string } {
+  if (
+    typeof input.expectedExams !== "number" ||
+    typeof input.expectedSubmissions !== "number" ||
+    !Number.isFinite(input.expectedExams) ||
+    !Number.isFinite(input.expectedSubmissions)
+  ) {
+    if (input.actualExams > 0 || input.actualSubmissions > 0) {
+      return rejected();
+    }
+    return { ok: true };
+  }
+  if (
+    input.actualExams !== input.expectedExams ||
+    input.actualSubmissions !== input.expectedSubmissions
+  ) {
+    return rejected();
   }
   return { ok: true };
 }

@@ -233,6 +233,8 @@ const dictionaries = {
     adminSubjectsDeleteConfirm: "Delete permanently",
     adminSubjectsDeleteSwitchToArchive: "Archive instead",
     adminSubjectsDeleteConfirmWord: "DELETE",
+    adminSubjectsDeleteRejected:
+      "Could not delete: the data has changed or you do not have permission. Refresh the page and try again.",
     adminSubjectsActiveClasses: "active classes",
     adminSubjectsArchivedClasses: "archived",
     adminSubjectsNoClasses: "No classes under this subject.",
@@ -790,6 +792,8 @@ const dictionaries = {
     adminSubjectsDeleteConfirm: "永久刪除",
     adminSubjectsDeleteSwitchToArchive: "改為封存",
     adminSubjectsDeleteConfirmWord: "刪除",
+    adminSubjectsDeleteRejected:
+      "無法刪除：資料已有變動或你沒有權限，請重新整理頁面後再試。",
     adminSubjectsActiveClasses: "個進行中班別",
     adminSubjectsArchivedClasses: "個已封存",
     adminSubjectsNoClasses: "此科目下沒有班別。",

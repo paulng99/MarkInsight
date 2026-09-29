@@ -13,8 +13,8 @@ import type { Role } from "../roles";
 export const DEMO_SCHOOL_ID = "demo_school";
 
 export const CROSS_SCHOOL_FORBIDDEN_CODE = "cross_school_forbidden";
-export const CROSS_SCHOOL_FORBIDDEN_MESSAGE =
-  "Forbidden: cannot access another school";
+/** Opaque — must not reveal whether a resource exists in another school. */
+export const CROSS_SCHOOL_FORBIDDEN_MESSAGE = "Forbidden";
 
 export class CrossSchoolAccessError extends Error {
   readonly status = 403 as const;

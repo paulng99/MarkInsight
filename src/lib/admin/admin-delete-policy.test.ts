@@ -7,11 +7,12 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
-  DELETE_CONFIRM_REQUIRED_CODE,
+  ADMIN_DELETE_REJECTED_CODE,
+  ADMIN_DELETE_REJECTED_MESSAGE_EN,
   evaluateDeleteConfirmation,
+  evaluateDeleteImpactFreshness,
 } from "./delete-confirm.ts";
 import {
-  CROSS_SCHOOL_FORBIDDEN_CODE,
   assertCanAccessSchoolSettings,
   tryResolveAdminSchoolId,
 } from "../school-settings/access.ts";
@@ -23,14 +24,22 @@ function decideAdminDeleteRequest(input: {
   confirm?: unknown;
   expectedToken: string;
   hasProtectedData: boolean;
+  expectedExams?: unknown;
+  expectedSubmissions?: unknown;
+  actualExams?: number;
+  actualSubmissions?: number;
 }):
-  | { status: 403; code: string }
-  | { status: 400; code: string }
+  | { status: 403; code: string; error: string }
+  | { status: 400; code: string; error: string }
   | { status: 200; schoolId: string } {
   try {
     assertCanAccessSchoolSettings(input.role);
   } catch {
-    return { status: 403, code: "forbidden" };
+    return {
+      status: 403,
+      code: ADMIN_DELETE_REJECTED_CODE,
+      error: ADMIN_DELETE_REJECTED_MESSAGE_EN,
+    };
   }
 
   const school = tryResolveAdminSchoolId(
@@ -38,7 +47,26 @@ function decideAdminDeleteRequest(input: {
     input.requestedSchoolId,
   );
   if (!school.ok) {
-    return { status: 403, code: school.code };
+    // Opaque — same copy as other delete rejections (no school leak).
+    return {
+      status: 403,
+      code: ADMIN_DELETE_REJECTED_CODE,
+      error: ADMIN_DELETE_REJECTED_MESSAGE_EN,
+    };
+  }
+
+  const freshness = evaluateDeleteImpactFreshness({
+    expectedExams: input.expectedExams,
+    expectedSubmissions: input.expectedSubmissions,
+    actualExams: input.actualExams ?? 0,
+    actualSubmissions: input.actualSubmissions ?? 0,
+  });
+  if (!freshness.ok) {
+    return {
+      status: 400,
+      code: freshness.code,
+      error: freshness.error,
+    };
   }
 
   const confirmResult = evaluateDeleteConfirmation({
@@ -47,13 +75,17 @@ function decideAdminDeleteRequest(input: {
     hasProtectedData: input.hasProtectedData,
   });
   if (!confirmResult.ok) {
-    return { status: 400, code: confirmResult.code };
+    return {
+      status: 400,
+      code: confirmResult.code,
+      error: confirmResult.error,
+    };
   }
 
   return { status: 200, schoolId: school.schoolId };
 }
 
-test("admin delete policy: cross-school request is rejected", () => {
+test("admin delete policy: cross-school request is rejected with opaque copy", () => {
   const result = decideAdminDeleteRequest({
     role: "ADMIN",
     sessionSchoolId: "school_a",
@@ -61,14 +93,21 @@ test("admin delete policy: cross-school request is rejected", () => {
     confirm: "MATH",
     expectedToken: "MATH",
     hasProtectedData: true,
+    expectedExams: 1,
+    expectedSubmissions: 0,
+    actualExams: 1,
+    actualSubmissions: 0,
   });
   assert.deepEqual(result, {
     status: 403,
-    code: CROSS_SCHOOL_FORBIDDEN_CODE,
+    code: ADMIN_DELETE_REJECTED_CODE,
+    error: ADMIN_DELETE_REJECTED_MESSAGE_EN,
   });
+  assert.doesNotMatch(result.error, /school/i);
+  assert.doesNotMatch(result.error, /MATH|exist/i);
 });
 
-test("admin delete policy: non-admin is rejected", () => {
+test("admin delete policy: non-admin is rejected with opaque copy", () => {
   for (const role of ["TEACHER", "STUDENT", null] as const) {
     const result = decideAdminDeleteRequest({
       role,
@@ -78,7 +117,8 @@ test("admin delete policy: non-admin is rejected", () => {
       expectedToken: "MATH",
       hasProtectedData: true,
     });
-    assert.deepEqual(result, { status: 403, code: "forbidden" });
+    assert.equal(result.status, 403);
+    assert.equal(result.error, ADMIN_DELETE_REJECTED_MESSAGE_EN);
   }
 });
 
@@ -89,10 +129,13 @@ test("admin delete policy: missing or wrong confirm is rejected when protected",
     requestedSchoolId: "school_a",
     expectedToken: "MATH",
     hasProtectedData: true,
+    expectedExams: 0,
+    expectedSubmissions: 0,
   });
   assert.deepEqual(missing, {
     status: 400,
-    code: DELETE_CONFIRM_REQUIRED_CODE,
+    code: ADMIN_DELETE_REJECTED_CODE,
+    error: ADMIN_DELETE_REJECTED_MESSAGE_EN,
   });
 
   const wrong = decideAdminDeleteRequest({
@@ -101,14 +144,36 @@ test("admin delete policy: missing or wrong confirm is rejected when protected",
     confirm: "WRONG",
     expectedToken: "MATH",
     hasProtectedData: true,
+    expectedExams: 0,
+    expectedSubmissions: 0,
   });
   assert.deepEqual(wrong, {
     status: 400,
-    code: DELETE_CONFIRM_REQUIRED_CODE,
+    code: ADMIN_DELETE_REJECTED_CODE,
+    error: ADMIN_DELETE_REJECTED_MESSAGE_EN,
   });
 });
 
-test("admin delete policy: matching confirm succeeds for the session school", () => {
+test("admin delete policy: new exam while dialog open is rejected", () => {
+  const result = decideAdminDeleteRequest({
+    role: "ADMIN",
+    sessionSchoolId: "school_a",
+    confirm: "MATH",
+    expectedToken: "MATH",
+    hasProtectedData: false,
+    expectedExams: 0,
+    expectedSubmissions: 0,
+    actualExams: 1,
+    actualSubmissions: 0,
+  });
+  assert.deepEqual(result, {
+    status: 400,
+    code: ADMIN_DELETE_REJECTED_CODE,
+    error: ADMIN_DELETE_REJECTED_MESSAGE_EN,
+  });
+});
+
+test("admin delete policy: matching confirm and fresh counts succeed", () => {
   const result = decideAdminDeleteRequest({
     role: "ADMIN",
     sessionSchoolId: "school_a",
@@ -116,6 +181,10 @@ test("admin delete policy: matching confirm succeeds for the session school", ()
     confirm: "MATH",
     expectedToken: "MATH",
     hasProtectedData: true,
+    expectedExams: 2,
+    expectedSubmissions: 5,
+    actualExams: 2,
+    actualSubmissions: 5,
   });
   assert.deepEqual(result, { status: 200, schoolId: "school_a" });
 });

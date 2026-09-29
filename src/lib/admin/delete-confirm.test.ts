@@ -1,10 +1,11 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
-  DELETE_CONFIRM_REQUIRED_CODE,
-  DELETE_CONFIRM_REQUIRED_MESSAGE,
+  ADMIN_DELETE_REJECTED_CODE,
+  ADMIN_DELETE_REJECTED_MESSAGE_EN,
   deleteHasProtectedData,
   evaluateDeleteConfirmation,
+  evaluateDeleteImpactFreshness,
   fillDeleteImpactTemplate,
   matchesDeleteConfirmText,
   sumClassImpact,
@@ -60,7 +61,7 @@ test("sumClassImpact and sumClassesImpact aggregate server counts", () => {
   });
 });
 
-test("deleteHasProtectedData detects submissions or analysis jobs", () => {
+test("deleteHasProtectedData detects exams, submissions, or analysis jobs", () => {
   assert.equal(deleteHasProtectedData({ submissionCount: 0 }), false);
   assert.equal(
     deleteHasProtectedData({ submissionCount: 0, analysisJobCount: 0 }),
@@ -71,9 +72,13 @@ test("deleteHasProtectedData detects submissions or analysis jobs", () => {
     deleteHasProtectedData({ submissionCount: 0, analysisJobCount: 2 }),
     true,
   );
+  assert.equal(
+    deleteHasProtectedData({ submissionCount: 0, examCount: 1 }),
+    true,
+  );
 });
 
-test("evaluateDeleteConfirmation rejects missing or wrong confirm when protected", () => {
+test("evaluateDeleteConfirmation rejects with opaque copy when protected", () => {
   assert.deepEqual(
     evaluateDeleteConfirmation({
       confirm: undefined,
@@ -91,9 +96,14 @@ test("evaluateDeleteConfirmation rejects missing or wrong confirm when protected
   assert.deepEqual(missing, {
     ok: false,
     status: 400,
-    error: DELETE_CONFIRM_REQUIRED_MESSAGE,
-    code: DELETE_CONFIRM_REQUIRED_CODE,
+    error: ADMIN_DELETE_REJECTED_MESSAGE_EN,
+    code: ADMIN_DELETE_REJECTED_CODE,
   });
+  assert.equal(missing.ok, false);
+  if (!missing.ok) {
+    assert.doesNotMatch(missing.error, /school/i);
+    assert.doesNotMatch(missing.error, /MATH/);
+  }
 
   const wrong = evaluateDeleteConfirmation({
     confirm: "ENG",
@@ -101,19 +111,58 @@ test("evaluateDeleteConfirmation rejects missing or wrong confirm when protected
     hasProtectedData: true,
   });
   assert.equal(wrong.ok, false);
-
-  const ok = evaluateDeleteConfirmation({
-    confirm: "  MATH  ",
-    expectedToken: "MATH",
-    hasProtectedData: true,
-  });
-  assert.deepEqual(ok, { ok: true });
+  if (!wrong.ok) {
+    assert.equal(wrong.error, ADMIN_DELETE_REJECTED_MESSAGE_EN);
+  }
 
   assert.deepEqual(
     evaluateDeleteConfirmation({
-      confirm: "3A",
-      expectedToken: "3A",
+      confirm: "  MATH  ",
+      expectedToken: "MATH",
       hasProtectedData: true,
+    }),
+    { ok: true },
+  );
+});
+
+test("evaluateDeleteImpactFreshness rejects when exams or submissions change", () => {
+  assert.deepEqual(
+    evaluateDeleteImpactFreshness({
+      expectedExams: 0,
+      expectedSubmissions: 0,
+      actualExams: 0,
+      actualSubmissions: 0,
+    }),
+    { ok: true },
+  );
+
+  const addedExam = evaluateDeleteImpactFreshness({
+    expectedExams: 0,
+    expectedSubmissions: 0,
+    actualExams: 1,
+    actualSubmissions: 0,
+  });
+  assert.deepEqual(addedExam, {
+    ok: false,
+    status: 400,
+    error: ADMIN_DELETE_REJECTED_MESSAGE_EN,
+    code: ADMIN_DELETE_REJECTED_CODE,
+  });
+
+  const missingExpected = evaluateDeleteImpactFreshness({
+    expectedExams: undefined,
+    expectedSubmissions: undefined,
+    actualExams: 2,
+    actualSubmissions: 0,
+  });
+  assert.equal(missingExpected.ok, false);
+
+  assert.deepEqual(
+    evaluateDeleteImpactFreshness({
+      expectedExams: 3,
+      expectedSubmissions: 10,
+      actualExams: 3,
+      actualSubmissions: 10,
     }),
     { ok: true },
   );
