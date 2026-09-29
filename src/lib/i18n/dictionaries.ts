@@ -441,7 +441,7 @@ const dictionaries = {
     uploadError: "Upload failed.",
     uploadRetry: "Retry upload",
     uploadStructureNotReady:
-      "The teacher has not finished setting up this exam yet. Upload is unavailable — please try again later.",
+      "The teacher has not finished setting up this exam yet. Upload is unavailable — please try again later. If upload remains unavailable for a long time, please notify your teacher.",
     uploadFileTypeRejected: "Only PDF, JPG, or PNG files are accepted.",
     analysisTimeout:
       "Analysis took too long and could not finish. You can run the analysis again.",
@@ -925,7 +925,8 @@ const dictionaries = {
     uploadSuccess: "上載完成。",
     uploadError: "上載失敗。",
     uploadRetry: "重試上載",
-    uploadStructureNotReady: "老師尚未完成試卷設定，暫時無法上載，請稍後再試。",
+    uploadStructureNotReady:
+      "老師尚未完成試卷設定，暫時無法上載，請稍後再試。若長時間仍無法上載，請通知老師。",
     uploadFileTypeRejected: "只接受 PDF、JPG 或 PNG 檔案。",
     analysisTimeout: "分析花了太長時間，未能完成。你可以重新分析。",
     proxyUploadTitle: "代學生上載答卷",

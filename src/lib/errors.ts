@@ -51,8 +51,9 @@ export const UPLOAD_CHECK_FILE_ZH = "請檢查檔案";
 
 export const UPLOAD_FAILED_ZH = "上載失敗。";
 
+/** Keep in sync with STRUCTURE_NOT_READY_MESSAGE in structure-ready.ts (user-facing). */
 export const UPLOAD_STRUCTURE_NOT_READY_ZH =
-  "老師尚未完成試卷設定，暫時無法上載，請稍後再試。";
+  "老師尚未完成試卷設定，暫時無法上載，請稍後再試。若長時間仍無法上載，請通知老師。";
 
 export const ANALYSIS_NOT_CONFIGURED =
   "分析服務尚未設定，請聯絡管理員。";
