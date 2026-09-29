@@ -116,6 +116,27 @@ test("evaluateDeleteConfirmation rejects with opaque copy when protected", () =>
     error: ADMIN_DELETE_REJECTED_MESSAGE_EN,
     code: ADMIN_DELETE_REJECTED_CODE,
   });
+
+  const wrong = evaluateDeleteConfirmation({
+    confirm: "ENG",
+    expectedToken: "MATH",
+    hasProtectedData: true,
+  });
+  assert.deepEqual(wrong, {
+    ok: false,
+    status: 400,
+    error: ADMIN_DELETE_REJECTED_MESSAGE_EN,
+    code: ADMIN_DELETE_REJECTED_CODE,
+  });
+
+  assert.deepEqual(
+    evaluateDeleteConfirmation({
+      confirm: "  MATH  ",
+      expectedToken: "MATH",
+      hasProtectedData: true,
+    }),
+    { ok: true },
+  );
 });
 
 test("evaluateDeleteImpactFreshness rejects omitted or stale counts", () => {
@@ -142,6 +163,36 @@ test("evaluateDeleteImpactFreshness rejects omitted or stale counts", () => {
     }).ok,
     false,
   );
+
+  const addedExam = evaluateDeleteImpactFreshness({
+    expectedExams: 0,
+    expectedSubmissions: 0,
+    expectedAnalysisJobs: 0,
+    actualExams: 1,
+    actualSubmissions: 0,
+    actualAnalysisJobs: 0,
+  });
+  assert.deepEqual(addedExam, {
+    ok: false,
+    status: 400,
+    error: ADMIN_DELETE_REJECTED_MESSAGE_EN,
+    code: ADMIN_DELETE_REJECTED_CODE,
+  });
+
+  const addedSubmission = evaluateDeleteImpactFreshness({
+    expectedExams: 1,
+    expectedSubmissions: 0,
+    expectedAnalysisJobs: 0,
+    actualExams: 1,
+    actualSubmissions: 2,
+    actualAnalysisJobs: 0,
+  });
+  assert.deepEqual(addedSubmission, {
+    ok: false,
+    status: 400,
+    error: ADMIN_DELETE_REJECTED_MESSAGE_EN,
+    code: ADMIN_DELETE_REJECTED_CODE,
+  });
 
   const staleJobs = evaluateDeleteImpactFreshness({
     expectedExams: 1,

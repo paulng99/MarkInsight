@@ -5,7 +5,7 @@
 
 import assert from "node:assert/strict";
 import test, { after } from "node:test";
-import { pathToFileURL } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { register } from "node:module";
 
 type AuthSession = {
@@ -22,13 +22,16 @@ const authState: { impl: () => Promise<AuthSession> } = {
   }
 ).__MI_AUTH_MOCK__ = authState;
 
+// Derive src root from this test file so npm test works outside /workspace.
+const srcRoot = fileURLToPath(new URL("../../../../", import.meta.url));
+
 register(
   `data:text/javascript,${encodeURIComponent(`
     import { pathToFileURL } from "node:url";
     import { existsSync } from "node:fs";
     import path from "node:path";
 
-    const root = "/workspace/src";
+    const root = ${JSON.stringify(srcRoot)};
 
     export async function resolve(specifier, context, nextResolve) {
       if (specifier === "@/auth") {
@@ -144,6 +147,42 @@ test("route delete_archived: omitting expected* receives opaque 400", async () =
     expectedExams: 0,
     expectedSubmissions: 0,
     // expectedAnalysisJobs omitted
+  });
+  assert.equal(res.status, 400);
+  const json = (await res.json()) as { error: string; code: string };
+  assert.equal(json.code, ADMIN_DELETE_REJECTED_CODE);
+  assert.equal(json.error, ADMIN_DELETE_REJECTED_MESSAGE_EN);
+});
+
+test("route delete_archived: non-string schoolId receives opaque 403", async () => {
+  authState.impl = async () => ({
+    user: { role: "ADMIN", schoolId: "school_a" },
+  });
+  const res = await postDeleteArchived({
+    schoolId: 123,
+    confirm: "刪除",
+    expectedClasses: 1,
+    expectedExams: 0,
+    expectedSubmissions: 0,
+    expectedAnalysisJobs: 0,
+  });
+  assert.equal(res.status, 403);
+  const json = (await res.json()) as { error: string; code: string };
+  assert.equal(json.code, ADMIN_DELETE_REJECTED_CODE);
+  assert.equal(json.error, ADMIN_DELETE_REJECTED_MESSAGE_EN);
+});
+
+test("route delete_archived: wrong confirm receives opaque 400", async () => {
+  authState.impl = async () => ({
+    user: { role: "ADMIN", schoolId: "school_a" },
+  });
+  const res = await postDeleteArchived({
+    schoolId: "school_a",
+    confirm: "DELETE",
+    expectedClasses: 1,
+    expectedExams: 0,
+    expectedSubmissions: 0,
+    expectedAnalysisJobs: 0,
   });
   assert.equal(res.status, 400);
   const json = (await res.json()) as { error: string; code: string };

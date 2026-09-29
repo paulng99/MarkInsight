@@ -12,6 +12,7 @@ import {
   evaluateDeleteImpactFreshness,
   evaluateRequiredExpectedCounts,
 } from "@/lib/admin/delete-confirm";
+import { buildAdminClassEnrollmentCountSelect } from "@/lib/admin/enrollment-display-count";
 import { AppError } from "@/lib/errors";
 import { prisma } from "@/lib/prisma";
 import { assertSubjectCode } from "@/lib/subjects/syllabus";
@@ -109,7 +110,8 @@ export async function listAdminSubjectGroups(
       where: { schoolId },
       include: {
         schoolYear: { select: { id: true, name: true } },
-        _count: { select: { enrollments: true, exams: true } },
+        // enrollmentCount is STUDENT-only for display; cascade still deletes all roles + pending.
+        _count: { select: buildAdminClassEnrollmentCountSelect() },
         exams: {
           select: { _count: { select: { submissions: true } } },
         },

@@ -190,6 +190,61 @@ test("admin delete policy: omitting expectedAnalysisJobs is rejected", () => {
   });
 });
 
+test("admin delete policy: missing or wrong confirm is rejected when protected", () => {
+  const missing = decideAdminDeleteRequest({
+    role: "ADMIN",
+    sessionSchoolId: "school_a",
+    requestedSchoolId: "school_a",
+    expectedToken: "MATH",
+    hasProtectedData: true,
+    expectedExams: 0,
+    expectedSubmissions: 0,
+    expectedAnalysisJobs: 0,
+  });
+  assert.deepEqual(missing, {
+    status: 400,
+    code: ADMIN_DELETE_REJECTED_CODE,
+    error: ADMIN_DELETE_REJECTED_MESSAGE_EN,
+  });
+
+  const wrong = decideAdminDeleteRequest({
+    role: "ADMIN",
+    sessionSchoolId: "school_a",
+    confirm: "WRONG",
+    expectedToken: "MATH",
+    hasProtectedData: true,
+    expectedExams: 0,
+    expectedSubmissions: 0,
+    expectedAnalysisJobs: 0,
+  });
+  assert.deepEqual(wrong, {
+    status: 400,
+    code: ADMIN_DELETE_REJECTED_CODE,
+    error: ADMIN_DELETE_REJECTED_MESSAGE_EN,
+  });
+});
+
+test("admin delete policy: new exam while dialog open is rejected", () => {
+  const result = decideAdminDeleteRequest({
+    role: "ADMIN",
+    sessionSchoolId: "school_a",
+    confirm: "MATH",
+    expectedToken: "MATH",
+    hasProtectedData: false,
+    expectedExams: 0,
+    expectedSubmissions: 0,
+    expectedAnalysisJobs: 0,
+    actualExams: 1,
+    actualSubmissions: 0,
+    actualAnalysisJobs: 0,
+  });
+  assert.deepEqual(result, {
+    status: 400,
+    code: ADMIN_DELETE_REJECTED_CODE,
+    error: ADMIN_DELETE_REJECTED_MESSAGE_EN,
+  });
+});
+
 test("admin delete policy: matching confirm and fresh counts succeed", () => {
   const result = decideAdminDeleteRequest({
     role: "ADMIN",
@@ -220,6 +275,66 @@ test("bulk delete_archived: missing expected field is rejected", () => {
     actualClasses: 2,
     actualExams: 1,
     actualSubmissions: 0,
+    actualAnalysisJobs: 0,
+  });
+  assert.deepEqual(result, {
+    status: 400,
+    code: ADMIN_DELETE_REJECTED_CODE,
+    error: ADMIN_DELETE_REJECTED_MESSAGE_EN,
+  });
+});
+
+test("bulk delete_archived: missing or wrong confirm word is rejected", () => {
+  const missing = decideBulkDeleteArchivedRequest({
+    role: "ADMIN",
+    sessionSchoolId: "school_a",
+    expectedClasses: 2,
+    expectedExams: 1,
+    expectedSubmissions: 0,
+    expectedAnalysisJobs: 0,
+    actualClasses: 2,
+    actualExams: 1,
+    actualSubmissions: 0,
+    actualAnalysisJobs: 0,
+  });
+  assert.deepEqual(missing, {
+    status: 400,
+    code: ADMIN_DELETE_REJECTED_CODE,
+    error: ADMIN_DELETE_REJECTED_MESSAGE_EN,
+  });
+
+  const wrong = decideBulkDeleteArchivedRequest({
+    role: "ADMIN",
+    sessionSchoolId: "school_a",
+    confirm: "DELETE",
+    expectedClasses: 2,
+    expectedExams: 1,
+    expectedSubmissions: 0,
+    expectedAnalysisJobs: 0,
+    actualClasses: 2,
+    actualExams: 1,
+    actualSubmissions: 0,
+    actualAnalysisJobs: 0,
+  });
+  assert.deepEqual(wrong, {
+    status: 400,
+    code: ADMIN_DELETE_REJECTED_CODE,
+    error: ADMIN_DELETE_REJECTED_MESSAGE_EN,
+  });
+});
+
+test("bulk delete_archived: new submission while dialog open is rejected", () => {
+  const result = decideBulkDeleteArchivedRequest({
+    role: "ADMIN",
+    sessionSchoolId: "school_a",
+    confirm: ADMIN_BULK_DELETE_ARCHIVED_CONFIRM,
+    expectedClasses: 2,
+    expectedExams: 1,
+    expectedSubmissions: 0,
+    expectedAnalysisJobs: 0,
+    actualClasses: 2,
+    actualExams: 1,
+    actualSubmissions: 2,
     actualAnalysisJobs: 0,
   });
   assert.deepEqual(result, {
