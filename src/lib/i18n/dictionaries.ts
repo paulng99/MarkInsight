@@ -455,6 +455,8 @@ const dictionaries = {
     examUploadHint: "PDF, JPG, or PNG only, max 100MB.",
     examAnalyze: "Start structure analysis",
     examReanalyze: "Re-run structure analysis",
+    analysisWaitingReanalyzeHint:
+      "The system is checking the analysis status. You can re-analyze in about 3 minutes; your uploaded files are not affected.",
     examAnalyzeReadyHint:
       "The question structure is ready and students can upload their scripts. Re-run the analysis if you replace the paper.",
     examAnalyzing: "Starting…",
@@ -1006,6 +1008,8 @@ const dictionaries = {
     examUploadHint: "只接受 PDF、JPG 或 PNG，上限 100MB。",
     examAnalyze: "開始結構分析",
     examReanalyze: "重新執行結構分析",
+    analysisWaitingReanalyzeHint:
+      "系統正在確認分析狀態，約 3 分鐘後可重新分析，已上載的檔案不受影響。",
     examAnalyzeReadyHint: "題目結構已就緒，學生可以上載答卷。若更換試題紙，請重新執行分析。",
     examAnalyzing: "啟動中…",
     examAnalyzeSuccess: "分析已排隊。",

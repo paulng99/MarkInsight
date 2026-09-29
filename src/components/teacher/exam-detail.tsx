@@ -18,6 +18,7 @@ import { Icon } from "@/components/ui/icons";
 import { PageHeader, SectionHeader } from "@/components/ui/page-header";
 import type { AnalysisProgress } from "@/lib/jobs/progress-types";
 import { emptyAnalysisProgress } from "@/lib/jobs/progress-types";
+import { resolveAnalysisReanalyzeGate } from "@/lib/jobs/analysis-reanalyze-gate";
 import {
   describeAnalysisActivity,
   formatElapsed,
@@ -308,14 +309,18 @@ export function TeacherExamDetail({
   const latest = exam.latestStructureJobs[0];
   const displayStatus = liveJob?.status ?? (startingAnalysis ? "PENDING" : latest?.status ?? "");
   const jobPhase = displayStatus ? normalizeJobStatus(displayStatus) : null;
-  const jobActive = jobPhase === "PENDING" || jobPhase === "ANALYZING";
   const jobSucceeded = jobPhase === "SUCCEEDED";
   const jobFailed = jobPhase === "FAILED";
   const progress: AnalysisProgress | null = liveJob?.progress ?? null;
   const touchedAt = progress?.updatedAt ?? liveJob?.startedAt ?? latest?.startedAt ?? null;
-  const idleMs = touchedAt ? now - new Date(touchedAt).getTime() : 0;
-  const stalled = jobActive && !startingAnalysis && idleMs > 3 * 60 * 1000;
-  const running = startingAnalysis || (jobActive && !stalled);
+  const reanalyzeGate = resolveAnalysisReanalyzeGate({
+    jobStatus: displayStatus || null,
+    touchedAt,
+    now,
+    startingAnalysis,
+  });
+  const { stalled, showWaitingHint } = reanalyzeGate;
+  const running = reanalyzeGate.blockedByActiveJob;
   const questions = running && progress ? progress.questions : savedQuestions;
   const groups = groupStructureQuestions(questions);
   const activity = describeAnalysisActivity(
@@ -607,15 +612,29 @@ export function TeacherExamDetail({
             }
           />
           {archived ? null : (
-            <button
-              type="button"
-              onClick={startAnalyze}
-              disabled={running || !hasPaper}
-              className="btn btn-accent w-full"
-            >
-              {running ? <Icon.Loader size={16} /> : <Icon.Zap size={16} />}
-              {running ? headline : jobSucceeded || stalled ? t.examReanalyze : t.examAnalyze}
-            </button>
+            <div className="space-y-2">
+              <button
+                type="button"
+                onClick={startAnalyze}
+                disabled={running || !hasPaper}
+                className="btn btn-accent w-full"
+                aria-describedby={
+                  showWaitingHint ? "analysis-reanalyze-waiting-hint" : undefined
+                }
+              >
+                {running ? <Icon.Loader size={16} /> : <Icon.Zap size={16} />}
+                {running ? headline : jobSucceeded || stalled ? t.examReanalyze : t.examAnalyze}
+              </button>
+              {showWaitingHint ? (
+                <p
+                  id="analysis-reanalyze-waiting-hint"
+                  role="status"
+                  className="text-sm leading-relaxed text-[var(--muted)]"
+                >
+                  {t.analysisWaitingReanalyzeHint}
+                </p>
+              ) : null}
+            </div>
           )}
           <JobProgressPanel
             jobId={jobId}
