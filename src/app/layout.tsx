@@ -1,6 +1,7 @@
 import type { Metadata, Viewport } from "next";
 import { Noto_Sans_HK, Plus_Jakarta_Sans } from "next/font/google";
 import Script from "next/script";
+import { AppVersionFooter } from "@/components/ui/app-version-footer";
 import "./globals.css";
 
 const notoSansHk = Noto_Sans_HK({
@@ -49,7 +50,8 @@ export default function RootLayout({
         <Script id="sidebar-pref" strategy="beforeInteractive">
           {`(function(){try{var k="markinsight.sidebar";var s=localStorage.getItem(k);if(s!=="collapsed"&&s!=="expanded"){s=matchMedia("(max-width:1399px)").matches?"collapsed":"expanded"}document.documentElement.setAttribute("data-sidebar",s)}catch(e){}})();`}
         </Script>
-        {children}
+        <div className="flex min-h-0 flex-1 flex-col">{children}</div>
+        <AppVersionFooter />
       </body>
     </html>
   );

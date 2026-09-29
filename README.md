@@ -41,8 +41,13 @@ cp .env.example .env
 # for local demo login with "password": set MARKINSIGHT_ANALYSIS_DEMO=true
 # (.env.example defaults to false — you must set this manually)
 npx prisma db push
+# After a fresh clone, run `npx prisma generate` before `npm test`
+# (generate is also part of `npm run build`).
+npx prisma generate
 npm run dev
 ```
+
+**版本號：** 頁底顯示的版本來自 `package.json` 的 `version`（建置時注入）；發版時請先更新該欄位。可選地在建置環境設定 `GIT_COMMIT_SHA` 或 `NEXT_PUBLIC_APP_COMMIT` 以顯示短 SHA。
 
 **Public deploy:** see **[docs/DEPLOYMENT.md](./docs/DEPLOYMENT.md)**. Keep `MARKINSIGHT_ANALYSIS_DEMO=false` (or unset) so the legacy password cannot work; create real accounts with `npm run db:seed-admin`. There is no self-service password change — re-run the seed with new values to reset.
 

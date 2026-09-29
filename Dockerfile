@@ -13,6 +13,11 @@ COPY --from=deps /app/node_modules ./node_modules
 COPY . .
 ENV NEXT_TELEMETRY_DISABLED=1
 ENV NODE_ENV=production
+# Optional short SHA for the page footer (no .git in the image — pass at build time).
+ARG GIT_COMMIT_SHA=
+ARG NEXT_PUBLIC_APP_COMMIT=
+ENV GIT_COMMIT_SHA=$GIT_COMMIT_SHA
+ENV NEXT_PUBLIC_APP_COMMIT=$NEXT_PUBLIC_APP_COMMIT
 RUN npx prisma generate
 RUN npx next build
 

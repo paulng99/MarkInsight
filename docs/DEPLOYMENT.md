@@ -110,6 +110,8 @@ npm run build && npm run start
 
 全新 clone 並執行 `npm ci` 後，須先執行 `npx prisma generate` 才能跑 `npm test`。
 
+頁底版本號來自 `package.json` 的 `version`（由 `next.config` 在建置時注入為 `NEXT_PUBLIC_APP_VERSION`）；發版時請先更新該欄位。若建置環境提供 `GIT_COMMIT_SHA` 或 `NEXT_PUBLIC_APP_COMMIT`（例如 Docker build-arg），頁底會額外顯示短 SHA；沒有則只顯示版本號。Docker 映像不含 `.git`，請勿依賴 `git` 指令取得 SHA。
+
 ### 4. 公開站台必須使用 HTTPS
 
 管理後台「建立教師」會把**一次性臨時密碼**放在 API 的 JSON 回應中回傳（畫面亦只顯示一次）。若站台以明文 HTTP 對外提供，該密碼可能在網路上被竊聽。
