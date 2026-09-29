@@ -35,8 +35,31 @@ function isForbiddenSeedIdentity(value) {
 }
 
 /**
- * When a teacher email is set, require a non-empty teacher password of at least
- * MIN_SEED_PASSWORD_LEN characters. Call this before opening a DB connection
+ * Validate a seed password without trimming it.
+ * Presence uses a whitespace check only; the accepted value for hashing is the
+ * raw string so leading/trailing spaces match what the operator set in env.
+ *
+ * @param {string} envName
+ * @param {string | null | undefined} password
+ * @returns {string | null} English error message, or null when OK
+ */
+function validateSeedPassword(envName, password) {
+  if (password == null || String(password) === "") {
+    return `${envName} is required.`;
+  }
+  const raw = String(password);
+  if (!raw.trim()) {
+    return `${envName} is required.`;
+  }
+  if (raw.length < MIN_SEED_PASSWORD_LEN) {
+    return `${envName} must be at least ${MIN_SEED_PASSWORD_LEN} characters.`;
+  }
+  return null;
+}
+
+/**
+ * When a teacher email is set, require a teacher password that passes
+ * {@link validateSeedPassword}. Call this before opening a DB connection
  * so a missing teacher password cannot leave a newly written admin behind.
  *
  * @param {string | null | undefined} teacherEmail
@@ -47,15 +70,25 @@ function validateSeedTeacherPassword(teacherEmail, teacherPassword) {
   if (teacherEmail == null || !String(teacherEmail).trim()) {
     return null;
   }
-  const password =
-    teacherPassword == null ? "" : String(teacherPassword);
-  if (!password.trim()) {
+  const err = validateSeedPassword(
+    "MARKINSIGHT_SEED_TEACHER_PASSWORD",
+    teacherPassword,
+  );
+  if (!err) return null;
+  if (err === "MARKINSIGHT_SEED_TEACHER_PASSWORD is required.") {
     return "MARKINSIGHT_SEED_TEACHER_PASSWORD is required when MARKINSIGHT_SEED_TEACHER_EMAIL is set.";
   }
-  if (password.length < MIN_SEED_PASSWORD_LEN) {
-    return `MARKINSIGHT_SEED_TEACHER_PASSWORD must be at least ${MIN_SEED_PASSWORD_LEN} characters.`;
-  }
-  return null;
+  return err;
+}
+
+/**
+ * Password string to hash: never trimmed.
+ *
+ * @param {string} password
+ * @returns {string}
+ */
+function seedPasswordForHash(password) {
+  return String(password);
 }
 
 module.exports = {
@@ -63,5 +96,7 @@ module.exports = {
   MIN_SEED_PASSWORD_LEN,
   SEED_ADMIN_DEMO_IDENTITY_ERROR,
   isForbiddenSeedIdentity,
+  validateSeedPassword,
   validateSeedTeacherPassword,
+  seedPasswordForHash,
 };

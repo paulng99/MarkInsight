@@ -14,6 +14,7 @@
  *   MARKINSIGHT_SEED_SCHOOL_ID  (default: demo_school — create school row if missing)
  *
  * Never logs passwords. Safe to re-run (updates hash / role / name).
+ * Passwords are hashed without trimming so the stored hash matches the env value.
  *
  * Usage:
  *   node scripts/seed-admin.cjs
@@ -24,8 +25,9 @@ const bcrypt = require("bcryptjs");
 const {
   isForbiddenSeedIdentity,
   SEED_ADMIN_DEMO_IDENTITY_ERROR,
-  MIN_SEED_PASSWORD_LEN,
+  validateSeedPassword,
   validateSeedTeacherPassword,
+  seedPasswordForHash,
 } = require("./seed-admin-guard.cjs");
 
 function requireEnv(name) {
@@ -50,17 +52,21 @@ function refuseDemoIdentity(label, value) {
 
 async function main() {
   const email = requireEnv("MARKINSIGHT_SEED_ADMIN_EMAIL").toLowerCase();
-  const password = requireEnv("MARKINSIGHT_SEED_ADMIN_PASSWORD");
-  if (password.length < MIN_SEED_PASSWORD_LEN) {
-    console.error(
-      `[seed-admin] MARKINSIGHT_SEED_ADMIN_PASSWORD must be at least ${MIN_SEED_PASSWORD_LEN} characters.`,
-    );
+  // Read passwords raw (including empty) — never trim before hashing.
+  const adminPasswordRaw = process.env.MARKINSIGHT_SEED_ADMIN_PASSWORD;
+  const adminPasswordError = validateSeedPassword(
+    "MARKINSIGHT_SEED_ADMIN_PASSWORD",
+    adminPasswordRaw,
+  );
+  if (adminPasswordError) {
+    console.error(`[seed-admin] ${adminPasswordError}`);
     process.exit(1);
   }
+  const password = seedPasswordForHash(/** @type {string} */ (adminPasswordRaw));
+
   const name = optionalEnv("MARKINSIGHT_SEED_ADMIN_NAME") || "Admin";
   const teacherEmailRaw = optionalEnv("MARKINSIGHT_SEED_TEACHER_EMAIL");
   const teacherEmail = teacherEmailRaw ? teacherEmailRaw.toLowerCase() : null;
-  // Read raw env (including empty) so "set but empty" fails before DB connect.
   const teacherPasswordRaw = process.env.MARKINSIGHT_SEED_TEACHER_PASSWORD;
 
   // Refuse demo identities and validate optional teacher password before DB.
@@ -78,7 +84,7 @@ async function main() {
   }
 
   const teacherPassword = teacherEmail
-    ? String(teacherPasswordRaw).trim()
+    ? seedPasswordForHash(/** @type {string} */ (teacherPasswordRaw))
     : null;
 
   const prisma = new PrismaClient();

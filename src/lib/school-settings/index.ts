@@ -5,7 +5,6 @@
  * New AnalysisJobs must read analysisLlmModel; never rewrite historical llmModel.
  */
 
-import type { Role } from "@/lib/roles";
 import { getOpenRouterModelAllowlist } from "@/lib/config/openrouter-model-allowlist";
 import {
   assertAllowedAnalysisModel,
@@ -27,34 +26,19 @@ import type {
 } from "@/lib/school-settings/types";
 import bcrypt from "bcryptjs";
 import { randomBytes } from "node:crypto";
+import {
+  assertCanAccessSchoolSettings,
+  canAccessSchoolSettings,
+  DEMO_SCHOOL_ID,
+  resolveAdminSchoolId,
+} from "./access";
 
-/** Stub/demo school used when platform admin has no schoolId. */
-export const DEMO_SCHOOL_ID = "demo_school";
-
-export function canAccessSchoolSettings(role: Role | undefined | null): boolean {
-  return role === "ADMIN";
-}
-
-export function assertCanAccessSchoolSettings(
-  role: Role | undefined | null,
-): void {
-  if (!canAccessSchoolSettings(role)) {
-    throw new Error("Forbidden: school settings are admin-only");
-  }
-}
-
-/**
- * Resolve the school an admin is configuring.
- * Platform admins (schoolId null) manage the demo school in the stub.
- */
-export function resolveAdminSchoolId(
-  sessionSchoolId: string | null | undefined,
-  requestedSchoolId?: string | null,
-): string {
-  if (requestedSchoolId?.trim()) return requestedSchoolId.trim();
-  if (sessionSchoolId?.trim()) return sessionSchoolId.trim();
-  return DEMO_SCHOOL_ID;
-}
+export {
+  assertCanAccessSchoolSettings,
+  canAccessSchoolSettings,
+  DEMO_SCHOOL_ID,
+  resolveAdminSchoolId,
+};
 
 function formatDateYmd(d: Date): string {
   return d.toISOString().slice(0, 10);

@@ -309,6 +309,7 @@ docker run --rm \
 ```
 
 還原上載檔時，將 tar 解壓回 `markinsight_markinsight_uploads` 對應的 volume（或停止 web 後把檔案放回 `STORAGE_LOCAL_DIR`），再啟動 web 並確認檔案可開啟。
+
 ### 9. 升級程序
 
 ```bash

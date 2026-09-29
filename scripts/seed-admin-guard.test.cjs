@@ -4,7 +4,9 @@ const {
   isForbiddenSeedIdentity,
   SEED_ADMIN_DEMO_IDENTITY_ERROR,
   MIN_SEED_PASSWORD_LEN,
+  validateSeedPassword,
   validateSeedTeacherPassword,
+  seedPasswordForHash,
 } = require("./seed-admin-guard.cjs");
 
 test("rejects demo email admin@example.com", () => {
@@ -40,6 +42,45 @@ test("exports the written HK Traditional Chinese error copy", () => {
   );
 });
 
+test("validateSeedPassword: rejects missing empty and whitespace-only", () => {
+  assert.equal(
+    validateSeedPassword("MARKINSIGHT_SEED_ADMIN_PASSWORD", null),
+    "MARKINSIGHT_SEED_ADMIN_PASSWORD is required.",
+  );
+  assert.equal(
+    validateSeedPassword("MARKINSIGHT_SEED_ADMIN_PASSWORD", ""),
+    "MARKINSIGHT_SEED_ADMIN_PASSWORD is required.",
+  );
+  assert.equal(
+    validateSeedPassword("MARKINSIGHT_SEED_ADMIN_PASSWORD", "   "),
+    "MARKINSIGHT_SEED_ADMIN_PASSWORD is required.",
+  );
+});
+
+test("validateSeedPassword: rejects short passwords using raw length", () => {
+  assert.equal(
+    validateSeedPassword("MARKINSIGHT_SEED_ADMIN_PASSWORD", "short"),
+    `MARKINSIGHT_SEED_ADMIN_PASSWORD must be at least ${MIN_SEED_PASSWORD_LEN} characters.`,
+  );
+});
+
+test("validateSeedPassword: accepts password with leading or trailing spaces", () => {
+  const withSpaces = `  ${"a".repeat(MIN_SEED_PASSWORD_LEN)}  `;
+  assert.equal(
+    validateSeedPassword("MARKINSIGHT_SEED_ADMIN_PASSWORD", withSpaces),
+    null,
+  );
+});
+
+test("seedPasswordForHash never trims admin or teacher passwords", () => {
+  const withSpaces = `  ${"b".repeat(MIN_SEED_PASSWORD_LEN)}  `;
+  assert.equal(seedPasswordForHash(withSpaces), withSpaces);
+  assert.equal(
+    seedPasswordForHash("plain-password-ok"),
+    "plain-password-ok",
+  );
+});
+
 test("validateSeedTeacherPassword: skips when teacher email is unset", () => {
   assert.equal(validateSeedTeacherPassword(null, null), null);
   assert.equal(validateSeedTeacherPassword("", ""), null);
@@ -68,12 +109,16 @@ test("validateSeedTeacherPassword: rejects short passwords", () => {
   );
 });
 
-test("validateSeedTeacherPassword: accepts password of minimum length", () => {
+test("validateSeedTeacherPassword: accepts password of minimum length without trimming", () => {
+  const raw = "a".repeat(MIN_SEED_PASSWORD_LEN);
   assert.equal(
-    validateSeedTeacherPassword(
-      "teacher@school.edu.hk",
-      "a".repeat(MIN_SEED_PASSWORD_LEN),
-    ),
+    validateSeedTeacherPassword("teacher@school.edu.hk", raw),
     null,
   );
+  const withSpaces = ` ${raw} `;
+  assert.equal(
+    validateSeedTeacherPassword("teacher@school.edu.hk", withSpaces),
+    null,
+  );
+  assert.equal(seedPasswordForHash(withSpaces), withSpaces);
 });
