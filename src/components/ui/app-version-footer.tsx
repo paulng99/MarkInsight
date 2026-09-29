@@ -1,14 +1,19 @@
-import {
-  formatAppVersionLabel,
-  readAppVersionEnv,
-} from "@/lib/app-version";
+import { formatAppVersionLabel } from "@/lib/app-version";
 
 /**
  * Global, low-contrast version footer for every page (root layout).
- * Version is injected at build time — never reads package.json in the browser.
+ * Version is injected at build time via next.config `env` — never reads
+ * package.json in the browser. Access NEXT_PUBLIC_* via direct process.env
+ * property reads so Next.js can inline them at build time.
  */
 export function AppVersionFooter() {
-  const { version, commit } = readAppVersionEnv();
+  // Direct property access required for Next.js build-time inlining.
+  const version = process.env.NEXT_PUBLIC_APP_VERSION?.trim() ?? "";
+  const commit =
+    process.env.NEXT_PUBLIC_APP_COMMIT?.trim() ||
+    process.env.GIT_COMMIT_SHA?.trim() ||
+    undefined;
+
   if (!version) return null;
 
   const label = formatAppVersionLabel(version, commit);
