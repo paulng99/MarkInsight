@@ -3,12 +3,16 @@
  */
 
 import type { AssetKind, Role } from "@prisma/client";
-import { AppError, UPLOAD_STRUCTURE_NOT_READY_ZH } from "@/lib/errors";
+import { AppError } from "@/lib/errors";
 import {
   EXAM_UPLOAD_FILE_TYPE_MESSAGE,
   isAllowedExamUpload,
 } from "@/lib/files/exam-upload";
-import { isExamStructureReady } from "@/lib/exams/structure-ready";
+import { isExamUploadMagicConsistent } from "@/lib/files/exam-upload-magic";
+import {
+  STRUCTURE_NOT_READY_MESSAGE,
+  isExamStructureReady,
+} from "@/lib/exams/structure-ready";
 import { prisma } from "@/lib/prisma";
 import type { SessionUser } from "@/lib/rbac";
 import { deleteObject, putObject } from "@/lib/storage";
@@ -26,8 +30,15 @@ export function requireSchoolId(user: SessionUser): string {
   return user.schoolId;
 }
 
-function assertExamUploadFile(fileName: string, mimeType: string): void {
-  if (!isAllowedExamUpload(fileName, mimeType)) {
+function assertExamUploadFile(
+  fileName: string,
+  mimeType: string,
+  bytes: Uint8Array,
+): void {
+  if (
+    !isAllowedExamUpload(fileName, mimeType) ||
+    !isExamUploadMagicConsistent(fileName, mimeType, bytes)
+  ) {
     throw new AppError(EXAM_UPLOAD_FILE_TYPE_MESSAGE, 400, "unsupported_file_type");
   }
 }
@@ -343,7 +354,7 @@ export async function uploadExamAsset(
     throw new AppError("Invalid asset kind", 400, "invalid_kind");
   }
 
-  assertExamUploadFile(input.fileName, input.mimeType);
+  assertExamUploadFile(input.fileName, input.mimeType, input.bytes);
 
   const stored = await putObject({
     schoolId: exam.schoolId,
@@ -435,7 +446,7 @@ export async function uploadSubmissionScript(input: {
       questionCount: structureQuestions?.length ?? 0,
     })
   ) {
-    throw new AppError(UPLOAD_STRUCTURE_NOT_READY_ZH, 400, "structure_required");
+    throw new AppError(STRUCTURE_NOT_READY_MESSAGE, 400, "structure_required");
   }
 
   let studentId = actor.id;
@@ -486,7 +497,7 @@ export async function uploadSubmissionScript(input: {
     throw new AppError("檔案數量過多。", 400, "too_many_files");
   }
   for (const file of files) {
-    assertExamUploadFile(file.fileName, file.mimeType);
+    assertExamUploadFile(file.fileName, file.mimeType, file.bytes);
   }
 
   const studentLabel =

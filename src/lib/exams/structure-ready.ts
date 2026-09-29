@@ -3,7 +3,7 @@
  */
 
 export const STRUCTURE_NOT_READY_MESSAGE =
-  "老師尚未完成試卷設定，暫時無法上載，請稍後再試。";
+  "老師尚未完成試卷設定，暫時無法上載，請稍後再試。若長時間仍無法上載，請通知老師。";
 
 /** Pure gate used by upload APIs and unit tests. */
 export function isExamStructureReady(input: {
