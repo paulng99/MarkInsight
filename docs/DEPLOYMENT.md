@@ -375,6 +375,9 @@ docker compose -f docker-compose.prod.example.yml up -d --build
 
    - [ ] **已刪除或重設**上述示範帳戶（或改用全新資料庫——**強烈建議**正式環境用全新 Postgres volume）；刪除後以 `admin@example.com`／`password` 登入**必須失敗**
    - [ ] 第一個真實管理員電郵**不是** `@example.com`
+
+   本地示範 Compose（`docker-compose.yml`）預設資料庫名稱為 **`markinsight`**（使用者／密碼同為 `markinsight`）。正式環境請改用 `.env` 中你自己設定的 `POSTGRES_*`／`DATABASE_URL`，**不要**沿用示範密碼。
+
    **優先：全新資料庫**（Compose 範例：`docker compose -f docker-compose.prod.example.yml down -v` 後再 `up`，會清掉 DB 與上載 volume——只在確定可丟資料時使用）。
 
    **可選 SQL**（外鍵可能連帶刪除 enrollment／相關列；執行前請備份。表名以 Prisma 預設為準）。在已啟動的正式 Compose 環境執行（將使用者與資料庫名稱換成 `.env` 中的值）：
