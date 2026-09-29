@@ -1,4 +1,8 @@
 import bcrypt from "bcryptjs";
+import {
+  getDemoLoginPolicy,
+  timingSafeStringEqual,
+} from "@/lib/auth/demo-login-policy";
 import { prisma } from "@/lib/prisma";
 import type { Role } from "@/lib/roles";
 
@@ -34,8 +38,6 @@ const DEMO_USERS: CredentialUser[] = [
   },
 ];
 
-const DEMO_PASSWORD = "password";
-
 export async function authorizeCredentials(
   email: string,
   password: string,
@@ -56,7 +58,10 @@ export async function authorizeCredentials(
     };
   }
 
+  const policy = getDemoLoginPolicy();
+  if (!policy.enabled || !policy.password) return null;
+
   const demo = DEMO_USERS.find((user) => user.email === normalized);
-  if (!demo || password !== DEMO_PASSWORD) return null;
+  if (!demo || !timingSafeStringEqual(password, policy.password)) return null;
   return demo;
 }

@@ -38,14 +38,18 @@ Every successful analysis persists the model id on `AnalysisJob.llmModel` plus `
 npm install
 cp .env.example .env
 # set DATABASE_URL, NEXTAUTH_SECRET / AUTH_SECRET, NEXTAUTH_URL
-# optional for offline success path: MARKINSIGHT_ANALYSIS_DEMO=true
+# .env.example defaults MARKINSIGHT_ANALYSIS_DEMO=true so local demo login with "password" still works
 npx prisma db push
 npm run dev
 ```
 
-### Run with Docker (production-like)
+**Public deploy:** see **[docs/DEPLOYMENT.md](./docs/DEPLOYMENT.md)**. Set `MARKINSIGHT_ANALYSIS_DEMO=false` (or unset) so the legacy password cannot work; create real accounts with `npm run db:seed-admin`.
+
+### Run with Docker (local laptop demo)
 
 Requires Docker Compose and a root `.env` (copy from `.env.example`). Compose starts Postgres and the built Next.js app; it **overrides** `DATABASE_URL` to the Compose `db` service (does not use the optional local `markinsight-db` on port 5434).
+
+With `.env.example` defaults (`MARKINSIGHT_ANALYSIS_DEMO=true`, no `MARKINSIGHT_DEMO_PASSWORD`), demo accounts still accept **`password`** and the login page still shows the demo hint — same as before.
 
 ```bash
 cp .env.example .env   # if needed; set NEXTAUTH_SECRET / AUTH_SECRET
@@ -62,16 +66,17 @@ The container drops a loopback `NEXTAUTH_URL` / `AUTH_URL` and trusts the reques
 
 ```bash
 # NEXTAUTH_URL=http://<droplet-ip>:3000
+# MARKINSIGHT_ANALYSIS_DEMO=false   # required on a public URL
 ```
 
-Open TCP **3000** on the droplet firewall (and any DigitalOcean cloud firewall), then use `http://<droplet-ip>:3000`. After changing `.env`, recreate the web container: `docker compose up -d --force-recreate web`.
+Open TCP **3000** on the droplet firewall (and any DigitalOcean cloud firewall), then use `http://<droplet-ip>:3000`. After changing `.env`, recreate the web container: `docker compose up -d --force-recreate web`. Follow **[docs/DEPLOYMENT.md](./docs/DEPLOYMENT.md)** before exposing the app.
 
 ```bash
 docker compose down       # keep volumes
 docker compose down -v    # wipe DB + upload volumes
 ```
 
-Then verify:
+Then verify (local demo only — `MARKINSIGHT_ANALYSIS_DEMO=true`):
 
 1. (Optional) Admin `admin@example.com` / `password` → School settings → pick analysis model + enable **Allow teachers to upload on behalf of students** → Save
 2. Teacher `teacher@example.com` / `password` → **開卷** → create exam for class → upload question paper (PDF/image) → **Start structure analysis** → watch PENDING→排隊中 / RUNNING→進行中 / SUCCEEDED→成功 (or FAILED→失敗 + retry)
@@ -105,7 +110,9 @@ See **[docs/architecture.md](./docs/architecture.md)**.
 - Local object storage + in-process job runner (MVP)
 - i18n: English + 繁體中文（香港）; dates **yyyy-mm-dd**
 
-### Dev sign-in
+### Dev sign-in (local only)
+
+Only when `MARKINSIGHT_ANALYSIS_DEMO=true` and `MARKINSIGHT_DEMO_PASSWORD` is unset:
 
 | Email | Password | Role |
 |-------|----------|------|
@@ -113,7 +120,7 @@ See **[docs/architecture.md](./docs/architecture.md)**.
 | `teacher@example.com` | `password` | Teacher |
 | `student@example.com` | `password` | Student |
 
-Demo teacher/student are upserted into Postgres on first workspace/exam API call (`demo_school`).
+Demo teacher/student are upserted into Postgres on first workspace/exam API call (`demo_school`) **only while demo login is enabled**. On a public deploy with demo login disabled, use `npm run db:seed-admin` instead (see [docs/DEPLOYMENT.md](./docs/DEPLOYMENT.md)).
 
 ### 已知風險
 
