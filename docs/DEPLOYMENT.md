@@ -108,6 +108,8 @@ npx prisma db push
 npm run build && npm run start
 ```
 
+全新 clone 並執行 `npm ci` 後，須先執行 `npx prisma generate` 才能跑 `npm test`。
+
 ### 4. 公開站台必須使用 HTTPS
 
 管理後台「建立教師」會把**一次性臨時密碼**放在 API 的 JSON 回應中回傳（畫面亦只顯示一次）。若站台以明文 HTTP 對外提供，該密碼可能在網路上被竊聽。

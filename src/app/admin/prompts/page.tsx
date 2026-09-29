@@ -22,7 +22,8 @@ export default async function AdminSystemPromptsPage({
   const locale = parseLocale(params.locale);
   const t = getDictionary(locale);
   const session = await requireRolePage("ADMIN", locale, "/admin/prompts");
-  const schoolId = resolveAdminSchoolId(session.user.schoolId, params.schoolId);
+  // School scope follows the signed-in admin only (ignore URL schoolId).
+  const schoolId = resolveAdminSchoolId(session.user.schoolId);
   const [prompts, analysisLlmModel, modelChoices] = await Promise.all([
     listSystemPrompts(schoolId),
     getAnalysisLlmModel(schoolId),

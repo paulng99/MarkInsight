@@ -1,21 +1,17 @@
-/**
- * Minimal coverage for admin-only access helpers used by
- * /api/admin/class-subjects and /api/admin/subjects/[subjectCode].
- *
- * Documents current schoolId resolution: requested schoolId wins over the
- * session schoolId (cross-school is NOT rejected at this layer).
- */
-
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
+  CROSS_SCHOOL_FORBIDDEN_CODE,
+  CrossSchoolAccessError,
+  DEMO_SCHOOL_ID,
   assertCanAccessSchoolSettings,
   canAccessSchoolSettings,
-  DEMO_SCHOOL_ID,
   resolveAdminSchoolId,
+  schoolIdFromAdminSession,
+  tryResolveAdminSchoolId,
 } from "./access.ts";
 
-test("canAccessSchoolSettings allows ADMIN only", () => {
+test("canAccessSchoolSettings allows only ADMIN", () => {
   assert.equal(canAccessSchoolSettings("ADMIN"), true);
   assert.equal(canAccessSchoolSettings("TEACHER"), false);
   assert.equal(canAccessSchoolSettings("STUDENT"), false);
@@ -23,29 +19,78 @@ test("canAccessSchoolSettings allows ADMIN only", () => {
   assert.equal(canAccessSchoolSettings(undefined), false);
 });
 
-test("assertCanAccessSchoolSettings rejects non-admin", () => {
+test("assertCanAccessSchoolSettings rejects non-admins", () => {
   assert.doesNotThrow(() => assertCanAccessSchoolSettings("ADMIN"));
   assert.throws(
     () => assertCanAccessSchoolSettings("TEACHER"),
-    /Forbidden: school settings are admin-only/,
+    /admin-only/i,
   );
   assert.throws(
     () => assertCanAccessSchoolSettings("STUDENT"),
-    /Forbidden: school settings are admin-only/,
-  );
-  assert.throws(
-    () => assertCanAccessSchoolSettings(undefined),
-    /Forbidden: school settings are admin-only/,
+    /admin-only/i,
   );
 });
 
-test("resolveAdminSchoolId prefers requested schoolId over session (no cross-school reject)", () => {
-  assert.equal(
-    resolveAdminSchoolId("school_a", "school_b"),
-    "school_b",
-  );
-  assert.equal(resolveAdminSchoolId("school_a", null), "school_a");
-  assert.equal(resolveAdminSchoolId("school_a", "  "), "school_a");
+test("schoolIdFromAdminSession uses session then demo stub", () => {
+  assert.equal(schoolIdFromAdminSession("school_a"), "school_a");
+  assert.equal(schoolIdFromAdminSession("  school_a  "), "school_a");
+  assert.equal(schoolIdFromAdminSession(null), DEMO_SCHOOL_ID);
+  assert.equal(schoolIdFromAdminSession(undefined), DEMO_SCHOOL_ID);
+  assert.equal(schoolIdFromAdminSession(""), DEMO_SCHOOL_ID);
+});
+
+test("resolveAdminSchoolId prefers session and rejects a different requested school", () => {
+  assert.equal(resolveAdminSchoolId("school_a"), "school_a");
+  assert.equal(resolveAdminSchoolId("school_a", "school_a"), "school_a");
+  assert.equal(resolveAdminSchoolId("school_a", "  school_a  "), "school_a");
   assert.equal(resolveAdminSchoolId(null, null), DEMO_SCHOOL_ID);
-  assert.equal(resolveAdminSchoolId(undefined, undefined), DEMO_SCHOOL_ID);
+  assert.equal(resolveAdminSchoolId(null, DEMO_SCHOOL_ID), DEMO_SCHOOL_ID);
+
+  assert.throws(
+    () => resolveAdminSchoolId("school_a", "school_b"),
+    (error: unknown) =>
+      error instanceof CrossSchoolAccessError &&
+      error.status === 403 &&
+      error.code === CROSS_SCHOOL_FORBIDDEN_CODE,
+  );
+  assert.throws(
+    () => resolveAdminSchoolId(null, "other_school"),
+    (error: unknown) =>
+      error instanceof CrossSchoolAccessError && error.status === 403,
+  );
+});
+
+test("resolveAdminSchoolId rejects non-string schoolId with 403 not TypeError", () => {
+  assert.throws(
+    () => resolveAdminSchoolId("school_a", 123 as unknown as string),
+    (error: unknown) =>
+      error instanceof CrossSchoolAccessError && error.status === 403,
+  );
+  assert.throws(
+    () => resolveAdminSchoolId("school_a", { id: "x" } as unknown as string),
+    (error: unknown) => error instanceof CrossSchoolAccessError,
+  );
+  assert.throws(
+    () => resolveAdminSchoolId(["school_a"] as unknown as string),
+    (error: unknown) => error instanceof CrossSchoolAccessError,
+  );
+
+  const denied = tryResolveAdminSchoolId("school_a", 99 as unknown as string);
+  assert.equal(denied.ok, false);
+  if (!denied.ok) {
+    assert.equal(denied.status, 403);
+    assert.equal(denied.code, CROSS_SCHOOL_FORBIDDEN_CODE);
+  }
+});
+
+test("tryResolveAdminSchoolId returns 403 for cross-school requests", () => {
+  const ok = tryResolveAdminSchoolId("school_a", "school_a");
+  assert.deepEqual(ok, { ok: true, schoolId: "school_a" });
+
+  const denied = tryResolveAdminSchoolId("school_a", "school_b");
+  assert.equal(denied.ok, false);
+  if (!denied.ok) {
+    assert.equal(denied.status, 403);
+    assert.equal(denied.code, CROSS_SCHOOL_FORBIDDEN_CODE);
+  }
 });

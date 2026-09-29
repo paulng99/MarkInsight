@@ -12,6 +12,17 @@ import {
 } from "@/lib/llm/openrouter-models";
 import { listSystemPrompts, saveSystemPrompts } from "@/lib/llm/system-prompts";
 import { prisma } from "@/lib/prisma";
+import {
+  CROSS_SCHOOL_FORBIDDEN_CODE,
+  CROSS_SCHOOL_FORBIDDEN_MESSAGE,
+  CrossSchoolAccessError,
+  DEMO_SCHOOL_ID,
+  assertCanAccessSchoolSettings,
+  canAccessSchoolSettings,
+  resolveAdminSchoolId,
+  schoolIdFromAdminSession,
+  tryResolveAdminSchoolId,
+} from "@/lib/school-settings/access";
 import type {
   AnalysisModelChoiceDto,
   CreateSchoolYearInput,
@@ -26,18 +37,17 @@ import type {
 } from "@/lib/school-settings/types";
 import bcrypt from "bcryptjs";
 import { randomBytes } from "node:crypto";
-import {
-  assertCanAccessSchoolSettings,
-  canAccessSchoolSettings,
-  DEMO_SCHOOL_ID,
-  resolveAdminSchoolId,
-} from "./access";
 
 export {
+  CROSS_SCHOOL_FORBIDDEN_CODE,
+  CROSS_SCHOOL_FORBIDDEN_MESSAGE,
+  CrossSchoolAccessError,
+  DEMO_SCHOOL_ID,
   assertCanAccessSchoolSettings,
   canAccessSchoolSettings,
-  DEMO_SCHOOL_ID,
   resolveAdminSchoolId,
+  schoolIdFromAdminSession,
+  tryResolveAdminSchoolId,
 };
 
 function formatDateYmd(d: Date): string {

@@ -3,7 +3,7 @@ import {
   assertCanAccessSchoolSettings,
   createTeacherAccount,
   listTeachersForSchool,
-  resolveAdminSchoolId,
+  tryResolveAdminSchoolId,
 } from "@/lib/school-settings";
 import type { CreateTeacherInput } from "@/lib/school-settings/types";
 import { NextResponse } from "next/server";
@@ -22,14 +22,20 @@ export async function GET(request: Request) {
   }
 
   const { searchParams } = new URL(request.url);
-  const schoolId = resolveAdminSchoolId(
+  const resolved = tryResolveAdminSchoolId(
     session?.user?.schoolId,
     searchParams.get("schoolId"),
   );
+  if (!resolved.ok) {
+    return NextResponse.json(
+      { error: resolved.error, code: resolved.code },
+      { status: resolved.status },
+    );
+  }
 
   try {
-    const teachers = await listTeachersForSchool(schoolId);
-    return NextResponse.json({ schoolId, teachers });
+    const teachers = await listTeachersForSchool(resolved.schoolId);
+    return NextResponse.json({ schoolId: resolved.schoolId, teachers });
   } catch (error) {
     const message = error instanceof Error ? error.message : "list_failed";
     return NextResponse.json({ error: message }, { status: 500 });
@@ -51,13 +57,22 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "invalid_json" }, { status: 400 });
   }
 
-  const schoolId = resolveAdminSchoolId(
+  const resolved = tryResolveAdminSchoolId(
     session?.user?.schoolId,
     body.schoolId,
   );
+  if (!resolved.ok) {
+    return NextResponse.json(
+      { error: resolved.error, code: resolved.code },
+      { status: resolved.status },
+    );
+  }
 
   try {
-    const teacher = await createTeacherAccount({ ...body, schoolId });
+    const teacher = await createTeacherAccount({
+      ...body,
+      schoolId: resolved.schoolId,
+    });
     // temporaryPassword is in the JSON body — never cache this response.
     return NextResponse.json(
       { ok: true, teacher },

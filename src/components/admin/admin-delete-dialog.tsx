@@ -22,6 +22,8 @@ type Props = {
   confirmToken: string;
   confirmDisabled?: boolean;
   pending?: boolean;
+  /** Server rejection copy — dialog stays open when set. */
+  errorMessage?: string | null;
   /** When set, shows a prominent 「改為封存」 action. */
   onArchiveInstead?: () => void;
   onConfirm: () => void;
@@ -38,12 +40,14 @@ export function AdminDeleteDialog({
   confirmToken,
   confirmDisabled = false,
   pending = false,
+  errorMessage = null,
   onArchiveInstead,
   onConfirm,
   onCancel,
 }: Props) {
   const titleId = useId();
   const impactId = useId();
+  const errorId = useId();
   const panelRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const [typed, setTyped] = useState("");
@@ -130,7 +134,7 @@ export function AdminDeleteDialog({
         role="dialog"
         aria-modal="true"
         aria-labelledby={titleId}
-        aria-describedby={impactId}
+        aria-describedby={errorMessage ? `${impactId} ${errorId}` : impactId}
         className="card w-full max-w-lg p-6 shadow-xl"
       >
         <div className="flex items-start gap-3">
@@ -152,12 +156,22 @@ export function AdminDeleteDialog({
             </h2>
             <p
               id={impactId}
-              className="mt-2 text-sm leading-relaxed text-[var(--ink-secondary)]"
+              className="mt-2 whitespace-pre-line text-sm leading-relaxed text-[var(--ink-secondary)]"
             >
               {impact}
             </p>
           </div>
         </div>
+
+        {errorMessage ? (
+          <p
+            id={errorId}
+            role="alert"
+            className="mt-4 rounded-[var(--radius-md)] border border-[var(--color-error)]/30 bg-[var(--color-error-soft)] px-3 py-2 text-sm text-[var(--color-error)]"
+          >
+            {errorMessage}
+          </p>
+        ) : null}
 
         <label className="mt-5 block text-sm font-medium text-[var(--ink)]">
           {typePrompt}
@@ -169,7 +183,9 @@ export function AdminDeleteDialog({
             className="input mt-2 w-full"
             value={typed}
             disabled={pending}
-            aria-invalid={typed.length > 0 && !canConfirm}
+            aria-invalid={
+              Boolean(errorMessage) || (typed.length > 0 && !canConfirm)
+            }
             onChange={(event) => setTyped(event.target.value)}
             onKeyDown={onInputKeyDown}
           />
