@@ -1,12 +1,12 @@
 # MarkInsight production image (Next.js standalone + Prisma)
-FROM node:20-alpine AS deps
+FROM node:22-alpine AS deps
 WORKDIR /app
 RUN apk add --no-cache libc6-compat
 COPY package.json package-lock.json ./
-# Host lockfile is npm 11 (Windows); node:20-alpine ships npm 10, which rejects it.
+# Host lockfile may require a newer npm than the image default.
 RUN npm install -g npm@11.6.1 && npm ci
 
-FROM node:20-alpine AS builder
+FROM node:22-alpine AS builder
 WORKDIR /app
 RUN apk add --no-cache libc6-compat openssl
 COPY --from=deps /app/node_modules ./node_modules
@@ -16,7 +16,7 @@ ENV NODE_ENV=production
 RUN npx prisma generate
 RUN npx next build
 
-FROM node:20-alpine AS runner
+FROM node:22-alpine AS runner
 WORKDIR /app
 RUN apk add --no-cache libc6-compat openssl \
   && addgroup --system --gid 1001 nodejs \
@@ -36,12 +36,15 @@ COPY --from=builder /app/public ./public
 COPY --from=builder /app/prisma ./prisma
 COPY --from=builder --chown=nextjs:nodejs /app/.next/standalone ./
 COPY --from=builder --chown=nextjs:nodejs /app/.next/static ./.next/static
+# seed-admin (and future ops scripts) — bcryptjs is not always traced into standalone
+COPY --from=builder --chown=nextjs:nodejs /app/scripts ./scripts
+COPY --from=builder --chown=nextjs:nodejs /app/node_modules/bcryptjs ./node_modules/bcryptjs
 COPY docker/entrypoint.sh /app/entrypoint.sh
 
 RUN sed -i 's/\r$//' /app/entrypoint.sh \
   && chmod +x /app/entrypoint.sh \
   && mkdir -p /app/.data \
-  && chown -R nextjs:nodejs /app/.data /app/prisma /app/public
+  && chown -R nextjs:nodejs /app/.data /app/prisma /app/public /app/scripts
 
 USER nextjs
 EXPOSE 3000

@@ -58,10 +58,17 @@ export async function POST(request: Request) {
 
   try {
     const teacher = await createTeacherAccount({ ...body, schoolId });
-    return NextResponse.json({ ok: true, teacher }, { status: 201 });
+    // temporaryPassword is in the JSON body — never cache this response.
+    return NextResponse.json(
+      { ok: true, teacher },
+      { status: 201, headers: { "Cache-Control": "no-store" } },
+    );
   } catch (error) {
     const message = error instanceof Error ? error.message : "create_failed";
     const status = message.includes("already exists") ? 409 : 400;
-    return NextResponse.json({ error: message }, { status });
+    return NextResponse.json(
+      { error: message },
+      { status, headers: { "Cache-Control": "no-store" } },
+    );
   }
 }

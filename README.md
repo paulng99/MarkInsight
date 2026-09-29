@@ -60,24 +60,24 @@ docker compose up --build -d
 docker compose logs -f web
 ```
 
-### Public IP (DigitalOcean droplet)
+### Public HTTPS (any Linux VPS)
 
-Auth.js follows `NEXTAUTH_URL`. If that stays `http://localhost:3000`, login and `/api/auth/*` redirect the browser to the visitor's own computer, so the app looks broken when you open `http://<droplet-ip>:3000`.
-
-The container drops a loopback `NEXTAUTH_URL` / `AUTH_URL` and trusts the request host. You can also set the real origin in `.env` before `docker compose up`:
+Do **not** expose the app as plain `http://<ip>:3000` for a public site. Use a reverse proxy with HTTPS and set the public origin before starting Compose:
 
 ```bash
-# NEXTAUTH_URL=http://<droplet-ip>:3000
+# NEXTAUTH_URL=https://markinsight.example.com
+# AUTH_URL=https://markinsight.example.com
 # MARKINSIGHT_ANALYSIS_DEMO=false   # required on a public URL
 ```
 
-Open TCP **3000** on the droplet firewall (and any DigitalOcean cloud firewall), then use `http://<droplet-ip>:3000`. After changing `.env`, recreate the web container: `docker compose up -d --force-recreate web`. Follow **[docs/DEPLOYMENT.md](./docs/DEPLOYMENT.md)** before exposing the app.
+Follow **[docs/DEPLOYMENT.md](./docs/DEPLOYMENT.md)** (Caddy／nginx, firewall, named volumes, first admin via `npm run db:seed-admin` inside the web container). After changing `.env`, recreate the web container: `docker compose -f docker-compose.prod.example.yml up -d --force-recreate web` (or the local demo compose file you are using).
 
 ```bash
 docker compose down       # keep volumes
 docker compose down -v    # wipe DB + upload volumes
 ```
 
+Requires **Node.js 22+** for local `npm` workflows (see `.nvmrc` / `package.json` `engines`). Docker images pin Node 22 as well.
 Then verify (local demo only — `MARKINSIGHT_ANALYSIS_DEMO=true`):
 
 1. (Optional) Admin `admin@example.com` / `password` → School settings → pick analysis model + enable **Allow teachers to upload on behalf of students** → Save

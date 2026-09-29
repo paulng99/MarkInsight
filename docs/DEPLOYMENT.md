@@ -61,10 +61,11 @@
 
 | 變數 | 密鑰？ | 說明 |
 |------|--------|------|
-| `MARKINSIGHT_SEED_ADMIN_EMAIL` | 否 | 見下方 go-live |
+| `MARKINSIGHT_SEED_ADMIN_EMAIL` | 否 | 見下方 go-live。**第一個真實管理員請勿使用 `@example.com` 電郵**（示範帳戶保留電郵；正式環境在示範登入關閉時會拒絕這些身分） |
 | `MARKINSIGHT_SEED_ADMIN_PASSWORD` | **是** | 長度 ≥ 12；腳本不會把密碼寫進 log |
 | `MARKINSIGHT_SEED_TEACHER_EMAIL` / `MARKINSIGHT_SEED_TEACHER_PASSWORD` | 部分為密鑰 | 可選同步建立／重設教師 |
-| `MARKINSIGHT_SEED_SCHOOL_ID` | 否 | 教師所屬學校 id（預設 `demo_school`；非 `demo_school` 時學校顯示名稱為 `School`，不會寫成「Demo School」） |
+| `MARKINSIGHT_SEED_SCHOOL_ID` | 否 | 教師所屬學校 id（預設 `demo_school`；非 `demo_school` 時學校顯示名稱預設為 `School`，不會寫成「Demo School」） |
+| `MARKINSIGHT_SEED_SCHOOL_NAME` | 否 | 當 `MARKINSIGHT_SEED_SCHOOL_ID` **不是** `demo_school` 時，可選設定學校顯示名稱；未設則為 `School`。`demo_school` 一律顯示為 `Demo School`（此變數無效） |
 
 ---
 
@@ -186,20 +187,40 @@ docker compose -f docker-compose.prod.example.yml logs -f web
 
 ### 5. 建立第一個管理員（`npm run db:seed-admin`）
 
-正式映像為 Next.js standalone，預設不含 `scripts/`。請用**一次性容器**掛載腳本執行（密碼只經環境變數傳入，不要寫進 shell 歷史檔時可改用 `read` 或臨時 env 檔）：
+正式映像已包含 `scripts/seed-admin.cjs` 與執行所需的 `bcryptjs`／Prisma client。在 **Compose 已啟動且 Postgres 不對外公開** 的情況下，請在 `web` 容器內建立第一個真實管理員（**請勿使用 `@example.com` 電郵**）：
 
 ```bash
-docker compose -f docker-compose.prod.example.yml run --rm --no-deps \
-  --entrypoint node \
-  -v "$(pwd)/scripts/seed-admin.cjs:/app/scripts/seed-admin.cjs:ro" \
+docker compose -f docker-compose.prod.example.yml exec \
   -e MARKINSIGHT_SEED_ADMIN_EMAIL='you@school.edu.hk' \
   -e MARKINSIGHT_SEED_ADMIN_PASSWORD='your-strong-password-here' \
-  web /app/scripts/seed-admin.cjs
+  web npm run db:seed-admin
 ```
 
-可選同步建立教師：再加入 `MARKINSIGHT_SEED_TEACHER_EMAIL`、`MARKINSIGHT_SEED_TEACHER_PASSWORD`、`MARKINSIGHT_SEED_SCHOOL_ID`。
+等價指令：
 
-若主機已安裝 Node.js 與相依套件，亦可在能連到 Compose 網路內 `db` 的環境執行 `npm run db:seed-admin`（須自行設定正確的 `DATABASE_URL`）。**不要**為了 seed 而長期對外開放 5432。
+```bash
+docker compose -f docker-compose.prod.example.yml exec \
+  -e MARKINSIGHT_SEED_ADMIN_EMAIL='you@school.edu.hk' \
+  -e MARKINSIGHT_SEED_ADMIN_PASSWORD='your-strong-password-here' \
+  web node scripts/seed-admin.cjs
+```
+
+可選同步建立／重設教師（會覆寫該教師的 `passwordHash`）：
+
+```bash
+docker compose -f docker-compose.prod.example.yml exec \
+  -e MARKINSIGHT_SEED_ADMIN_EMAIL='you@school.edu.hk' \
+  -e MARKINSIGHT_SEED_ADMIN_PASSWORD='your-strong-password-here' \
+  -e MARKINSIGHT_SEED_TEACHER_EMAIL='teacher@school.edu.hk' \
+  -e MARKINSIGHT_SEED_TEACHER_PASSWORD='another-strong-password' \
+  -e MARKINSIGHT_SEED_SCHOOL_ID='your_school_id' \
+  -e MARKINSIGHT_SEED_SCHOOL_NAME='Your School Name' \
+  web npm run db:seed-admin
+```
+
+`MARKINSIGHT_SEED_SCHOOL_NAME` 只在 `MARKINSIGHT_SEED_SCHOOL_ID` 不是 `demo_school` 時生效；未設定時學校顯示名稱為 `School`。`demo_school` 會固定顯示為 `Demo School`。
+
+容器已帶有指向 Compose 服務 `db` 的 `DATABASE_URL`，因此 **不必** 對外開放 5432。若主機另有 Node.js，亦可在能連到 `db` 的環境執行 `npm run db:seed-admin`（須自行設定正確的 `DATABASE_URL`）。
 
 ### 6. HTTPS 反向代理
 
@@ -294,17 +315,20 @@ docker compose -f docker-compose.prod.example.yml up -d --build
 
 - **沒有**使用者自助更改密碼
 - **沒有**管理後台「重新產生臨時密碼」按鈕
+- **沒有**管理後台「刪除教師」功能；請勿依賴「刪除後再建立」作為改密途徑
 
 管理後台「建立教師」會產生**隨機臨時密碼**（≥16 字元），**只在建立當下的回應／畫面顯示一次**。明文不會寫入 log，也不會再出現在教師列表。公開站台必須以 HTTPS 提供，以免該 JSON 回應中的臨時密碼被竊聽。
 
 ### 若管理員沒有複製該一次性臨時密碼
 
-任選其一：
+請用下列方式**重設該教師密碼**（idempotent，會覆寫 `passwordHash`）：
 
-1. **刪除該教師帳戶，再於管理後台重新建立一次**（會產生新的一次性臨時密碼，請立即複製並交給老師）。
-2. **由操作者用 seed 重設密碼**（見上文一次性容器指令；idempotent，會覆寫 `passwordHash`）。
+1. **以 seed 腳本重設**（見上文「建立第一個管理員」的 `docker compose … exec … npm run db:seed-admin`，並設定該教師的 `MARKINSIGHT_SEED_TEACHER_EMAIL`／`MARKINSIGHT_SEED_TEACHER_PASSWORD`／學校相關變數）。
+2. **或以 SQL／操作程序直接更新** `User.passwordHash`（須自行以 bcrypt 產生雜湊；執行前請備份）。
 
 管理員本人改密：同樣用 seed，只設 `MARKINSIGHT_SEED_ADMIN_*` 即可。腳本**不會**把密碼印到 log。
+
+**注意：** 第一個真實管理員（以及之後的正式帳戶）**請勿使用 `@example.com` 電郵**。示範登入關閉時，系統會拒絕 `admin@example.com`／`teacher@example.com`／`student@example.com`，以及 id 為 `demo_admin`／`demo_teacher`／`demo_student` 的帳戶，即使資料庫仍留有舊的 `passwordHash`。
 
 ---
 
@@ -337,16 +361,20 @@ docker compose -f docker-compose.prod.example.yml up -d --build
 
 4. **建立第一個真實管理員（不要用示範帳戶）**
 
-   使用上文「Any Linux VPS」第 5 步的一次性容器指令，或等效方式執行 `npm run db:seed-admin`。
+   使用上文「Any Linux VPS」第 5 步，在 `web` 容器內執行 `npm run db:seed-admin`。
+   - [ ] 管理員電郵**不是** `@example.com`（正式環境會拒絕示範身分登入）
+   - [ ] 已用 seed 建立真實管理員，並以該帳戶登入成功
 
 5. **【必須】若此資料庫曾經跑過本地 demo：刪除或重設示範帳戶**
 
-   有 `passwordHash` 的資料庫使用者**優先**於示範登入政策。本地 bootstrap 可能留下 id `demo_admin`／`demo_teacher`／`demo_student`，或電郵 `*@example.com`，其雜湊仍可能對應字面 `password`。
+   本地 bootstrap 可能留下 id `demo_admin`／`demo_teacher`／`demo_student`，或電郵 `admin@example.com`／`teacher@example.com`／`student@example.com`，其雜湊仍可能對應字面 `password`。
 
-   本地示範 Compose（`docker-compose.yml`）預設資料庫名稱為 **`markinsight`**（使用者／密碼同為 `markinsight`）。正式環境請改用 `.env` 中你自己設定的 `POSTGRES_*`／`DATABASE_URL`，**不要**沿用示範密碼。
+   **程式防護：** 當示範登入政策關閉時（正式環境預設），`authorizeCredentials` 會拒絕上述示範電郵與示範 id，**即使**資料庫列仍有 `passwordHash`。真實帳戶（其他電郵）不受影響。
+
+   仍強烈建議清除或重設這些示範列（或使用全新資料庫），以免日後誤開示範模式時再次暴露：
 
    - [ ] **已刪除或重設**上述示範帳戶（或改用全新資料庫——**強烈建議**正式環境用全新 Postgres volume）；刪除後以 `admin@example.com`／`password` 登入**必須失敗**
-
+   - [ ] 第一個真實管理員電郵**不是** `@example.com`
    **優先：全新資料庫**（Compose 範例：`docker compose -f docker-compose.prod.example.yml down -v` 後再 `up`，會清掉 DB 與上載 volume——只在確定可丟資料時使用）。
 
    **可選 SQL**（外鍵可能連帶刪除 enrollment／相關列；執行前請備份。表名以 Prisma 預設為準）。在已啟動的正式 Compose 環境執行（將使用者與資料庫名稱換成 `.env` 中的值）：

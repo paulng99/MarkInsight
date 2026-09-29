@@ -1,5 +1,6 @@
 import bcrypt from "bcryptjs";
 import {
+  DEMO_STUB_USERS,
   getDemoLoginPolicy,
   matchDemoStubCredentials,
   type DemoLoginPolicy,
@@ -23,6 +24,23 @@ export type AuthorizeCredentialsDeps = {
   getPolicy?: () => DemoLoginPolicy;
   comparePassword?: (password: string, hash: string) => Promise<boolean>;
 };
+
+const DEMO_EMAILS = new Set(
+  DEMO_STUB_USERS.map((user) => user.email.toLowerCase()),
+);
+const DEMO_IDS = new Set(DEMO_STUB_USERS.map((user) => user.id));
+
+/**
+ * Reserved local-demo identities. When demo login policy is disabled these
+ * must never authenticate — even if a leftover DB row still has passwordHash.
+ */
+export function isReservedDemoIdentity(user: {
+  id: string;
+  email: string;
+}): boolean {
+  const email = user.email.toLowerCase().trim();
+  return DEMO_EMAILS.has(email) || DEMO_IDS.has(user.id);
+}
 
 async function findUserFromPrisma(addr: string): Promise<DbCredentialUser | null> {
   const { prisma } = await import("../prisma");
@@ -51,8 +69,13 @@ export async function authorizeCredentials(
   const compare =
     deps.comparePassword ?? ((pw, hash) => bcrypt.compare(pw, hash));
 
+  const policy = resolvePolicy();
   const dbUser = await findUser(normalized);
   if (dbUser?.passwordHash) {
+    // Public / non-demo deploys: leftover demo rows must not accept "password".
+    if (!policy.enabled && isReservedDemoIdentity(dbUser)) {
+      return null;
+    }
     const ok = await compare(password, dbUser.passwordHash);
     if (!ok) return null;
     return {
@@ -64,5 +87,5 @@ export async function authorizeCredentials(
     };
   }
 
-  return matchDemoStubCredentials(normalized, password, resolvePolicy());
+  return matchDemoStubCredentials(normalized, password, policy);
 }
