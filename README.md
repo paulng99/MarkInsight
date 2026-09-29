@@ -26,7 +26,9 @@ Web MVP (Next.js App Router + TypeScript + Prisma). This knife delivers **same-s
 | Analysis model | New jobs read `SchoolSettings.analysisLlmModel` (allowlist) |
 | Live multimodal | `OPENROUTER_API_KEY` → chat completions; product UI never shows vendor names |
 | Missing key | Job fails with vendor-neutral copy (or set `MARKINSIGHT_ANALYSIS_DEMO=true` for offline deterministic results) |
+| Model timeout | `MARKINSIGHT_LLM_TIMEOUT_MS` (default `120000`); timed-out jobs become **FAILED** with retry copy |
 | Storage | `STORAGE_PROVIDER=local` → `.data/uploads` |
+| Exam / script files | PDF, JPG, PNG only (extension + MIME checked server-side; HEIC rejected) |
 
 Every successful analysis persists the model id on `AnalysisJob.llmModel` plus `Exam.structureLlmModel` or `Submission.scoringLlmModel`.
 
@@ -112,6 +114,10 @@ See **[docs/architecture.md](./docs/architecture.md)**.
 | `student@example.com` | `password` | Student |
 
 Demo teacher/student are upserted into Postgres on first workspace/exam API call (`demo_school`).
+
+### 已知風險
+
+登入頁目前公開示範帳戶與預設密碼（`password`）。正式給老師試用前必須重新評估（例如關閉示範登入、改為邀請制帳戶，或強制更換密碼）。
 
 ## License
 

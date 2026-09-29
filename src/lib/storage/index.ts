@@ -139,16 +139,12 @@ export async function putObject(input: {
   bytes: Buffer;
 }): Promise<StoredObject> {
   if (!input.bytes.length) {
-    throw new AppError("請檢查檔案 — empty upload", 400, "empty_upload");
+    throw new AppError("請檢查檔案", 400, "empty_upload");
   }
   const maxBytes = uploadMaxBytes();
   if (input.bytes.length > maxBytes) {
     const maxMb = Math.round(maxBytes / (1024 * 1024));
-    throw new AppError(
-      `請檢查檔案 — file too large (max ${maxMb}MB)`,
-      400,
-      "file_too_large",
-    );
+    throw new AppError(`檔案過大（上限 ${maxMb}MB）。`, 400, "file_too_large");
   }
 
   const provider = (process.env.STORAGE_PROVIDER || "local").toLowerCase();
@@ -210,7 +206,7 @@ export async function getObjectBytes(storageKey: string): Promise<Buffer> {
   try {
     return await readFile(/*turbopackIgnore: true*/ abs);
   } catch {
-    throw new AppError("請檢查檔案 — file not found", 404, "file_not_found");
+    throw new AppError("請檢查檔案", 404, "file_not_found");
   }
 }
 

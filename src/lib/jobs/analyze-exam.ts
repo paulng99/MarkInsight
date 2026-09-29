@@ -15,6 +15,7 @@ import { coerceFlatQuestion, type FlatStructureQuestion } from "@/lib/exams/stru
 import { AppError, ANALYSIS_FAILED_GENERIC, sanitizeVendorLeak } from "@/lib/errors";
 import { createLlmClient } from "@/lib/llm";
 import type { LlmClient, LlmUsageTotals, StructureProgressUpdate } from "@/lib/llm/types";
+import { ANALYSIS_TIMEOUT_ZH } from "@/lib/llm/timeout";
 import { sumUsage } from "@/lib/llm/usage";
 import { resolveSystemPrompt } from "@/lib/llm/system-prompts";
 import { saveJobProgress } from "@/lib/jobs/job-progress";
@@ -31,10 +32,35 @@ export type EnqueueResult = {
 };
 
 const running = new Set<string>();
+let orphanReclaimStarted = false;
+
+/**
+ * After process restart the in-memory runner is empty but DB rows may still say RUNNING.
+ * Mark those orphans FAILED so they never stick on the UI.
+ */
+async function reclaimOrphanRunningJobs(): Promise<void> {
+  if (orphanReclaimStarted) return;
+  orphanReclaimStarted = true;
+  try {
+    const stale = await prisma.analysisJob.findMany({
+      where: { status: "RUNNING" },
+      select: { id: true },
+    });
+    for (const job of stale) {
+      if (running.has(job.id)) continue;
+      await failJob(job.id, ANALYSIS_TIMEOUT_ZH);
+    }
+  } catch (error) {
+    console.error("[jobs] orphan RUNNING reclaim failed", error);
+    orphanReclaimStarted = false;
+  }
+}
 
 function schedule(jobId: string) {
   // Fire-and-forget; errors handled inside processJob.
-  void processJob(jobId);
+  void reclaimOrphanRunningJobs().finally(() => {
+    void processJob(jobId);
+  });
 }
 
 export async function enqueueAnalyzeExam(payload: {
@@ -59,7 +85,7 @@ export async function enqueueAnalyzeExam(payload: {
     },
   });
   if (assets.length === 0) {
-    throw new AppError("請檢查檔案 — upload a question paper first", 400, "missing_assets");
+    throw new AppError("請先上載試題紙。", 400, "missing_assets");
   }
 
   const job = await prisma.analysisJob.create({
@@ -101,7 +127,7 @@ export async function enqueueAnalyzeSubmission(payload: {
     throw new AppError("Submission not found", 404, "submission_not_found");
   }
   if (!submission.assetId) {
-    throw new AppError("請檢查檔案 — upload an answer script first", 400, "missing_script");
+    throw new AppError("請先上載答卷。", 400, "missing_script");
   }
 
   await prisma.submission.update({
@@ -262,7 +288,7 @@ async function runExamStructure(
     orderBy: { createdAt: "asc" },
   });
   if (assets.length === 0) {
-    throw new AppError("請檢查檔案", 400, "missing_assets");
+    throw new AppError("請先上載試題紙。", 400, "missing_assets");
   }
 
   const examRow = await prisma.exam.findFirst({
@@ -374,7 +400,7 @@ async function runSubmissionScoring(
     ...new Map(pages.map((page) => [page.id, page])).values(),
   ];
   if (scripts.length === 0) {
-    throw new AppError("請檢查檔案", 400, "missing_script");
+    throw new AppError("請先上載答卷。", 400, "missing_script");
   }
 
   const clients: LlmClient[] = [];
@@ -386,7 +412,7 @@ async function runSubmissionScoring(
     const exam = await prisma.exam.findUnique({ where: { id: examId } });
     if (!exam?.structureLlmModel) {
       throw new AppError(
-        "Exam structure analysis has not completed yet.",
+        "老師尚未完成試卷設定，暫時無法分析，請稍後再試。",
         400,
         "structure_required",
       );

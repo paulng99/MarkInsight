@@ -6,6 +6,7 @@ import type { Dictionary, Locale } from "@/lib/i18n/dictionaries";
 import { JobProgressPanel } from "@/components/jobs/job-progress-panel";
 import { JobStatusBadge } from "@/components/jobs/job-status-badge";
 import { Alert, LoadingBlock } from "@/components/ui/feedback";
+import { EXAM_UPLOAD_ACCEPT } from "@/lib/files/exam-upload";
 import { FileField } from "@/components/ui/file-field";
 import { Icon } from "@/components/ui/icons";
 
@@ -153,7 +154,7 @@ export function ProxyUploadForm({
         <FileField
           required
           multiple
-          accept="image/*,application/pdf"
+          accept={EXAM_UPLOAD_ACCEPT}
           title={t.dropzoneTitle}
           hint={t.uploadMultipleHint}
           selectedLabel={t.fileSelected}

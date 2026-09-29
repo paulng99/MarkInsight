@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import type { AssetKind } from "@prisma/client";
-import { jsonError, AppError } from "@/lib/errors";
+import { jsonError, AppError, UPLOAD_FAILED_ZH } from "@/lib/errors";
 import { requireSessionUser } from "@/lib/api/session";
 import { uploadExamAsset } from "@/lib/exams/service";
 
@@ -24,7 +24,7 @@ export async function POST(request: Request, context: Ctx) {
     const file = form.get("file");
     const kindRaw = String(form.get("kind") || "QUESTION_PAPER");
     if (!(file instanceof File)) {
-      throw new AppError("請檢查檔案", 400, "missing_file");
+      throw new AppError("尚未選擇檔案。", 400, "missing_file");
     }
     if (!KIND_SET.has(kindRaw as AssetKind)) {
       throw new AppError("Invalid asset kind", 400, "invalid_kind");
@@ -55,7 +55,7 @@ export async function POST(request: Request, context: Ctx) {
       },
     });
   } catch (error) {
-    const { body, status } = jsonError(error, "請檢查檔案", 500);
+    const { body, status } = jsonError(error, UPLOAD_FAILED_ZH, 500);
     return NextResponse.json(body, { status });
   }
 }

@@ -36,6 +36,11 @@ import {
   sanitizeVendorLeak,
 } from "@/lib/errors";
 import { DEFAULT_SYSTEM_PROMPTS, SCORING_PROMPT_ADDENDUM } from "@/lib/llm/system-prompts";
+import {
+  ANALYSIS_TIMEOUT_ZH,
+  isAbortError,
+  llmTimeoutMs,
+} from "@/lib/llm/timeout";
 import { rasterizeScanPages, type ScanPage } from "@/lib/exams/pdf-page-images";
 import { readSyllabusExcerpt } from "@/lib/exams/syllabus-excerpt";
 import { getObjectBytes, isImageMime, isPdfMime, toDataUrl } from "@/lib/storage";
@@ -93,6 +98,7 @@ function sleep(ms: number) {
 /**
  * Large multimodal requests often hit provider rate limits (429).
  * Retry those, and brief 503s, before failing the job.
+ * Each attempt is bounded by MARKINSIGHT_LLM_TIMEOUT_MS (default 120s).
  */
 async function fetchChatWithRetry(
   url: string,
@@ -102,12 +108,26 @@ async function fetchChatWithRetry(
 ): Promise<Response> {
   const waitsMs = [0, 12_000, 30_000, 45_000];
   let last: Response | null = null;
+  const timeoutMs = llmTimeoutMs();
 
   for (let attempt = 0; attempt < waitsMs.length; attempt++) {
     if (waitsMs[attempt] > 0) {
       await sleep(waitsMs[attempt]);
     }
-    const response = await fetch(url, { method: "POST", headers, body });
+    let response: Response;
+    try {
+      response = await fetch(url, {
+        method: "POST",
+        headers,
+        body,
+        signal: AbortSignal.timeout(timeoutMs),
+      });
+    } catch (error) {
+      if (isAbortError(error)) {
+        throw new AppError(ANALYSIS_TIMEOUT_ZH, 504, "llm_timeout");
+      }
+      throw error;
+    }
     if (response.ok) return response;
     last = response;
     const retryable = response.status === 429 || response.status === 503;
@@ -189,6 +209,9 @@ export class OpenRouterLlmClient implements LlmClient {
       );
     } catch (error) {
       if (error instanceof AppError) throw error;
+      if (isAbortError(error)) {
+        throw new AppError(ANALYSIS_TIMEOUT_ZH, 504, "llm_timeout");
+      }
       throw new AppError(ANALYSIS_FAILED_GENERIC, 502, "llm_network_error");
     }
 
@@ -272,6 +295,9 @@ export class OpenRouterLlmClient implements LlmClient {
       );
     } catch (error) {
       if (error instanceof AppError) throw error;
+      if (isAbortError(error)) {
+        throw new AppError(ANALYSIS_TIMEOUT_ZH, 504, "llm_timeout");
+      }
       throw new AppError(ANALYSIS_FAILED_GENERIC, 502, "llm_network_error");
     }
 

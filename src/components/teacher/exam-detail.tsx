@@ -9,6 +9,7 @@ import {
   type StructureQuestionGroup,
 } from "@/lib/exams/structure-questions";
 import { examAssetTitle, scriptAssetTitle, uploadExtension } from "@/lib/files/display-name";
+import { EXAM_UPLOAD_ACCEPT } from "@/lib/files/exam-upload";
 import { JobProgressPanel, type JobSnapshot } from "@/components/jobs/job-progress-panel";
 import { PdfPreview } from "@/components/teacher/pdf-preview";
 import { Alert, EmptyState, LoadingBlock } from "@/components/ui/feedback";
@@ -572,7 +573,7 @@ export function TeacherExamDetail({
             <FileField
               required
               compact
-              accept="image/*,application/pdf"
+              accept={EXAM_UPLOAD_ACCEPT}
               title={t.dropzoneTitle}
               hint={t.dropzoneHint}
               selectedLabel={t.fileSelected}
