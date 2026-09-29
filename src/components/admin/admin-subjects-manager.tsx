@@ -1,13 +1,19 @@
 "use client";
 
 import { useCallback, useEffect, useState, useTransition, type CSSProperties } from "react";
+import { AdminDeleteDialog } from "@/components/admin/admin-delete-dialog";
 import { Alert, EmptyState, LoadingBlock } from "@/components/ui/feedback";
 import { Icon } from "@/components/ui/icons";
-import type { Dictionary, Locale } from "@/lib/i18n/dictionaries";
+import {
+  fillDeleteImpactTemplate,
+  sumClassImpact,
+  sumClassesImpact,
+} from "@/lib/admin/delete-confirm";
 import type {
   AdminClassSubjectDto,
   AdminSubjectGroupDto,
 } from "@/lib/admin/class-subjects";
+import type { Dictionary, Locale } from "@/lib/i18n/dictionaries";
 
 type Props = {
   locale: Locale;
@@ -15,12 +21,29 @@ type Props = {
   schoolId: string;
 };
 
+type DeleteDialogState =
+  | {
+      kind: "class";
+      group: AdminSubjectGroupDto;
+      cls: AdminClassSubjectDto;
+    }
+  | {
+      kind: "subject";
+      group: AdminSubjectGroupDto;
+    }
+  | {
+      kind: "archived";
+    };
+
 export function AdminSubjectsManager({ t, schoolId }: Props) {
   const [subjects, setSubjects] = useState<AdminSubjectGroupDto[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [showArchived, setShowArchived] = useState(true);
   const [pending, startTransition] = useTransition();
+  const [deleteDialog, setDeleteDialog] = useState<DeleteDialogState | null>(
+    null,
+  );
 
   const load = useCallback(async () => {
     setError(null);
@@ -51,6 +74,7 @@ export function AdminSubjectsManager({ t, schoolId }: Props) {
       setNotice(null);
       try {
         await action();
+        setDeleteDialog(null);
         setNotice(successMsg);
         await load();
       } catch (e) {
@@ -123,6 +147,76 @@ export function AdminSubjectsManager({ t, schoolId }: Props) {
 
   const activeTotal = subjects.reduce((n, g) => n + g.activeClassCount, 0);
   const archivedTotal = subjects.reduce((n, g) => n + g.archivedClassCount, 0);
+  const archivedClasses = subjects.flatMap((g) =>
+    g.classes.filter((c) => c.archivedAt),
+  );
+
+  let deleteDialogView: {
+    title: string;
+    impact: string;
+    confirmToken: string;
+    onConfirm: () => void;
+    onArchiveInstead?: () => void;
+  } | null = null;
+
+  if (deleteDialog?.kind === "class") {
+    const counts = sumClassImpact(deleteDialog.cls);
+    deleteDialogView = {
+      title: t.adminSubjectsDeleteDialogTitleClass,
+      impact: fillDeleteImpactTemplate(t.adminSubjectsDeleteImpactClass, counts),
+      confirmToken: deleteDialog.cls.name,
+      onConfirm: () =>
+        run(
+          () => deleteClass(deleteDialog.cls),
+          t.adminSubjectsDeleteClassSuccess,
+        ),
+      onArchiveInstead: deleteDialog.cls.archivedAt
+        ? undefined
+        : () =>
+            run(
+              () => patchClass(deleteDialog.cls, true),
+              t.adminSubjectsArchiveClassSuccess,
+            ),
+    };
+  } else if (deleteDialog?.kind === "subject") {
+    const counts = sumClassesImpact(deleteDialog.group.classes);
+    deleteDialogView = {
+      title: t.adminSubjectsDeleteDialogTitleSubject,
+      impact: fillDeleteImpactTemplate(
+        t.adminSubjectsDeleteImpactSubject,
+        counts,
+      ),
+      confirmToken: deleteDialog.group.subjectCode,
+      onConfirm: () =>
+        run(
+          () => deleteSubject(deleteDialog.group.subjectCode),
+          t.adminSubjectsDeleteSubjectSuccess,
+        ),
+      onArchiveInstead:
+        deleteDialog.group.activeClassCount > 0
+          ? () =>
+              run(
+                () => patchSubject(deleteDialog.group.subjectCode, true),
+                t.adminSubjectsArchiveSubjectSuccess,
+              )
+          : undefined,
+    };
+  } else if (deleteDialog?.kind === "archived") {
+    const counts = sumClassesImpact(archivedClasses);
+    deleteDialogView = {
+      title: t.adminSubjectsDeleteDialogTitleArchived,
+      impact: fillDeleteImpactTemplate(
+        t.adminSubjectsDeleteImpactArchived,
+        counts,
+      ),
+      confirmToken: t.adminSubjectsDeleteConfirmWord,
+      onConfirm: () =>
+        run(
+          () => bulk("delete_archived"),
+          t.adminSubjectsDeleteArchivedSuccess,
+        ),
+    };
+  }
 
   return (
     <div className="mt-8 space-y-6">
@@ -160,15 +254,9 @@ export function AdminSubjectsManager({ t, schoolId }: Props) {
           </button>
           <button
             type="button"
-            className="btn btn-danger btn-sm"
+            className="btn btn-danger-ghost btn-sm"
             disabled={pending || archivedTotal === 0}
-            onClick={() => {
-              if (!window.confirm(t.adminSubjectsConfirmDeleteArchived)) return;
-              run(
-                () => bulk("delete_archived"),
-                t.adminSubjectsDeleteArchivedSuccess,
-              );
-            }}
+            onClick={() => setDeleteDialog({ kind: "archived" })}
           >
             <Icon.Trash size={16} />
             {t.adminSubjectsDeleteArchived}
@@ -249,24 +337,9 @@ export function AdminSubjectsManager({ t, schoolId }: Props) {
                 ) : null}
                 <button
                   type="button"
-                  className="btn btn-danger btn-sm"
+                  className="btn btn-danger-ghost btn-sm"
                   disabled={pending}
-                  onClick={() => {
-                    if (
-                      !window.confirm(
-                        t.adminSubjectsConfirmDeleteSubject.replace(
-                          "{code}",
-                          group.subjectCode,
-                        ),
-                      )
-                    ) {
-                      return;
-                    }
-                    run(
-                      () => deleteSubject(group.subjectCode),
-                      t.adminSubjectsDeleteSubjectSuccess,
-                    );
-                  }}
+                  onClick={() => setDeleteDialog({ kind: "subject", group })}
                 >
                   <Icon.Trash size={14} />
                   {t.adminSubjectsDeleteSubject}
@@ -348,24 +421,11 @@ export function AdminSubjectsManager({ t, schoolId }: Props) {
                         )}
                         <button
                           type="button"
-                          className="btn btn-danger btn-sm"
+                          className="btn btn-danger-ghost btn-sm"
                           disabled={pending}
-                          onClick={() => {
-                            if (
-                              !window.confirm(
-                                t.adminSubjectsConfirmDeleteClass.replace(
-                                  "{name}",
-                                  `${group.subjectCode} / ${cls.name}`,
-                                ),
-                              )
-                            ) {
-                              return;
-                            }
-                            run(
-                              () => deleteClass(cls),
-                              t.adminSubjectsDeleteClassSuccess,
-                            );
-                          }}
+                          onClick={() =>
+                            setDeleteDialog({ kind: "class", group, cls })
+                          }
                         >
                           <Icon.Trash size={14} />
                           {t.adminSubjectsDeleteClass}
@@ -379,6 +439,21 @@ export function AdminSubjectsManager({ t, schoolId }: Props) {
           </section>
         ))
       )}
+
+      {deleteDialogView ? (
+        <AdminDeleteDialog
+          t={t}
+          title={deleteDialogView.title}
+          impact={deleteDialogView.impact}
+          confirmToken={deleteDialogView.confirmToken}
+          pending={pending}
+          onConfirm={deleteDialogView.onConfirm}
+          onArchiveInstead={deleteDialogView.onArchiveInstead}
+          onCancel={() => {
+            if (!pending) setDeleteDialog(null);
+          }}
+        />
+      ) : null}
     </div>
   );
 }

@@ -21,6 +21,8 @@ export type AdminClassSubjectDto = {
   archivedAt: string | null;
   enrollmentCount: number;
   examCount: number;
+  /** Submissions (and thus analysis results) under this class's exams. */
+  submissionCount: number;
 };
 
 export type AdminSubjectGroupDto = {
@@ -29,6 +31,9 @@ export type AdminSubjectGroupDto = {
   syllabusOriginalName: string | null;
   activeClassCount: number;
   archivedClassCount: number;
+  enrollmentCount: number;
+  examCount: number;
+  submissionCount: number;
   classes: AdminClassSubjectDto[];
 };
 
@@ -41,6 +46,9 @@ export async function listAdminSubjectGroups(
       include: {
         schoolYear: { select: { id: true, name: true } },
         _count: { select: { enrollments: true, exams: true } },
+        exams: {
+          select: { _count: { select: { submissions: true } } },
+        },
       },
       orderBy: [{ subjectCode: "asc" }, { name: "asc" }],
     }),
@@ -66,10 +74,17 @@ export async function listAdminSubjectGroups(
         syllabusOriginalName: syllabusName ?? null,
         activeClassCount: 0,
         archivedClassCount: 0,
+        enrollmentCount: 0,
+        examCount: 0,
+        submissionCount: 0,
         classes: [],
       };
       groups.set(cs.subjectCode, group);
     }
+    const submissionCount = cs.exams.reduce(
+      (n, exam) => n + exam._count.submissions,
+      0,
+    );
     const dto: AdminClassSubjectDto = {
       id: cs.id,
       name: cs.name,
@@ -80,9 +95,13 @@ export async function listAdminSubjectGroups(
       archivedAt: cs.archivedAt ? formatDateYmd(cs.archivedAt) : null,
       enrollmentCount: cs._count.enrollments,
       examCount: cs._count.exams,
+      submissionCount,
     };
     if (cs.archivedAt) group.archivedClassCount += 1;
     else group.activeClassCount += 1;
+    group.enrollmentCount += dto.enrollmentCount;
+    group.examCount += dto.examCount;
+    group.submissionCount += dto.submissionCount;
     group.classes.push(dto);
   }
 
@@ -95,6 +114,9 @@ export async function listAdminSubjectGroups(
         syllabusOriginalName: name,
         activeClassCount: 0,
         archivedClassCount: 0,
+        enrollmentCount: 0,
+        examCount: 0,
+        submissionCount: 0,
         classes: [],
       });
     }
