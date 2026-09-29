@@ -57,8 +57,9 @@ services:
       # Production default: offline demo analysis and legacy "password" demo login stay off.
       MARKINSIGHT_ANALYSIS_DEMO: ${MARKINSIGHT_ANALYSIS_DEMO:-false}
     volumes:
-      # Named volume at STORAGE_LOCAL_DIR — do not remove or turn into an anonymous volume; uploads are lost
-      - markinsight_uploads:/app/.data/uploads
+      # Entire /app/.data (uploads + exam-structure + job-progress). Do not use an anonymous
+      # volume or mount only uploads — recreating the container would drop structure/progress files.
+      - markinsight_data:/app/.data
     depends_on:
       db:
         condition: service_healthy
@@ -78,4 +79,4 @@ services:
 
 volumes:
   markinsight_pg:
-  markinsight_uploads:
+  markinsight_data:
