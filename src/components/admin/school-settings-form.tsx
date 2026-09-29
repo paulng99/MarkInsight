@@ -2,6 +2,7 @@
 
 import type { Dictionary, Locale } from "@/lib/i18n/dictionaries";
 import type {
+  CreateTeacherResult,
   SchoolSettingsPageDto,
   TeacherAccountDto,
 } from "@/lib/school-settings/types";
@@ -171,6 +172,11 @@ export function SchoolSettingsForm({
   const [teacherName, setTeacherName] = useState("");
   const [teacherEmail, setTeacherEmail] = useState("");
   const [creatingTeacher, setCreatingTeacher] = useState(false);
+  const [createdTempPassword, setCreatedTempPassword] = useState<string | null>(
+    null,
+  );
+  const [createdTempEmail, setCreatedTempEmail] = useState<string | null>(null);
+  const [passwordCopied, setPasswordCopied] = useState(false);
   const [isRefreshing, startRefresh] = useTransition();
 
   function applyPage(next: SchoolSettingsPageDto) {
@@ -301,6 +307,9 @@ export function SchoolSettingsForm({
     e.preventDefault();
     setCreatingTeacher(true);
     setErrorMessage(null);
+    setCreatedTempPassword(null);
+    setCreatedTempEmail(null);
+    setPasswordCopied(false);
     try {
       const res = await fetch("/api/admin/teachers", {
         method: "POST",
@@ -308,14 +317,20 @@ export function SchoolSettingsForm({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ schoolId, email: teacherEmail, name: teacherName }),
       });
-      const data = (await res.json()) as { error?: string; teacher?: TeacherAccountDto };
+      const data = (await res.json()) as {
+        error?: string;
+        teacher?: CreateTeacherResult;
+      };
       if (!res.ok) {
         throw new Error(data.error || t.settingsErrorTeacher);
       }
       if (data.teacher) {
+        const { temporaryPassword, ...account } = data.teacher;
         setTeachers((prev) =>
-          [...prev, data.teacher!].sort((a, b) => a.email.localeCompare(b.email)),
+          [...prev, account].sort((a, b) => a.email.localeCompare(b.email)),
         );
+        setCreatedTempPassword(temporaryPassword);
+        setCreatedTempEmail(account.email);
       }
       setTeacherName("");
       setTeacherEmail("");
@@ -324,6 +339,16 @@ export function SchoolSettingsForm({
       setErrorMessage(err instanceof Error ? err.message : t.settingsErrorTeacher);
     } finally {
       setCreatingTeacher(false);
+    }
+  }
+
+  async function copyTemporaryPassword() {
+    if (!createdTempPassword) return;
+    try {
+      await navigator.clipboard.writeText(createdTempPassword);
+      setPasswordCopied(true);
+    } catch {
+      setPasswordCopied(false);
     }
   }
 
@@ -567,6 +592,35 @@ export function SchoolSettingsForm({
                 {t.settingsTeacherCreate}
               </button>
             </div>
+            {createdTempPassword ? (
+              <div
+                className="mt-4 rounded-xl border border-amber-300 bg-amber-50 p-3 text-sm text-[var(--ink)]"
+                role="status"
+              >
+                <p className="font-semibold">{t.settingsTeacherTempPasswordLabel}</p>
+                {createdTempEmail ? (
+                  <p className="mt-1 text-xs text-[var(--muted)]">{createdTempEmail}</p>
+                ) : null}
+                <p className="mt-2 break-all font-mono text-base tracking-wide">
+                  {createdTempPassword}
+                </p>
+                <p className="mt-2 text-xs leading-relaxed text-[var(--muted)]">
+                  {t.settingsTeacherTempPasswordOnce}
+                </p>
+                <p className="mt-1 text-xs leading-relaxed text-[var(--muted)]">
+                  {t.settingsTeacherTempPasswordNoSelfChange}
+                </p>
+                <button
+                  type="button"
+                  onClick={() => void copyTemporaryPassword()}
+                  className="btn btn-secondary btn-sm mt-3"
+                >
+                  {passwordCopied
+                    ? t.settingsTeacherTempPasswordCopied
+                    : t.settingsTeacherTempPasswordCopy}
+                </button>
+              </div>
+            ) : null}
           </form>
         </div>
       </SettingsSection>

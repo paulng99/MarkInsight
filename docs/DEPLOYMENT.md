@@ -2,7 +2,7 @@
 
 本文件說明如何把 MarkInsight 安全地部署到公開 URL。預設示範密碼 `password` **不可**在正式環境生效。
 
-本地筆電 / Docker Compose 離線示範流程（`MARKINSIGHT_ANALYSIS_DEMO=true`、以 `password` 登入）維持不變；見 [README](../README.md) 與下方「本地示範」。
+本地筆電 / Docker Compose 離線示範流程須在 `.env` **手動**設定 `MARKINSIGHT_ANALYSIS_DEMO=true`（`.env.example` 預設為 `false`），才可以 `password` 登入示範帳戶；見 [README](../README.md) 與下方「本地示範」。
 
 ---
 
@@ -48,14 +48,14 @@
 | `OPENROUTER_SITE_URL` / `OPENROUTER_SITE_NAME` | 否 | OpenRouter 歸因標頭 |
 | `FAL_KEY` | **是** | 預留；scaffold 未使用 |
 
-### 首次建立真實帳戶（seed，可選）
+### 首次建立／重設真實帳戶（seed）
 
 | 變數 | 密鑰？ | 說明 |
 |------|--------|------|
 | `MARKINSIGHT_SEED_ADMIN_EMAIL` | 否 | 見下方 go-live |
 | `MARKINSIGHT_SEED_ADMIN_PASSWORD` | **是** | 長度 ≥ 12；腳本不會把密碼寫進 log |
-| `MARKINSIGHT_SEED_TEACHER_EMAIL` / `MARKINSIGHT_SEED_TEACHER_PASSWORD` | 部分為密鑰 | 可選同步建立教師 |
-| `MARKINSIGHT_SEED_SCHOOL_ID` | 否 | 教師所屬學校 id（預設 `demo_school`） |
+| `MARKINSIGHT_SEED_TEACHER_EMAIL` / `MARKINSIGHT_SEED_TEACHER_PASSWORD` | 部分為密鑰 | 可選同步建立／重設教師 |
+| `MARKINSIGHT_SEED_SCHOOL_ID` | 否 | 教師所屬學校 id（預設 `demo_school`；非 `demo_school` 時學校顯示名稱為 `School`，不會寫成「Demo School」） |
 
 ---
 
@@ -104,6 +104,44 @@ npx prisma db push
 npm run build && npm run start
 ```
 
+### 4. VPS / Coolify 短指引
+
+- 前面放 **HTTPS 反向代理**（Caddy、Traefik、Nginx 或 Coolify 內建 proxy），終止 TLS 後轉發到單一 web 容器的 `3000`。
+- 設定 `NEXTAUTH_URL=https://你的公開網域`（必須與瀏覽器網址一致）。
+- 為 **Postgres** 與 **上載目錄**（`STORAGE_LOCAL_DIR` / Compose 的 `markinsight_data`）各自掛載**持久化 volume**。
+- **只跑一個 web 實例**（見上文 in-process job runner）；不要水平擴充 MarkInsight web。
+
+---
+
+## 更改管理員／教師密碼
+
+目前**沒有**自助更改密碼功能（已知缺口）。重設方式：
+
+1. 以新密碼再跑一次 seed（idempotent，會更新 `passwordHash`）：
+
+```bash
+export DATABASE_URL='postgresql://…'
+export MARKINSIGHT_SEED_ADMIN_EMAIL='you@school.edu.hk'
+export MARKINSIGHT_SEED_ADMIN_PASSWORD='new-strong-password-here'
+# 可選：同步重設教師
+# export MARKINSIGHT_SEED_TEACHER_EMAIL='teacher@school.edu.hk'
+# export MARKINSIGHT_SEED_TEACHER_PASSWORD='another-new-strong-password'
+# export MARKINSIGHT_SEED_SCHOOL_ID='your_school_id'
+npm run db:seed-admin
+```
+
+2. 管理後台「建立教師」會產生**隨機臨時密碼**（≥16 字元），只在建立回應／畫面顯示一次；之後若要改密，同樣用上面的 seed 覆寫雜湊。
+
+腳本**不會**把密碼印到 log。
+
+---
+
+## 試用規則（資料安全）
+
+- 只用**示範資料**或已**去識別**的試卷／答卷。
+- **不要**上載真實學生答卷、真實姓名或其他可識別個人資料。
+- 在任何教師開始使用之前：Paul 必須先用一份**去識別**試卷跑通一次真實 OpenRouter 分析，確認逾時行為與結果質素。在此之前，公開 URL **只供 Paul 本人**使用。
+
 ---
 
 ## (c) Go-live 檢查清單
@@ -121,8 +159,6 @@ npm run build && npm run start
 
 3. **建立第一個真實管理員（不要用示範帳戶）**
 
-   管理後台「新增教師」目前仍使用開發用 stub 密碼 `password`（見 API 註解）。正式環境請用 seed 腳本建立有真實 `passwordHash` 的帳戶：
-
    ```bash
    export DATABASE_URL='postgresql://…'
    export MARKINSIGHT_SEED_ADMIN_EMAIL='you@school.edu.hk'
@@ -130,30 +166,53 @@ npm run build && npm run start
    # 可選教師：
    # export MARKINSIGHT_SEED_TEACHER_EMAIL='teacher@school.edu.hk'
    # export MARKINSIGHT_SEED_TEACHER_PASSWORD='another-strong-password'
-   # export MARKINSIGHT_SEED_SCHOOL_ID='demo_school'
+   # export MARKINSIGHT_SEED_SCHOOL_ID='your_school_id'
    npm run db:seed-admin
    ```
 
-   腳本可重跑（idempotent），**不會**把密碼印到 log。
+4. **【必須】若此資料庫曾經跑過本地 demo：刪除或重設示範帳戶**
 
-4. **清除本機示範資料（若此資料庫曾跑過本地 demo）**
-   - 有 `passwordHash` 的資料庫使用者**優先**於示範登入政策。若曾 bootstrap 過 `demo_teacher` / `demo_student`（或電郵 `*@example.com`），其雜湊可能仍對應字面 `password`。
-   - 正式上線前請刪除這些列，或用 seed／SQL 換成強密碼雜湊。
+   有 `passwordHash` 的資料庫使用者**優先**於示範登入政策。本地 bootstrap 可能留下 id `demo_admin` / `demo_teacher` / `demo_student`，或電郵 `*@example.com`，其雜湊仍可能對應字面 `password`。
 
-5. **煙霧驗證**
+   - [ ] **已刪除或重設**上述示範帳戶（或改用全新資料庫——**強烈建議**正式環境用全新 Postgres volume）
+
+   **優先：全新資料庫**（Compose 範例：`docker compose down -v` 後再 `up`，會清掉 DB 與上載 volume——只在確定可丟資料時使用）。
+
+   **可選 SQL**（外鍵可能連帶刪除 enrollment／相關列；執行前請備份。表名以 Prisma 預設為準）：
+
+   ```sql
+   DELETE FROM "User"
+   WHERE id IN ('demo_admin', 'demo_teacher', 'demo_student')
+      OR email IN (
+        'admin@example.com',
+        'teacher@example.com',
+        'student@example.com'
+      )
+      OR email LIKE '%@example.com';
+   ```
+
+5. **持久化驗證**
+   - [ ] 上載一份檔案 → 重新部署／重建 web 容器 → 該檔仍可開啟（確認 volume 生效）
+
+6. **試用／上線閘門**
+   - [ ] 只使用示範或去識別資料（見上文「試用規則」）
+   - [ ] Paul 已用去識別試卷完成一次真實 OpenRouter 分析（逾時與質素 OK）後，才讓教師使用；在此之前 URL 僅供 Paul
+
+7. **煙霧驗證**
    - [ ] 開啟登入頁：不應出現示範帳戶區塊或字面 `password` 提示
    - [ ] 以 seed 管理員登入成功；以 `admin@example.com` / `password` 必須失敗
+   - [ ] 管理後台新建教師：畫面顯示一次性臨時密碼（可複製），其後列表不再顯示明文
    - [ ] 教師開卷 → 上載 → 結構分析；學生上載答卷 → 評分（需有效 OpenRouter）
 
 ---
 
-## 本地示範（筆電 / Compose）— 維持舊行為
+## 本地示範（筆電 / Compose）
 
-以下組合必須與改動前相同：
+`.env.example` 預設 `MARKINSIGHT_ANALYSIS_DEMO=false`。本地要還原舊示範行為時，**必須手動**設為 `true`：
 
 1. `.env` 中 `MARKINSIGHT_ANALYSIS_DEMO=true`
 2. **不要**設定 `MARKINSIGHT_DEMO_PASSWORD`（或從 `.env` 移除）
 3. 登入頁顯示示範帳戶，密碼提示為 `password`
 4. `admin@example.com` / `teacher@example.com` / `student@example.com` 皆可以 `password` 登入
 
-`.env.example` 預設已將 `MARKINSIGHT_ANALYSIS_DEMO=true`，方便 `cp .env.example .env` 後直接本機示範。正式部署前務必改為 `false`。
+正式部署務必保持 `MARKINSIGHT_ANALYSIS_DEMO=false` 或未設定。

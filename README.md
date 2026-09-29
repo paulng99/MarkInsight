@@ -38,21 +38,23 @@ Every successful analysis persists the model id on `AnalysisJob.llmModel` plus `
 npm install
 cp .env.example .env
 # set DATABASE_URL, NEXTAUTH_SECRET / AUTH_SECRET, NEXTAUTH_URL
-# .env.example defaults MARKINSIGHT_ANALYSIS_DEMO=true so local demo login with "password" still works
+# for local demo login with "password": set MARKINSIGHT_ANALYSIS_DEMO=true
+# (.env.example defaults to false — you must set this manually)
 npx prisma db push
 npm run dev
 ```
 
-**Public deploy:** see **[docs/DEPLOYMENT.md](./docs/DEPLOYMENT.md)**. Set `MARKINSIGHT_ANALYSIS_DEMO=false` (or unset) so the legacy password cannot work; create real accounts with `npm run db:seed-admin`.
+**Public deploy:** see **[docs/DEPLOYMENT.md](./docs/DEPLOYMENT.md)**. Keep `MARKINSIGHT_ANALYSIS_DEMO=false` (or unset) so the legacy password cannot work; create real accounts with `npm run db:seed-admin`. There is no self-service password change — re-run the seed with new values to reset.
 
 ### Run with Docker (local laptop demo)
 
 Requires Docker Compose and a root `.env` (copy from `.env.example`). Compose starts Postgres and the built Next.js app; it **overrides** `DATABASE_URL` to the Compose `db` service (does not use the optional local `markinsight-db` on port 5434).
 
-With `.env.example` defaults (`MARKINSIGHT_ANALYSIS_DEMO=true`, no `MARKINSIGHT_DEMO_PASSWORD`), demo accounts still accept **`password`** and the login page still shows the demo hint — same as before.
+For the classic demo (`password` + login-page hint), **set `MARKINSIGHT_ANALYSIS_DEMO=true` in `.env`** and leave `MARKINSIGHT_DEMO_PASSWORD` unset. The example file defaults to `false` so a public deploy cannot inherit the legacy password by accident.
 
 ```bash
 cp .env.example .env   # if needed; set NEXTAUTH_SECRET / AUTH_SECRET
+# echo 'MARKINSIGHT_ANALYSIS_DEMO=true' >> .env   # required for local demo login
 docker compose up --build -d
 # App: http://localhost:3000
 docker compose logs -f web
@@ -112,7 +114,7 @@ See **[docs/architecture.md](./docs/architecture.md)**.
 
 ### Dev sign-in (local only)
 
-Only when `MARKINSIGHT_ANALYSIS_DEMO=true` and `MARKINSIGHT_DEMO_PASSWORD` is unset:
+Only when you have **manually** set `MARKINSIGHT_ANALYSIS_DEMO=true` and left `MARKINSIGHT_DEMO_PASSWORD` unset:
 
 | Email | Password | Role |
 |-------|----------|------|

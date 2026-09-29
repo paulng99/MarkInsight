@@ -3,7 +3,10 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { auth } from "@/auth";
 import { loginAction } from "./actions";
-import { getDemoLoginPolicy } from "@/lib/auth/demo-login-policy";
+import {
+  getDemoLoginPolicy,
+  shouldShowLoginDemoBlock,
+} from "@/lib/auth/demo-login-policy";
 import { getDictionary, parseLocale } from "@/lib/i18n/dictionaries";
 import { homePathForRole } from "@/lib/rbac";
 import { LoginForm } from "@/components/auth/login-form";
@@ -84,7 +87,7 @@ export default async function LoginPage({
                 locale={locale}
                 t={t}
                 error={params.error}
-                showDemoHint={demoPolicy.showHint}
+                showDemoHint={shouldShowLoginDemoBlock(demoPolicy)}
               />
             </div>
           </div>

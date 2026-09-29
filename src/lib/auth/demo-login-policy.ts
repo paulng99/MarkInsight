@@ -103,3 +103,58 @@ export function timingSafeStringEqual(a: string, b: string): boolean {
   }
   return diff === 0;
 }
+
+export type DemoStubUser = {
+  id: string;
+  email: string;
+  name: string | null;
+  role: "ADMIN" | "TEACHER" | "STUDENT";
+  schoolId: string | null;
+};
+
+export const DEMO_STUB_USERS: DemoStubUser[] = [
+  {
+    id: "demo_admin",
+    email: "admin@example.com",
+    name: "Demo Admin",
+    role: "ADMIN",
+    schoolId: null,
+  },
+  {
+    id: "demo_teacher",
+    email: "teacher@example.com",
+    name: "Demo Teacher",
+    role: "TEACHER",
+    schoolId: "demo_school",
+  },
+  {
+    id: "demo_student",
+    email: "student@example.com",
+    name: "Demo Student",
+    role: "STUDENT",
+    schoolId: "demo_school",
+  },
+];
+
+/**
+ * Match stub demo credentials when there is no DB passwordHash.
+ * When policy is disabled, always null — even for *@example.com + "password".
+ */
+export function matchDemoStubCredentials(
+  email: string,
+  password: string,
+  policy: DemoLoginPolicy,
+): DemoStubUser | null {
+  const normalized = email.toLowerCase().trim();
+  if (!normalized || !password) return null;
+  if (!policy.enabled || !policy.password) return null;
+
+  const demo = DEMO_STUB_USERS.find((user) => user.email === normalized);
+  if (!demo || !timingSafeStringEqual(password, policy.password)) return null;
+  return demo;
+}
+
+/** Login page shows the demo block only when policy.showHint is true. */
+export function shouldShowLoginDemoBlock(policy: DemoLoginPolicy): boolean {
+  return policy.showHint === true;
+}

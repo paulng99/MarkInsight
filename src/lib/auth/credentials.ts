@@ -1,12 +1,13 @@
 import bcrypt from "bcryptjs";
 import {
   getDemoLoginPolicy,
-  timingSafeStringEqual,
+  matchDemoStubCredentials,
+  type DemoLoginPolicy,
 } from "@/lib/auth/demo-login-policy";
 import { prisma } from "@/lib/prisma";
 import type { Role } from "@/lib/roles";
 
-type CredentialUser = {
+export type CredentialUser = {
   id: string;
   email: string;
   name: string | null;
@@ -14,40 +15,45 @@ type CredentialUser = {
   schoolId: string | null;
 };
 
-const DEMO_USERS: CredentialUser[] = [
-  {
-    id: "demo_admin",
-    email: "admin@example.com",
-    name: "Demo Admin",
-    role: "ADMIN",
-    schoolId: null,
-  },
-  {
-    id: "demo_teacher",
-    email: "teacher@example.com",
-    name: "Demo Teacher",
-    role: "TEACHER",
-    schoolId: "demo_school",
-  },
-  {
-    id: "demo_student",
-    email: "student@example.com",
-    name: "Demo Student",
-    role: "STUDENT",
-    schoolId: "demo_school",
-  },
-];
+type DbCredentialUser = CredentialUser & {
+  passwordHash: string | null;
+};
+
+export type AuthorizeCredentialsDeps = {
+  findUserByEmail?: (email: string) => Promise<DbCredentialUser | null>;
+  getPolicy?: () => DemoLoginPolicy;
+  comparePassword?: (password: string, hash: string) => Promise<boolean>;
+};
 
 export async function authorizeCredentials(
   email: string,
   password: string,
+  deps: AuthorizeCredentialsDeps = {},
 ): Promise<CredentialUser | null> {
   const normalized = email.toLowerCase().trim();
   if (!normalized || !password) return null;
 
-  const dbUser = await prisma.user.findUnique({ where: { email: normalized } });
+  const findUser =
+    deps.findUserByEmail ??
+    (async (addr) => {
+      const dbUser = await prisma.user.findUnique({ where: { email: addr } });
+      if (!dbUser) return null;
+      return {
+        id: dbUser.id,
+        email: dbUser.email,
+        name: dbUser.name,
+        role: dbUser.role,
+        schoolId: dbUser.schoolId,
+        passwordHash: dbUser.passwordHash,
+      };
+    });
+  const resolvePolicy = deps.getPolicy ?? getDemoLoginPolicy;
+  const compare =
+    deps.comparePassword ?? ((pw, hash) => bcrypt.compare(pw, hash));
+
+  const dbUser = await findUser(normalized);
   if (dbUser?.passwordHash) {
-    const ok = await bcrypt.compare(password, dbUser.passwordHash);
+    const ok = await compare(password, dbUser.passwordHash);
     if (!ok) return null;
     return {
       id: dbUser.id,
@@ -58,10 +64,5 @@ export async function authorizeCredentials(
     };
   }
 
-  const policy = getDemoLoginPolicy();
-  if (!policy.enabled || !policy.password) return null;
-
-  const demo = DEMO_USERS.find((user) => user.email === normalized);
-  if (!demo || !timingSafeStringEqual(password, policy.password)) return null;
-  return demo;
+  return matchDemoStubCredentials(normalized, password, resolvePolicy());
 }

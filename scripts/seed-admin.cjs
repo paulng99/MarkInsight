@@ -83,9 +83,14 @@ async function main() {
       const schoolId = optionalEnv("MARKINSIGHT_SEED_SCHOOL_ID") || "demo_school";
       const teacherName = optionalEnv("MARKINSIGHT_SEED_TEACHER_NAME") || "Teacher";
 
+      // Only the reserved demo_school id uses the "Demo School" label.
+      const schoolName =
+        schoolId === "demo_school"
+          ? "Demo School"
+          : optionalEnv("MARKINSIGHT_SEED_SCHOOL_NAME") || "School";
       await prisma.school.upsert({
         where: { id: schoolId },
-        create: { id: schoolId, name: schoolId === "demo_school" ? "Demo School" : "School" },
+        create: { id: schoolId, name: schoolName },
         update: {},
       });
 

@@ -10,7 +10,7 @@ import { NextResponse } from "next/server";
 
 /**
  * Admin-only teacher account management for a school (MVP).
- * Create with email + name; stub password is "password" (dev).
+ * Create returns a one-time temporaryPassword (never logged; not stored in plaintext).
  */
 
 export async function GET(request: Request) {

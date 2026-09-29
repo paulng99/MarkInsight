@@ -30,10 +30,10 @@ services:
       AUTH_TRUST_HOST: "true"
       STORAGE_PROVIDER: local
       STORAGE_LOCAL_DIR: /app/.data/uploads
-      # Local laptop demo: .env.example sets MARKINSIGHT_ANALYSIS_DEMO=true so
-      # demo accounts still log in with "password". For a public URL, set
-      # MARKINSIGHT_ANALYSIS_DEMO=false in .env (and omit MARKINSIGHT_DEMO_PASSWORD
-      # unless you intentionally enable a strong demo password ≥12 chars).
+      # Local laptop demo: set MARKINSIGHT_ANALYSIS_DEMO=true in .env (example
+      # defaults to false). Then demo accounts accept "password". For a public
+      # URL keep it false/unset (and omit MARKINSIGHT_DEMO_PASSWORD unless you
+      # intentionally enable a strong demo password ≥12 chars).
     volumes:
       - markinsight_data:/app/.data
     depends_on:
