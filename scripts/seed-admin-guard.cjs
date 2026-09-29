@@ -16,6 +16,8 @@ const DEMO_IDENTITY_EXACT = new Set([
 const SEED_ADMIN_DEMO_IDENTITY_ERROR =
   "此電郵屬於示範帳戶用途，不能作為正式管理員。請改用學校的真實電郵地址。";
 
+const MIN_SEED_PASSWORD_LEN = 12;
+
 /**
  * True when `value` is a reserved demo id/email, or an email whose domain is
  * exactly `example.com` (case-insensitive). Subdomains such as
@@ -32,8 +34,34 @@ function isForbiddenSeedIdentity(value) {
   return normalized.endsWith("@example.com");
 }
 
+/**
+ * When a teacher email is set, require a non-empty teacher password of at least
+ * MIN_SEED_PASSWORD_LEN characters. Call this before opening a DB connection
+ * so a missing teacher password cannot leave a newly written admin behind.
+ *
+ * @param {string | null | undefined} teacherEmail
+ * @param {string | null | undefined} teacherPassword
+ * @returns {string | null} English error message for the CLI, or null when OK
+ */
+function validateSeedTeacherPassword(teacherEmail, teacherPassword) {
+  if (teacherEmail == null || !String(teacherEmail).trim()) {
+    return null;
+  }
+  const password =
+    teacherPassword == null ? "" : String(teacherPassword);
+  if (!password.trim()) {
+    return "MARKINSIGHT_SEED_TEACHER_PASSWORD is required when MARKINSIGHT_SEED_TEACHER_EMAIL is set.";
+  }
+  if (password.length < MIN_SEED_PASSWORD_LEN) {
+    return `MARKINSIGHT_SEED_TEACHER_PASSWORD must be at least ${MIN_SEED_PASSWORD_LEN} characters.`;
+  }
+  return null;
+}
+
 module.exports = {
   DEMO_IDENTITY_EXACT,
+  MIN_SEED_PASSWORD_LEN,
   SEED_ADMIN_DEMO_IDENTITY_ERROR,
   isForbiddenSeedIdentity,
+  validateSeedTeacherPassword,
 };

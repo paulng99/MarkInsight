@@ -257,7 +257,7 @@ docker compose -f docker-compose.prod.example.yml up -d --force-recreate web
 - **不要**對外開放 Postgres（`5432`）。正式 Compose 範例亦未發布該埠。
 - 應用程式的 `3000` 僅綁定 `127.0.0.1`；一般情況下無需對公網開放 `3000`。
 
-### 8. 命名 volume 在主機上的位置與備份
+### 8. 命名 volume 在主機上的位置與備份／還原
 
 正式 Compose 使用命名 volume `markinsight_pg`（資料庫）與 `markinsight_uploads`（上載）。專案名固定為 `markinsight`，因此 Docker 完整名稱通常為 `markinsight_markinsight_pg` 與 `markinsight_markinsight_uploads`。
 
@@ -270,31 +270,45 @@ docker volume inspect markinsight_markinsight_pg
 docker volume inspect markinsight_markinsight_uploads
 ```
 
-`docker volume inspect` 輸出中的 `Mountpoint`（常見於 Linux 為 `/var/lib/docker/volumes/<volume-name>/_data`）即為該 volume 在主機上的目錄。備份時可直接對該路徑打包，或使用下列容器方式（無需手動進入 Mountpoint）：
+`docker volume inspect` 輸出中的 `Mountpoint`（常見於 Linux 為 `/var/lib/docker/volumes/<volume-name>/_data`）即為該 volume 在主機上的目錄。若你覆寫了專案名，請以 `docker volume ls`／`inspect` 顯示的完整名稱為準。
+
+#### 資料庫備份（以 `pg_dump` 為準）
+
+**請用 `pg_dump` 備份 Postgres，不要用 `tar` 直接打包正在運行的 Postgres 資料目錄。** 對運行中的資料目錄做檔案級打包可能得到不一致的備份，還原亦不可靠。將 `YOUR_USER`／`YOUR_DB` 換成 `.env` 中的 `POSTGRES_USER`／`POSTGRES_DB`：
 
 ```bash
 mkdir -p backups
 
-# 備份 Postgres 資料目錄
-docker run --rm \
-  -v markinsight_markinsight_pg:/data:ro \
-  -v "$(pwd)/backups:/backups" \
-  alpine tar czf /backups/pg-$(date +%Y-%m-%d).tar.gz -C /data .
+docker compose -f docker-compose.prod.example.yml exec -T db \
+  pg_dump -U YOUR_USER YOUR_DB > "backups/markinsight-$(date +%Y-%m-%d).sql"
+```
 
-# 備份上載檔
+#### 資料庫還原
+
+在目標環境的 Compose 已啟動、且你確認可以覆寫該資料庫內容之後：
+
+```bash
+# 將 dump 匯入（會依 SQL 內容建立／覆寫物件；執行前請確認目標庫可接受覆寫）
+docker compose -f docker-compose.prod.example.yml exec -T db \
+  psql -U YOUR_USER -d YOUR_DB < "backups/markinsight-YYYY-MM-DD.sql"
+```
+
+若需要先清空再還原，請先備份現行庫，再依維運程序重建資料庫（例如在確認可丟棄現行資料後使用 `docker compose … down` 並視需要處理 volume），然後重新 `up` 並執行上述 `psql` 匯入。還原後請執行一次「持久化驗證」與登入煙霧測試。
+
+#### 上載檔備份
+
+上載 volume 為一般檔案，可用容器打包（無需手動進入 Mountpoint）：
+
+```bash
+mkdir -p backups
+
 docker run --rm \
   -v markinsight_markinsight_uploads:/data:ro \
   -v "$(pwd)/backups:/backups" \
   alpine tar czf /backups/uploads-$(date +%Y-%m-%d).tar.gz -C /data .
 ```
 
-若你覆寫了專案名，請以 `docker volume ls`／`inspect` 顯示的完整名稱為準。亦可在資料庫容器內使用 `pg_dump`（將 `YOUR_USER`／`YOUR_DB` 換成 `.env` 中的 `POSTGRES_USER`／`POSTGRES_DB`）：
-
-```bash
-docker compose -f docker-compose.prod.example.yml exec -T db \
-  pg_dump -U YOUR_USER YOUR_DB > "backups/markinsight-$(date +%Y-%m-%d).sql"
-```
-
+還原上載檔時，將 tar 解壓回 `markinsight_markinsight_uploads` 對應的 volume（或停止 web 後把檔案放回 `STORAGE_LOCAL_DIR`），再啟動 web 並確認檔案可開啟。
 ### 9. 升級程序
 
 ```bash
@@ -310,6 +324,17 @@ docker compose -f docker-compose.prod.example.yml up -d --build
 1. 以管理員或教師身分上載一份檔案（試卷或答卷）。
 2. 執行 `docker compose -f docker-compose.prod.example.yml up -d --build`（或 `--force-recreate web`）重新部署。
 3. 確認該檔案仍可開啟。若檔案消失，代表上載 volume 未正確掛載，須修復後再上線。
+
+### 11. 上載目錄權限驗證（`nextjs` 使用者與命名 volume）
+
+正式映像以非 root 的 `nextjs` 使用者運行，並在建置時建立 `/app/.data/uploads` 且 `chown` 給 `nextjs:nodejs`。正式 Compose 把命名 volume 掛在 `/app/.data/uploads`；本地示範 Compose 則掛在 `/app/.data`（上載路徑仍為 `/app/.data/uploads`）。`docker/entrypoint.sh` 與 Compose **不會**在啟動時改寫該目錄的擁有者。
+
+具名 volume 的掛載點在部分環境可能由 root 擁有，導致 `nextjs` 無法寫入而上載失敗。請在目標主機完成下列驗證（本倉庫的 Cloud Agent 環境若沒有 Docker，則無法在此實測）：
+
+1. 以教師或管理員登入，上載一份試卷或答卷，確認上載成功。
+2. 執行 `docker compose -f docker-compose.prod.example.yml restart web`（或 `--force-recreate web`）重啟容器。
+3. 確認剛才上載的檔案仍可開啟，且可再次上載新檔。
+4. 若上載失敗且 web 日誌出現 `EACCES`／permission denied，請檢查 volume 掛載點擁有者是否為 `nextjs`（uid 1001），並依主機維運程序修正後重試本節步驟。
 
 ---
 
@@ -405,6 +430,11 @@ docker compose -f docker-compose.prod.example.yml up -d --build
       )
       OR email LIKE '%@example.com';
    ```
+
+   **此 SQL 的覆蓋範圍有限，請留意：**
+
+   - 舊版後台建立、且電郵**不是** `@example.com` 的教師（或其他真實網域帳戶）**不會**被上述語句清除。這類帳戶須由管理員在後台或資料庫中**逐一核對**是否應保留、重設密碼或另行處理。
+   - 上述 `DELETE` 若觸發外鍵級聯刪除，會**連帶刪除**該帳戶相關的試卷與其他關聯資料。執行前請先備份，並確認目標列僅為示範帳戶。
 
    **驗證：** 清理完成後，以 `admin@example.com`／`password`（或其他示範帳戶）登入**必須失敗**。
 

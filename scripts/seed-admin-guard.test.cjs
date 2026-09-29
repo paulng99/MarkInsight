@@ -3,6 +3,8 @@ const test = require("node:test");
 const {
   isForbiddenSeedIdentity,
   SEED_ADMIN_DEMO_IDENTITY_ERROR,
+  MIN_SEED_PASSWORD_LEN,
+  validateSeedTeacherPassword,
 } = require("./seed-admin-guard.cjs");
 
 test("rejects demo email admin@example.com", () => {
@@ -35,5 +37,43 @@ test("exports the written HK Traditional Chinese error copy", () => {
   assert.equal(
     SEED_ADMIN_DEMO_IDENTITY_ERROR,
     "此電郵屬於示範帳戶用途，不能作為正式管理員。請改用學校的真實電郵地址。",
+  );
+});
+
+test("validateSeedTeacherPassword: skips when teacher email is unset", () => {
+  assert.equal(validateSeedTeacherPassword(null, null), null);
+  assert.equal(validateSeedTeacherPassword("", ""), null);
+  assert.equal(validateSeedTeacherPassword("  ", "x"), null);
+});
+
+test("validateSeedTeacherPassword: requires password when teacher email is set", () => {
+  assert.equal(
+    validateSeedTeacherPassword("teacher@school.edu.hk", null),
+    "MARKINSIGHT_SEED_TEACHER_PASSWORD is required when MARKINSIGHT_SEED_TEACHER_EMAIL is set.",
+  );
+  assert.equal(
+    validateSeedTeacherPassword("teacher@school.edu.hk", ""),
+    "MARKINSIGHT_SEED_TEACHER_PASSWORD is required when MARKINSIGHT_SEED_TEACHER_EMAIL is set.",
+  );
+  assert.equal(
+    validateSeedTeacherPassword("teacher@school.edu.hk", "   "),
+    "MARKINSIGHT_SEED_TEACHER_PASSWORD is required when MARKINSIGHT_SEED_TEACHER_EMAIL is set.",
+  );
+});
+
+test("validateSeedTeacherPassword: rejects short passwords", () => {
+  assert.equal(
+    validateSeedTeacherPassword("teacher@school.edu.hk", "short"),
+    `MARKINSIGHT_SEED_TEACHER_PASSWORD must be at least ${MIN_SEED_PASSWORD_LEN} characters.`,
+  );
+});
+
+test("validateSeedTeacherPassword: accepts password of minimum length", () => {
+  assert.equal(
+    validateSeedTeacherPassword(
+      "teacher@school.edu.hk",
+      "a".repeat(MIN_SEED_PASSWORD_LEN),
+    ),
+    null,
   );
 });

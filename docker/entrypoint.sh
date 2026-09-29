@@ -22,7 +22,7 @@ echo "Applying Prisma schema (db push)..."
 prisma db push --schema=./prisma/schema.prisma --skip-generate
 
 # Auth.js sends every sign-in and /api/auth callback to AUTH_URL / NEXTAUTH_URL.
-# The sample .env uses http://localhost:3000, which breaks a droplet opened by IP.
+# The sample .env uses http://localhost:3000, which breaks a host opened by public IP.
 strip_loopback_auth_url() {
   name="$1"
   val=$(printenv "$name" 2>/dev/null || true)
@@ -38,7 +38,7 @@ strip_loopback_auth_url() {
   ' "$val")
   case "$host" in
     localhost|127.0.0.1|::1|0.0.0.0)
-      echo "Ignoring ${name}=${val} (loopback). Sign-in uses the browser host, such as the droplet IP."
+      echo "Ignoring ${name}=${val} (loopback). Sign-in uses the browser host (public IP or domain)."
       unset "$name"
       ;;
   esac
