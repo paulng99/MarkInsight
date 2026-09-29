@@ -13,3 +13,5 @@ This block is written and re-added by `next dev` — verify at `node_modules/nex
 PostgreSQL 16 is installed locally and started on boot. The app database is `markinsight` on `127.0.0.1:5432` (user `markinsight`). If `.env` is missing it is created with `MARKINSIGHT_ANALYSIS_DEMO=true` so exam analysis can run without a live model key. Apply schema changes with `npx prisma db push`.
 
 Run the app with `npm run dev` and open http://localhost:3000. Demo sign-in accounts are in the README.
+
+Docker Engine is often unavailable in this environment. Volume permission checks for `/app/.data`（上載、`exam-structure`、`job-progress`）must be verified on a host that can run Compose; see `docs/DEPLOYMENT.md` section 11.

@@ -14,6 +14,7 @@
  *   MARKINSIGHT_SEED_SCHOOL_ID  (default: demo_school — create school row if missing)
  *
  * Never logs passwords. Safe to re-run (updates hash / role / name).
+ * Passwords are hashed without trimming so the stored hash matches the env value.
  *
  * Usage:
  *   node scripts/seed-admin.cjs
@@ -24,9 +25,10 @@ const bcrypt = require("bcryptjs");
 const {
   isForbiddenSeedIdentity,
   SEED_ADMIN_DEMO_IDENTITY_ERROR,
+  validateSeedPassword,
+  validateSeedTeacherPassword,
+  seedPasswordForHash,
 } = require("./seed-admin-guard.cjs");
-
-const MIN_LEN = 12;
 
 function requireEnv(name) {
   const v = process.env[name];
@@ -50,22 +52,40 @@ function refuseDemoIdentity(label, value) {
 
 async function main() {
   const email = requireEnv("MARKINSIGHT_SEED_ADMIN_EMAIL").toLowerCase();
-  const password = requireEnv("MARKINSIGHT_SEED_ADMIN_PASSWORD");
-  if (password.length < MIN_LEN) {
-    console.error(
-      `[seed-admin] MARKINSIGHT_SEED_ADMIN_PASSWORD must be at least ${MIN_LEN} characters.`,
-    );
+  // Read passwords raw (including empty) — never trim before hashing.
+  const adminPasswordRaw = process.env.MARKINSIGHT_SEED_ADMIN_PASSWORD;
+  const adminPasswordError = validateSeedPassword(
+    "MARKINSIGHT_SEED_ADMIN_PASSWORD",
+    adminPasswordRaw,
+  );
+  if (adminPasswordError) {
+    console.error(`[seed-admin] ${adminPasswordError}`);
     process.exit(1);
   }
+  const password = seedPasswordForHash(/** @type {string} */ (adminPasswordRaw));
+
   const name = optionalEnv("MARKINSIGHT_SEED_ADMIN_NAME") || "Admin";
   const teacherEmailRaw = optionalEnv("MARKINSIGHT_SEED_TEACHER_EMAIL");
   const teacherEmail = teacherEmailRaw ? teacherEmailRaw.toLowerCase() : null;
+  const teacherPasswordRaw = process.env.MARKINSIGHT_SEED_TEACHER_PASSWORD;
 
-  // Refuse demo identities before opening a DB connection.
+  // Refuse demo identities and validate optional teacher password before DB.
   refuseDemoIdentity("MARKINSIGHT_SEED_ADMIN_EMAIL", email);
   if (teacherEmail) {
     refuseDemoIdentity("MARKINSIGHT_SEED_TEACHER_EMAIL", teacherEmail);
   }
+  const teacherPasswordError = validateSeedTeacherPassword(
+    teacherEmail,
+    teacherPasswordRaw,
+  );
+  if (teacherPasswordError) {
+    console.error(`[seed-admin] ${teacherPasswordError}`);
+    process.exit(1);
+  }
+
+  const teacherPassword = teacherEmail
+    ? seedPasswordForHash(/** @type {string} */ (teacherPasswordRaw))
+    : null;
 
   const prisma = new PrismaClient();
   try {
@@ -89,14 +109,7 @@ async function main() {
     });
     console.log(`[seed-admin] ADMIN upserted: ${admin.email} (${admin.id})`);
 
-    if (teacherEmail) {
-      const teacherPassword = requireEnv("MARKINSIGHT_SEED_TEACHER_PASSWORD");
-      if (teacherPassword.length < MIN_LEN) {
-        console.error(
-          `[seed-admin] MARKINSIGHT_SEED_TEACHER_PASSWORD must be at least ${MIN_LEN} characters.`,
-        );
-        process.exit(1);
-      }
+    if (teacherEmail && teacherPassword) {
       const schoolId = optionalEnv("MARKINSIGHT_SEED_SCHOOL_ID") || "demo_school";
       const teacherName = optionalEnv("MARKINSIGHT_SEED_TEACHER_NAME") || "Teacher";
 

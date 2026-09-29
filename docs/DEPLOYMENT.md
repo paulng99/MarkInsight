@@ -7,7 +7,7 @@
 **硬性約束（部署前必讀）：**
 
 1. **Web 只可跑恰好一個實例。** 分析工作在行程內執行；不可設定 `deploy.replicas` 或多副本。
-2. **上載目錄必須使用命名 volume。** 不可改成匿名 volume，也不可省略；否則重新部署會遺失檔案。
+2. **`/app/.data` 必須使用命名 volume。** 涵蓋上載（`uploads`）、結構快取（`exam-structure`）與分析進度（`job-progress`）。不可改成匿名 volume、不可省略，也不可只掛 `uploads` 子目錄；否則重新部署會遺失檔案。
 3. **公開站台必須使用 HTTPS。** 管理後台新建教師時，一次性臨時密碼會以 JSON 回應回傳；若以明文 HTTP 提供，密碼可能被竊聽。
 
 ---
@@ -28,7 +28,7 @@
 | `NEXTAUTH_SECRET` 或 `AUTH_SECRET` | **是** | Auth.js 簽章用隨機字串。產生：`openssl rand -base64 32`（兩者擇一即可；建議兩個都設成同一值） |
 | `OPENROUTER_API_KEY` | **是** | 正式評分／結構分析用。沒有金鑰且未開示範模式時，分析工作會失敗 |
 | `STORAGE_PROVIDER` | 否 | 正式環境請用 `local`（目前唯一實作） |
-| `STORAGE_LOCAL_DIR` | 否 | 必須指向**持久化磁碟區**路徑（正式 Compose 範例：`/app/.data/uploads`）。沒有命名 volume 時重新部署會遺失上載檔 |
+| `STORAGE_LOCAL_DIR` | 否 | 上載根目錄（正式 Compose：`/app/.data/uploads`）。正式範例把整個 `/app/.data` 掛在命名 volume `markinsight_data` 上，因此上載與同目錄下的結構／進度檔一併持久化 |
 
 ### 建議設定
 
@@ -79,12 +79,17 @@
 
 **正式環境請只跑恰好一個 web 實例。** 多副本會導致工作遺失、重複或狀態不一致。需要擴充時，須先改為外部佇列（尚未實作）。正式 Compose 範例只有一個 `web` 服務，且不得加入 `deploy.replicas`。
 
-### 2. 上載使用本機檔案系統
+### 2. 本機檔案系統（上載、結構快取、分析進度）
 
-`STORAGE_PROVIDER=local` 將試卷／答卷寫入 `STORAGE_LOCAL_DIR`（正式 Compose：`/app/.data/uploads`，掛在命名 volume `markinsight_uploads`）。
+`STORAGE_PROVIDER=local` 將試卷／答卷寫入 `STORAGE_LOCAL_DIR`（預設／正式 Compose：`/app/.data/uploads`）。應用程式另外會寫入：
 
-- 必須掛載**命名 volume**
-- 沒有 volume 時，重新部署／重建容器會遺失檔案
+- `.data/exam-structure/`（試卷結構快取；見 `src/lib/exams/service.ts`、`src/lib/jobs/analyze-exam.ts`）
+- `.data/job-progress/`（進行中分析進度；見 `src/lib/jobs/job-progress.ts`）
+
+正式 Compose 因此把命名 volume `markinsight_data` 掛在**整個** `/app/.data`（與本地 `docker-compose.yml` 一致），而不是只掛 `uploads`。
+
+- 必須掛載**命名 volume** 於 `/app/.data`
+- 沒有 volume、或只掛 `uploads` 時，重新部署／重建容器會遺失結構快取與進度檔（上載檔若未掛載亦會一併遺失）
 - 多實例無法共用本機目錄（與「單實例」約束一致）
 
 ### 3. 資料庫 schema 啟動步驟
@@ -257,9 +262,11 @@ docker compose -f docker-compose.prod.example.yml up -d --force-recreate web
 - **不要**對外開放 Postgres（`5432`）。正式 Compose 範例亦未發布該埠。
 - 應用程式的 `3000` 僅綁定 `127.0.0.1`；一般情況下無需對公網開放 `3000`。
 
-### 8. 命名 volume 在主機上的位置與備份
+### 8. 命名 volume 在主機上的位置與備份／還原
 
-正式 Compose 使用命名 volume `markinsight_pg`（資料庫）與 `markinsight_uploads`（上載）。專案名固定為 `markinsight`，因此 Docker 完整名稱通常為 `markinsight_markinsight_pg` 與 `markinsight_markinsight_uploads`。
+正式 Compose 使用命名 volume `markinsight_pg`（資料庫）與 `markinsight_data`（整個 `/app/.data`：上載、`exam-structure`、`job-progress`）。專案名固定為 `markinsight`，因此 Docker 完整名稱通常為 `markinsight_markinsight_pg` 與 `markinsight_markinsight_data`。
+
+若你先前依舊範例使用 `markinsight_uploads`（只掛 `/app/.data/uploads`），升級時請把該 volume 的內容遷入新的 `markinsight_data`（或暫時以綁定掛載把舊 volume 掛到 `/app/.data/uploads` 並另行複製 `exam-structure`／`job-progress`），再改用本節的 volume 名稱。
 
 命名 volume **不是**專案目錄下的一般資料夾；實際資料位於 Docker 管理的主機路徑。請用下列指令查看：
 
@@ -267,33 +274,84 @@ docker compose -f docker-compose.prod.example.yml up -d --force-recreate web
 docker volume ls | grep markinsight
 
 docker volume inspect markinsight_markinsight_pg
-docker volume inspect markinsight_markinsight_uploads
+docker volume inspect markinsight_markinsight_data
 ```
 
-`docker volume inspect` 輸出中的 `Mountpoint`（常見於 Linux 為 `/var/lib/docker/volumes/<volume-name>/_data`）即為該 volume 在主機上的目錄。備份時可直接對該路徑打包，或使用下列容器方式（無需手動進入 Mountpoint）：
+`docker volume inspect` 輸出中的 `Mountpoint`（常見於 Linux 為 `/var/lib/docker/volumes/<volume-name>/_data`）即為該 volume 在主機上的目錄。若你覆寫了專案名，請以 `docker volume ls`／`inspect` 顯示的完整名稱為準。
+
+#### 資料庫備份（以 `pg_dump` 為準）
+
+**請用 `pg_dump` 備份 Postgres，不要用 `tar` 直接打包正在運行的 Postgres 資料目錄。** 對運行中的資料目錄做檔案級打包可能得到不一致的備份，還原亦不可靠。將 `YOUR_USER`／`YOUR_DB` 換成 `.env` 中的 `POSTGRES_USER`／`POSTGRES_DB`：
 
 ```bash
 mkdir -p backups
 
-# 備份 Postgres 資料目錄
-docker run --rm \
-  -v markinsight_markinsight_pg:/data:ro \
-  -v "$(pwd)/backups:/backups" \
-  alpine tar czf /backups/pg-$(date +%Y-%m-%d).tar.gz -C /data .
-
-# 備份上載檔
-docker run --rm \
-  -v markinsight_markinsight_uploads:/data:ro \
-  -v "$(pwd)/backups:/backups" \
-  alpine tar czf /backups/uploads-$(date +%Y-%m-%d).tar.gz -C /data .
-```
-
-若你覆寫了專案名，請以 `docker volume ls`／`inspect` 顯示的完整名稱為準。亦可在資料庫容器內使用 `pg_dump`（將 `YOUR_USER`／`YOUR_DB` 換成 `.env` 中的 `POSTGRES_USER`／`POSTGRES_DB`）：
-
-```bash
 docker compose -f docker-compose.prod.example.yml exec -T db \
   pg_dump -U YOUR_USER YOUR_DB > "backups/markinsight-$(date +%Y-%m-%d).sql"
 ```
+
+若預期會還原到已有 schema 的資料庫，備份時可加上清理指令（還原時會先刪除舊物件）：
+
+```bash
+docker compose -f docker-compose.prod.example.yml exec -T db \
+  pg_dump --clean --if-exists -U YOUR_USER YOUR_DB \
+  > "backups/markinsight-$(date +%Y-%m-%d).sql"
+```
+
+#### 資料庫還原
+
+web 容器啟動時會執行 `prisma db push`，因此目標庫通常**不是空的**。若直接 `psql` 匯入一般 dump，常會遇到 `already exists`。請先停止 web（避免還原期間再次 `db push`），再擇一處理：
+
+**做法 A：先建立空資料庫再匯入**
+
+```bash
+docker compose -f docker-compose.prod.example.yml stop web
+
+# 中斷其他連線後重建空庫（會清空 YOUR_DB 內全部資料）
+docker compose -f docker-compose.prod.example.yml exec -T db \
+  psql -U YOUR_USER -d postgres -v ON_ERROR_STOP=1 <<'SQL'
+SELECT pg_terminate_backend(pid)
+FROM pg_stat_activity
+WHERE datname = 'YOUR_DB' AND pid <> pg_backend_pid();
+DROP DATABASE IF EXISTS "YOUR_DB";
+CREATE DATABASE "YOUR_DB" OWNER "YOUR_USER";
+SQL
+
+docker compose -f docker-compose.prod.example.yml exec -T db \
+  psql -U YOUR_USER -d YOUR_DB -v ON_ERROR_STOP=1 \
+  < "backups/markinsight-YYYY-MM-DD.sql"
+
+docker compose -f docker-compose.prod.example.yml start web
+```
+
+**做法 B：使用含 `--clean --if-exists` 的 dump**
+
+```bash
+docker compose -f docker-compose.prod.example.yml stop web
+
+docker compose -f docker-compose.prod.example.yml exec -T db \
+  psql -U YOUR_USER -d YOUR_DB -v ON_ERROR_STOP=1 \
+  < "backups/markinsight-YYYY-MM-DD.sql"
+
+docker compose -f docker-compose.prod.example.yml start web
+```
+
+`-v ON_ERROR_STOP=1` 可在第一個 SQL 錯誤時立刻停止，避免半套資料被當成成功還原。還原後請執行一次「持久化驗證」與登入煙霧測試。
+
+#### `/app/.data` 檔案備份
+
+應用程式資料 volume 為一般檔案，可用容器打包（無需手動進入 Mountpoint）：
+
+```bash
+mkdir -p backups
+
+docker run --rm \
+  -v markinsight_markinsight_data:/data:ro \
+  -v "$(pwd)/backups:/backups" \
+  alpine tar czf /backups/data-$(date +%Y-%m-%d).tar.gz -C /data .
+```
+
+還原時，將 tar 解壓回 `markinsight_markinsight_data` 對應的 volume（或停止 web 後把檔案放回 `/app/.data`），再啟動 web，並確認上載檔可開啟。
 
 ### 9. 升級程序
 
@@ -307,9 +365,20 @@ docker compose -f docker-compose.prod.example.yml up -d --build
 
 ### 10. 持久化驗證
 
-1. 以管理員或教師身分上載一份檔案（試卷或答卷）。
+1. 以管理員或教師身分上載一份檔案（試卷或答卷）；若條件允許，再跑一次結構分析以寫入 `exam-structure`／`job-progress`。
 2. 執行 `docker compose -f docker-compose.prod.example.yml up -d --build`（或 `--force-recreate web`）重新部署。
-3. 確認該檔案仍可開啟。若檔案消失，代表上載 volume 未正確掛載，須修復後再上線。
+3. 確認該上載檔仍可開啟。若檔案消失，代表 `/app/.data` volume 未正確掛載，須修復後再上線。
+
+### 11. `/app/.data` 權限與持久化驗證（`nextjs` 使用者與命名 volume）
+
+正式映像以非 root 的 `nextjs` 使用者（uid 1001）運行，建置時會建立 `/app/.data/uploads`、`/app/.data/exam-structure`、`/app/.data/job-progress` 並 `chown` 給 `nextjs:nodejs`。正式與本地 Compose 皆把命名 volume 掛在**整個** `/app/.data`。`docker/entrypoint.sh` 與 Compose **不會**在啟動時改寫該目錄的擁有者。
+
+具名 volume 的掛載點在部分主機上可能由 root 擁有，導致 `nextjs` 無法寫入。請在**實際部署該 Compose 的主機**上完成下列驗證（若建置或驗證環境沒有 Docker Engine，請改在目標 VPS 執行，勿略過）：
+
+1. 以教師或管理員登入，上載一份試卷或答卷，確認上載成功。
+2. 執行 `docker compose -f docker-compose.prod.example.yml restart web`（或 `--force-recreate web`）重啟容器。
+3. 確認剛才上載的檔案仍可開啟，且可再次上載新檔。
+4. 若上載失敗且 web 日誌出現 `EACCES`／permission denied，請檢查 volume 掛載點擁有者是否為 `nextjs`（uid 1001），並依主機維運程序修正後重試本節步驟。
 
 ---
 
@@ -348,7 +417,7 @@ docker compose -f docker-compose.prod.example.yml up -d --build
 
 1. **硬性約束**
    - [ ] Web 僅單一實例（無 `deploy.replicas`、無水平擴充）
-   - [ ] 上載使用命名 volume（`markinsight_uploads` 或等效命名 volume），掛載於 `STORAGE_LOCAL_DIR`；未改成匿名 volume
+   - [ ] `/app/.data` 使用命名 volume（`markinsight_data` 或等效命名 volume），涵蓋 uploads／exam-structure／job-progress；未改成匿名 volume，亦未只掛 uploads 子目錄
    - [ ] 公開站台使用 HTTPS（新建教師臨時密碼會出現在 JSON 回應中）
 
 2. **密鑰與 URL**
@@ -359,7 +428,7 @@ docker compose -f docker-compose.prod.example.yml up -d --build
    - [ ] 未設定弱的 `MARKINSIGHT_DEMO_PASSWORD`；若不需要示範帳戶則保持未設定
 
 3. **儲存與資料庫**
-   - [ ] `STORAGE_LOCAL_DIR` 在持久化命名 volume 上（可用 `docker volume inspect` 確認 `Mountpoint`）
+   - [ ] `/app/.data`（含 `STORAGE_LOCAL_DIR`）在持久化命名 volume 上（可用 `docker volume inspect` 確認 `Mountpoint`）
    - [ ] Postgres 資料亦在持久化命名 volume（正式 Compose：`markinsight_pg`）
    - [ ] 防火牆開放 80／443；未對外開放 5432
 
@@ -382,9 +451,9 @@ docker compose -f docker-compose.prod.example.yml up -d --build
 
    **資料庫名稱：** 正式 Compose（`docker-compose.prod.example.yml`）的 Postgres 服務名為 `db`；資料庫名稱為 `.env` 中的 **`POSTGRES_DB`**（與 `POSTGRES_USER`／`POSTGRES_PASSWORD`／`DATABASE_URL` 必須一致）。本地示範 Compose（`docker-compose.yml`）預設資料庫名稱為 **`markinsight`**（使用者／密碼同為 `markinsight`）。正式環境請改用你自己設定的 `POSTGRES_*`，**不要**沿用示範密碼。
 
-   **優先：全新資料庫**（Compose 範例：`docker compose -f docker-compose.prod.example.yml down -v` 後再 `up`，會清掉 DB 與上載 volume——只在確定可丟資料時使用）。
+   **優先：全新資料庫**（Compose 範例：`docker compose -f docker-compose.prod.example.yml down -v` 後再 `up`，會清掉 DB 與 `/app/.data` volume——只在確定可丟資料時使用）。
 
-   **可選 SQL**（外鍵可能連帶刪除 enrollment／相關列；執行前請備份。表名以 Prisma 預設為準）。在已啟動的正式 Compose 環境，對服務 `db`、資料庫 `$POSTGRES_DB` 執行：
+   **可選 SQL**（外鍵級聯見下；執行前請備份。表名以 Prisma 預設為準）。在已啟動的正式 Compose 環境，對服務 `db`、資料庫 `$POSTGRES_DB` 執行：
 
    ```bash
    docker compose -f docker-compose.prod.example.yml exec db \
@@ -393,7 +462,21 @@ docker compose -f docker-compose.prod.example.yml up -d --build
 
    （若 shell 未載入 `.env`，請把 `$POSTGRES_USER`／`$POSTGRES_DB` 換成你實際設定的值，例如使用者 `markinsight`、資料庫 `markinsight`。）
 
-   進入 `psql` 後執行：
+   進入 `psql` 後，**先用 `SELECT` 預覽**將會被刪除的列，確認沒有誤傷真實帳戶：
+
+   ```sql
+   SELECT id, email, role
+   FROM "User"
+   WHERE id IN ('demo_admin', 'demo_teacher', 'demo_student')
+      OR email IN (
+        'admin@example.com',
+        'teacher@example.com',
+        'student@example.com'
+      )
+      OR email ILIKE '%@example.com';
+   ```
+
+   核對無誤後再執行刪除（`ILIKE` 可涵蓋大小寫不同的 `@example.com` 電郵）：
 
    ```sql
    DELETE FROM "User"
@@ -403,8 +486,13 @@ docker compose -f docker-compose.prod.example.yml up -d --build
         'teacher@example.com',
         'student@example.com'
       )
-      OR email LIKE '%@example.com';
+      OR email ILIKE '%@example.com';
    ```
+
+   **此 SQL 的覆蓋範圍與級聯關係（見 `prisma/schema.prisma`），請留意：**
+
+   - 舊版後台建立、且電郵**不是** `@example.com` 的教師（或其他真實網域帳戶）**不會**被上述語句清除。這類帳戶須由管理員在後台或資料庫中**逐一核對**是否應保留、重設密碼或另行處理。
+   - 刪除使用者時，外鍵會**連帶刪除**該帳戶的答卷（`Submission`，`studentId` 為 Cascade）與經答卷級聯的分析結果（`AnalysisJob` 等）。試卷（`Exam`）的建立者欄位（`createdById`）只會設為 `NULL`，試卷列本身不會因刪除使用者而刪除。執行前請先備份，並確認目標列僅為示範帳戶。
 
    **驗證：** 清理完成後，以 `admin@example.com`／`password`（或其他示範帳戶）登入**必須失敗**。
 
@@ -447,7 +535,7 @@ docker compose up --build -d
 - 建置並執行本倉庫的 **Dockerfile** 映像。
 - 注入與上文相同的環境變數（尤其是 `NEXTAUTH_URL`／`AUTH_URL` 的 HTTPS origin、密鑰、`OPENROUTER_API_KEY`、`MARKINSIGHT_ANALYSIS_DEMO=false`，以及一致的 `POSTGRES_*`／`DATABASE_URL`）。
 - **只跑一個 web 實例**（分析工作在行程內執行）。
-- 為 `STORAGE_LOCAL_DIR` 掛載**持久化 volume**；Postgres 亦須持久化。
+- 為整個 `/app/.data` 掛載**持久化 volume**（含上載、結構快取與分析進度）；Postgres 亦須持久化。
 - 前面放置 HTTPS 反向代理（許多 PaaS 內建），並將公開 origin 寫入 `NEXTAUTH_URL`。
 
 平台僅負責排程與網路；應用程式的單實例、HTTPS 與命名 volume 要求不會因平台而改變。
