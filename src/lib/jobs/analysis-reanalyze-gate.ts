@@ -3,6 +3,12 @@ import { normalizeJobStatus } from "./status-copy";
 /** Idle window before an active PENDING/RUNNING job is treated as stalled and re-analyze is allowed. */
 export const ANALYSIS_STALL_IDLE_MS = 3 * 60 * 1000;
 
+/**
+ * Idle window before showing the “waiting to re-analyze” hint.
+ * Only after this long without a progress touch do we treat the job as possibly interrupted.
+ */
+export const ANALYSIS_WAITING_HINT_IDLE_MS = 60_000;
+
 export type AnalysisReanalyzeGateInput = {
   /** Raw job status (PENDING, RUNNING, ANALYZING, …). */
   jobStatus: string | null | undefined;
@@ -18,13 +24,13 @@ export type AnalysisReanalyzeGate = {
   stalled: boolean;
   /** Disabled specifically because the job is still PENDING/RUNNING (not yet stalled). */
   blockedByActiveJob: boolean;
-  /** Show the waiting copy next to the re-analyze control. */
+  /** Show the waiting copy next to the re-analyze control (suspected interruption only). */
   showWaitingHint: boolean;
 };
 
 /**
  * Shared gate for the teacher exam “re-analyze” control.
- * Reuses the existing idle / startedAt / progress touch threshold — do not invent a second one.
+ * Stall uses the existing three-minute idle threshold; the waiting hint uses a separate one-minute idle threshold.
  */
 export function resolveAnalysisReanalyzeGate(
   input: AnalysisReanalyzeGateInput,
@@ -32,16 +38,20 @@ export function resolveAnalysisReanalyzeGate(
   const phase = input.jobStatus ? normalizeJobStatus(input.jobStatus) : null;
   const jobActive = phase === "PENDING" || phase === "ANALYZING";
   const idleMs = input.touchedAt ? input.now - new Date(input.touchedAt).getTime() : 0;
-  const stalled =
-    jobActive && !input.startingAnalysis && idleMs > ANALYSIS_STALL_IDLE_MS;
-  const blockedByActiveJob =
-    Boolean(input.startingAnalysis) || (jobActive && !stalled);
+  const startingAnalysis = Boolean(input.startingAnalysis);
+  const stalled = jobActive && !startingAnalysis && idleMs > ANALYSIS_STALL_IDLE_MS;
+  const blockedByActiveJob = startingAnalysis || (jobActive && !stalled);
+  // Suspected interruption only: active job, not the brief client start, idle past one minute.
+  // Past three minutes, blockedByActiveJob is already false so the hint stays hidden.
+  const showWaitingHint =
+    blockedByActiveJob &&
+    !startingAnalysis &&
+    idleMs > ANALYSIS_WAITING_HINT_IDLE_MS;
 
   return {
     jobActive,
     stalled,
     blockedByActiveJob,
-    // Only for RUNNING/PENDING (and client starting) disable — not other reasons such as missing paper.
-    showWaitingHint: blockedByActiveJob,
+    showWaitingHint,
   };
 }

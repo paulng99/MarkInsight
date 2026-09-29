@@ -22,12 +22,13 @@ register(
 
 const {
   ANALYSIS_STALL_IDLE_MS,
+  ANALYSIS_WAITING_HINT_IDLE_MS,
   resolveAnalysisReanalyzeGate,
 } = await import("./analysis-reanalyze-gate.ts");
 
 const NOW = Date.parse("2026-09-29T12:00:00.000Z");
 
-test("shows waiting hint while PENDING/RUNNING within the stall idle window", () => {
+test("within 30 seconds the button is blocked but the waiting hint stays hidden", () => {
   const recent = new Date(NOW - 30_000).toISOString();
   for (const jobStatus of ["PENDING", "RUNNING", "ANALYZING", "QUEUED"] as const) {
     const gate = resolveAnalysisReanalyzeGate({
@@ -36,9 +37,45 @@ test("shows waiting hint while PENDING/RUNNING within the stall idle window", ()
       now: NOW,
     });
     assert.equal(gate.blockedByActiveJob, true);
-    assert.equal(gate.showWaitingHint, true);
+    assert.equal(gate.showWaitingHint, false);
     assert.equal(gate.stalled, false);
   }
+});
+
+test("exactly at one minute the waiting hint stays hidden (strictly greater than)", () => {
+  const edge = new Date(NOW - ANALYSIS_WAITING_HINT_IDLE_MS).toISOString();
+  const gate = resolveAnalysisReanalyzeGate({
+    jobStatus: "RUNNING",
+    touchedAt: edge,
+    now: NOW,
+  });
+  assert.equal(gate.blockedByActiveJob, true);
+  assert.equal(gate.showWaitingHint, false);
+  assert.equal(gate.stalled, false);
+});
+
+test("after one minute of idle the waiting hint appears while the button stays blocked", () => {
+  const idle = new Date(NOW - ANALYSIS_WAITING_HINT_IDLE_MS - 1).toISOString();
+  const gate = resolveAnalysisReanalyzeGate({
+    jobStatus: "RUNNING",
+    touchedAt: idle,
+    now: NOW,
+  });
+  assert.equal(gate.blockedByActiveJob, true);
+  assert.equal(gate.showWaitingHint, true);
+  assert.equal(gate.stalled, false);
+});
+
+test("exactly at three minutes the button stays blocked and the hint still shows", () => {
+  const edge = new Date(NOW - ANALYSIS_STALL_IDLE_MS).toISOString();
+  const gate = resolveAnalysisReanalyzeGate({
+    jobStatus: "RUNNING",
+    touchedAt: edge,
+    now: NOW,
+  });
+  assert.equal(gate.stalled, false);
+  assert.equal(gate.blockedByActiveJob, true);
+  assert.equal(gate.showWaitingHint, true);
 });
 
 test("after about three minutes of idle, re-analyze is allowed and the hint hides", () => {
@@ -53,43 +90,19 @@ test("after about three minutes of idle, re-analyze is allowed and the hint hide
   assert.equal(gate.showWaitingHint, false);
 });
 
-test("exactly at the stall threshold the button stays blocked", () => {
-  const edge = new Date(NOW - ANALYSIS_STALL_IDLE_MS).toISOString();
-  const gate = resolveAnalysisReanalyzeGate({
-    jobStatus: "RUNNING",
-    touchedAt: edge,
-    now: NOW,
-  });
-  assert.equal(gate.stalled, false);
-  assert.equal(gate.blockedByActiveJob, true);
-  assert.equal(gate.showWaitingHint, true);
-});
-
-test("succeeded or failed jobs do not show the waiting hint", () => {
-  for (const jobStatus of ["SUCCEEDED", "FAILED", "DONE"] as const) {
-    const gate = resolveAnalysisReanalyzeGate({
-      jobStatus,
-      touchedAt: new Date(NOW - 60_000).toISOString(),
-      now: NOW,
-    });
-    assert.equal(gate.showWaitingHint, false);
-    assert.equal(gate.blockedByActiveJob, false);
-  }
-});
-
-test("client startingAnalysis blocks and shows the hint even without touchedAt", () => {
+test("startingAnalysis blocks the button but never shows the waiting hint", () => {
   const gate = resolveAnalysisReanalyzeGate({
     jobStatus: "PENDING",
-    touchedAt: null,
+    touchedAt: new Date(NOW - ANALYSIS_WAITING_HINT_IDLE_MS - 1).toISOString(),
     now: NOW,
     startingAnalysis: true,
   });
   assert.equal(gate.blockedByActiveJob, true);
-  assert.equal(gate.showWaitingHint, true);
+  assert.equal(gate.showWaitingHint, false);
   assert.equal(gate.stalled, false);
 });
 
-test("RUNNING with neither startedAt nor progress stays blocked (known limitation)", () => {
+test("RUNNING with neither startedAt nor progress stays blocked without the hint", () => {
   const gate = resolveAnalysisReanalyzeGate({
     jobStatus: "RUNNING",
     touchedAt: null,
@@ -98,5 +111,17 @@ test("RUNNING with neither startedAt nor progress stays blocked (known limitatio
   assert.equal(gate.jobActive, true);
   assert.equal(gate.stalled, false);
   assert.equal(gate.blockedByActiveJob, true);
-  assert.equal(gate.showWaitingHint, true);
+  assert.equal(gate.showWaitingHint, false);
+});
+
+test("succeeded or failed jobs do not show the waiting hint", () => {
+  for (const jobStatus of ["SUCCEEDED", "FAILED", "DONE"] as const) {
+    const gate = resolveAnalysisReanalyzeGate({
+      jobStatus,
+      touchedAt: new Date(NOW - ANALYSIS_WAITING_HINT_IDLE_MS - 1).toISOString(),
+      now: NOW,
+    });
+    assert.equal(gate.showWaitingHint, false);
+    assert.equal(gate.blockedByActiveJob, false);
+  }
 });
