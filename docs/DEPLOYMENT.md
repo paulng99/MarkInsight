@@ -61,7 +61,7 @@
 
 | 變數 | 密鑰？ | 說明 |
 |------|--------|------|
-| `MARKINSIGHT_SEED_ADMIN_EMAIL` | 否 | 見下方 go-live。**第一個真實管理員請勿使用 `@example.com` 電郵**（示範帳戶保留電郵；正式環境在示範登入關閉時會拒絕這些身分） |
+| `MARKINSIGHT_SEED_ADMIN_EMAIL` | 否 | 見下方 go-live。**不可**使用 `@example.com` 或示範身分；`seed-admin` 會在寫入資料庫前拒絕並顯示「此電郵屬於示範帳戶用途，不能作為正式管理員。請改用學校的真實電郵地址。」 |
 | `MARKINSIGHT_SEED_ADMIN_PASSWORD` | **是** | 長度 ≥ 12；腳本不會把密碼寫進 log |
 | `MARKINSIGHT_SEED_TEACHER_EMAIL` / `MARKINSIGHT_SEED_TEACHER_PASSWORD` | 部分為密鑰 | 可選同步建立／重設教師 |
 | `MARKINSIGHT_SEED_SCHOOL_ID` | 否 | 教師所屬學校 id（預設 `demo_school`；非 `demo_school` 時學校顯示名稱預設為 `School`，不會寫成「Demo School」） |
@@ -187,7 +187,7 @@ docker compose -f docker-compose.prod.example.yml logs -f web
 
 ### 5. 建立第一個管理員（`npm run db:seed-admin`）
 
-正式映像已包含 `scripts/seed-admin.cjs` 與執行所需的 `bcryptjs`／Prisma client。在 **Compose 已啟動且 Postgres 不對外公開** 的情況下，請在 `web` 容器內建立第一個真實管理員（**請勿使用 `@example.com` 電郵**）：
+正式映像已包含 `scripts/seed-admin.cjs`、`scripts/seed-admin-guard.cjs` 與執行所需的 `bcryptjs`／Prisma client。在 **Compose 已啟動且 Postgres 不對外公開** 的情況下，請在 `web` 容器內建立第一個真實管理員（**請勿使用 `@example.com` 電郵**）：
 
 ```bash
 docker compose -f docker-compose.prod.example.yml exec \
@@ -205,7 +205,11 @@ docker compose -f docker-compose.prod.example.yml exec \
   web node scripts/seed-admin.cjs
 ```
 
-可選同步建立／重設教師（會覆寫該教師的 `passwordHash`）：
+**示範身分拒絕：** `seed-admin` 會在連線資料庫**之前**拒絕任何以 `@example.com` 結尾的電郵（大小寫不拘），以及示範帳戶身分（`admin@example.com`／`teacher@example.com`／`student@example.com`／`demo_admin`／`demo_teacher`／`demo_student`），並以非零狀態結束，顯示：
+
+> 此電郵屬於示範帳戶用途，不能作為正式管理員。請改用學校的真實電郵地址。
+
+可選同步建立／重設教師（會覆寫該教師的 `passwordHash`；教師電郵同樣受上述示範身分檢查）：
 
 ```bash
 docker compose -f docker-compose.prod.example.yml exec \
@@ -362,30 +366,32 @@ docker compose -f docker-compose.prod.example.yml up -d --build
 4. **建立第一個真實管理員（不要用示範帳戶）**
 
    使用上文「Any Linux VPS」第 5 步，在 `web` 容器內執行 `npm run db:seed-admin`。
-   - [ ] 管理員電郵**不是** `@example.com`（正式環境會拒絕示範身分登入）
+   - [ ] 管理員電郵**不是** `@example.com`（`seed-admin` 會拒絕示範電郵／身分並顯示上述錯誤；正式環境亦會拒絕示範身分登入）
    - [ ] 已用 seed 建立真實管理員，並以該帳戶登入成功
 
 5. **【必須】若此資料庫曾經跑過本地 demo：刪除或重設示範帳戶**
 
-   本地 bootstrap 可能留下 id `demo_admin`／`demo_teacher`／`demo_student`，或電郵 `admin@example.com`／`teacher@example.com`／`student@example.com`，其雜湊仍可能對應字面 `password`。
+   本地 bootstrap 可能留下 id `demo_admin`／`demo_teacher`／`demo_student`，或電郵 `admin@example.com`／`teacher@example.com`／`student@example.com`。若不清理，舊的示範 `passwordHash` 會繼續留在資料庫內，日後一旦誤開示範模式就可能再次暴露。
 
-   **程式防護：** 當示範登入政策關閉時（正式環境預設），`authorizeCredentials` 會拒絕上述示範電郵與示範 id，**即使**資料庫列仍有 `passwordHash`。真實帳戶（其他電郵）不受影響。
+   **程式防護：** 當示範登入政策關閉時（正式環境預設），`authorizeCredentials` 會拒絕上述示範電郵與示範 id，**即使**資料庫列仍有 `passwordHash`。真實帳戶（其他電郵）不受影響。另外，`seed-admin` 會拒絕 `@example.com` 與示範身分（見上文「建立第一個管理員」），錯誤訊息為：「此電郵屬於示範帳戶用途，不能作為正式管理員。請改用學校的真實電郵地址。」
 
    仍強烈建議清除或重設這些示範列（或使用全新資料庫），以免日後誤開示範模式時再次暴露：
 
    - [ ] **已刪除或重設**上述示範帳戶（或改用全新資料庫——**強烈建議**正式環境用全新 Postgres volume）；刪除後以 `admin@example.com`／`password` 登入**必須失敗**
-   - [ ] 第一個真實管理員電郵**不是** `@example.com`
+   - [ ] 第一個真實管理員電郵**不是** `@example.com`（`seed-admin` 會拒絕並顯示上述錯誤）
 
-   本地示範 Compose（`docker-compose.yml`）預設資料庫名稱為 **`markinsight`**（使用者／密碼同為 `markinsight`）。正式環境請改用 `.env` 中你自己設定的 `POSTGRES_*`／`DATABASE_URL`，**不要**沿用示範密碼。
+   **資料庫名稱：** 正式 Compose（`docker-compose.prod.example.yml`）的 Postgres 服務名為 `db`；資料庫名稱為 `.env` 中的 **`POSTGRES_DB`**（與 `POSTGRES_USER`／`POSTGRES_PASSWORD`／`DATABASE_URL` 必須一致）。本地示範 Compose（`docker-compose.yml`）預設資料庫名稱為 **`markinsight`**（使用者／密碼同為 `markinsight`）。正式環境請改用你自己設定的 `POSTGRES_*`，**不要**沿用示範密碼。
 
    **優先：全新資料庫**（Compose 範例：`docker compose -f docker-compose.prod.example.yml down -v` 後再 `up`，會清掉 DB 與上載 volume——只在確定可丟資料時使用）。
 
-   **可選 SQL**（外鍵可能連帶刪除 enrollment／相關列；執行前請備份。表名以 Prisma 預設為準）。在已啟動的正式 Compose 環境執行（將使用者與資料庫名稱換成 `.env` 中的值）：
+   **可選 SQL**（外鍵可能連帶刪除 enrollment／相關列；執行前請備份。表名以 Prisma 預設為準）。在已啟動的正式 Compose 環境，對服務 `db`、資料庫 `$POSTGRES_DB` 執行：
 
    ```bash
    docker compose -f docker-compose.prod.example.yml exec db \
      psql -U "$POSTGRES_USER" -d "$POSTGRES_DB"
    ```
+
+   （若 shell 未載入 `.env`，請把 `$POSTGRES_USER`／`$POSTGRES_DB` 換成你實際設定的值，例如使用者 `markinsight`、資料庫 `markinsight`。）
 
    進入 `psql` 後執行：
 
@@ -400,7 +406,7 @@ docker compose -f docker-compose.prod.example.yml up -d --build
       OR email LIKE '%@example.com';
    ```
 
-   驗證：刪除後嘗試以 `admin@example.com`／`password` 登入，必須失敗。
+   **驗證：** 清理完成後，以 `admin@example.com`／`password`（或其他示範帳戶）登入**必須失敗**。
 
 6. **持久化驗證**
    - [ ] 上載一份檔案 → 重新部署／重建 web 容器 → 該檔仍可開啟（確認命名 volume 生效）
