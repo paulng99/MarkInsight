@@ -1,10 +1,10 @@
 /**
  * Direct route-handler tests for POST /api/admin/class-subjects (delete_archived).
- * Mocks auth(); Prisma is not queried for these rejection paths.
+ * Mocks auth() and `@/lib/prisma` so wrong-confirm paths cannot pass via DB errors.
  */
 
 import assert from "node:assert/strict";
-import test, { after } from "node:test";
+import test, { after, beforeEach } from "node:test";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { register } from "node:module";
 
@@ -16,11 +16,55 @@ const authState: { impl: () => Promise<AuthSession> } = {
   impl: async () => null,
 };
 
+const prismaTrack = {
+  transactionCalls: 0,
+  classDeleteManyCalls: 0,
+};
+
+function resetPrismaTrack() {
+  prismaTrack.transactionCalls = 0;
+  prismaTrack.classDeleteManyCalls = 0;
+}
+
+function createTx() {
+  return {
+    classSubject: {
+      findMany: async () => [{ subjectCode: "MATH" }],
+      deleteMany: async () => {
+        prismaTrack.classDeleteManyCalls += 1;
+        return { count: 1 };
+      },
+      count: async () => 1,
+    },
+    exam: { count: async () => 0 },
+    submission: { count: async () => 0 },
+    analysisJob: { count: async () => 0 },
+    subjectSyllabus: {
+      deleteMany: async () => ({ count: 0 }),
+    },
+  };
+}
+
+const prismaMock = {
+  $transaction: async <T>(
+    fn: (tx: ReturnType<typeof createTx>) => Promise<T>,
+  ) => {
+    prismaTrack.transactionCalls += 1;
+    return fn(createTx());
+  },
+};
+
 (
   globalThis as unknown as {
     __MI_AUTH_MOCK__: typeof authState;
+    __MI_PRISMA_MOCK__: typeof prismaMock;
   }
 ).__MI_AUTH_MOCK__ = authState;
+(
+  globalThis as unknown as {
+    __MI_PRISMA_MOCK__: typeof prismaMock;
+  }
+).__MI_PRISMA_MOCK__ = prismaMock;
 
 // Derive src root from this test file so npm test works outside /workspace.
 const srcRoot = fileURLToPath(new URL("../../../../", import.meta.url));
@@ -43,6 +87,17 @@ register(
               export async function auth() {
                 return globalThis.__MI_AUTH_MOCK__.impl();
               }
+            \`),
+        };
+      }
+
+      if (specifier === "@/lib/prisma") {
+        return {
+          shortCircuit: true,
+          url:
+            "data:text/javascript," +
+            encodeURIComponent(\`
+              export const prisma = globalThis.__MI_PRISMA_MOCK__;
             \`),
         };
       }
@@ -95,6 +150,10 @@ async function postDeleteArchived(body: Record<string, unknown>) {
   return POST(request);
 }
 
+beforeEach(() => {
+  resetPrismaTrack();
+});
+
 after(() => {
   authState.impl = async () => null;
 });
@@ -115,6 +174,7 @@ test("route delete_archived: non-admin receives opaque 403", async () => {
   const json = (await res.json()) as { error: string; code: string };
   assert.equal(json.code, ADMIN_DELETE_REJECTED_CODE);
   assert.equal(json.error, ADMIN_DELETE_REJECTED_MESSAGE_EN);
+  assert.equal(prismaTrack.transactionCalls, 0);
 });
 
 test("route delete_archived: cross-school receives opaque 403", async () => {
@@ -134,6 +194,7 @@ test("route delete_archived: cross-school receives opaque 403", async () => {
   assert.equal(json.code, ADMIN_DELETE_REJECTED_CODE);
   assert.equal(json.error, ADMIN_DELETE_REJECTED_MESSAGE_EN);
   assert.doesNotMatch(json.error, /school/i);
+  assert.equal(prismaTrack.transactionCalls, 0);
 });
 
 test("route delete_archived: omitting expected* receives opaque 400", async () => {
@@ -152,6 +213,7 @@ test("route delete_archived: omitting expected* receives opaque 400", async () =
   const json = (await res.json()) as { error: string; code: string };
   assert.equal(json.code, ADMIN_DELETE_REJECTED_CODE);
   assert.equal(json.error, ADMIN_DELETE_REJECTED_MESSAGE_EN);
+  assert.equal(prismaTrack.transactionCalls, 0);
 });
 
 test("route delete_archived: non-string schoolId receives opaque 403", async () => {
@@ -170,9 +232,10 @@ test("route delete_archived: non-string schoolId receives opaque 403", async () 
   const json = (await res.json()) as { error: string; code: string };
   assert.equal(json.code, ADMIN_DELETE_REJECTED_CODE);
   assert.equal(json.error, ADMIN_DELETE_REJECTED_MESSAGE_EN);
+  assert.equal(prismaTrack.transactionCalls, 0);
 });
 
-test("route delete_archived: wrong confirm receives opaque 400", async () => {
+test("route delete_archived: wrong confirm receives opaque 400 and never deletes", async () => {
   authState.impl = async () => ({
     user: { role: "ADMIN", schoolId: "school_a" },
   });
@@ -188,4 +251,7 @@ test("route delete_archived: wrong confirm receives opaque 400", async () => {
   const json = (await res.json()) as { error: string; code: string };
   assert.equal(json.code, ADMIN_DELETE_REJECTED_CODE);
   assert.equal(json.error, ADMIN_DELETE_REJECTED_MESSAGE_EN);
+  // Must fail on confirm — not because Prisma is missing.
+  assert.equal(prismaTrack.transactionCalls, 0);
+  assert.equal(prismaTrack.classDeleteManyCalls, 0);
 });
