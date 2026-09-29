@@ -43,7 +43,10 @@ COPY docker/entrypoint.sh /app/entrypoint.sh
 
 RUN sed -i 's/\r$//' /app/entrypoint.sh \
   && chmod +x /app/entrypoint.sh \
-  && mkdir -p /app/.data/uploads \
+  && mkdir -p \
+    /app/.data/uploads \
+    /app/.data/exam-structure \
+    /app/.data/job-progress \
   && chown -R nextjs:nodejs /app/.data /app/prisma /app/public /app/scripts
 
 USER nextjs
