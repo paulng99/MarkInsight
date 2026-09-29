@@ -21,6 +21,10 @@
 
 const { PrismaClient } = require("@prisma/client");
 const bcrypt = require("bcryptjs");
+const {
+  isForbiddenSeedIdentity,
+  SEED_ADMIN_DEMO_IDENTITY_ERROR,
+} = require("./seed-admin-guard.cjs");
 
 const MIN_LEN = 12;
 
@@ -38,6 +42,12 @@ function optionalEnv(name) {
   return v && String(v).trim() ? String(v).trim() : null;
 }
 
+function refuseDemoIdentity(label, value) {
+  if (!isForbiddenSeedIdentity(value)) return;
+  console.error(`[seed-admin] ${label}: ${SEED_ADMIN_DEMO_IDENTITY_ERROR}`);
+  process.exit(1);
+}
+
 async function main() {
   const email = requireEnv("MARKINSIGHT_SEED_ADMIN_EMAIL").toLowerCase();
   const password = requireEnv("MARKINSIGHT_SEED_ADMIN_PASSWORD");
@@ -48,6 +58,14 @@ async function main() {
     process.exit(1);
   }
   const name = optionalEnv("MARKINSIGHT_SEED_ADMIN_NAME") || "Admin";
+  const teacherEmailRaw = optionalEnv("MARKINSIGHT_SEED_TEACHER_EMAIL");
+  const teacherEmail = teacherEmailRaw ? teacherEmailRaw.toLowerCase() : null;
+
+  // Refuse demo identities before opening a DB connection.
+  refuseDemoIdentity("MARKINSIGHT_SEED_ADMIN_EMAIL", email);
+  if (teacherEmail) {
+    refuseDemoIdentity("MARKINSIGHT_SEED_TEACHER_EMAIL", teacherEmail);
+  }
 
   const prisma = new PrismaClient();
   try {
@@ -71,7 +89,6 @@ async function main() {
     });
     console.log(`[seed-admin] ADMIN upserted: ${admin.email} (${admin.id})`);
 
-    const teacherEmail = optionalEnv("MARKINSIGHT_SEED_TEACHER_EMAIL");
     if (teacherEmail) {
       const teacherPassword = requireEnv("MARKINSIGHT_SEED_TEACHER_PASSWORD");
       if (teacherPassword.length < MIN_LEN) {
@@ -96,9 +113,9 @@ async function main() {
 
       const teacherHash = await bcrypt.hash(teacherPassword, 10);
       const teacher = await prisma.user.upsert({
-        where: { email: teacherEmail.toLowerCase() },
+        where: { email: teacherEmail },
         create: {
-          email: teacherEmail.toLowerCase(),
+          email: teacherEmail,
           name: teacherName,
           role: "TEACHER",
           schoolId,
