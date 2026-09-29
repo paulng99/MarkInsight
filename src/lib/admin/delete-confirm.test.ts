@@ -1,6 +1,10 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
+  DELETE_CONFIRM_REQUIRED_CODE,
+  DELETE_CONFIRM_REQUIRED_MESSAGE,
+  deleteHasProtectedData,
+  evaluateDeleteConfirmation,
   fillDeleteImpactTemplate,
   matchesDeleteConfirmText,
   sumClassImpact,
@@ -54,4 +58,63 @@ test("sumClassImpact and sumClassesImpact aggregate server counts", () => {
     exams: 0,
     submissions: 0,
   });
+});
+
+test("deleteHasProtectedData detects submissions or analysis jobs", () => {
+  assert.equal(deleteHasProtectedData({ submissionCount: 0 }), false);
+  assert.equal(
+    deleteHasProtectedData({ submissionCount: 0, analysisJobCount: 0 }),
+    false,
+  );
+  assert.equal(deleteHasProtectedData({ submissionCount: 1 }), true);
+  assert.equal(
+    deleteHasProtectedData({ submissionCount: 0, analysisJobCount: 2 }),
+    true,
+  );
+});
+
+test("evaluateDeleteConfirmation rejects missing or wrong confirm when protected", () => {
+  assert.deepEqual(
+    evaluateDeleteConfirmation({
+      confirm: undefined,
+      expectedToken: "MATH",
+      hasProtectedData: false,
+    }),
+    { ok: true },
+  );
+
+  const missing = evaluateDeleteConfirmation({
+    confirm: undefined,
+    expectedToken: "MATH",
+    hasProtectedData: true,
+  });
+  assert.deepEqual(missing, {
+    ok: false,
+    status: 400,
+    error: DELETE_CONFIRM_REQUIRED_MESSAGE,
+    code: DELETE_CONFIRM_REQUIRED_CODE,
+  });
+
+  const wrong = evaluateDeleteConfirmation({
+    confirm: "ENG",
+    expectedToken: "MATH",
+    hasProtectedData: true,
+  });
+  assert.equal(wrong.ok, false);
+
+  const ok = evaluateDeleteConfirmation({
+    confirm: "  MATH  ",
+    expectedToken: "MATH",
+    hasProtectedData: true,
+  });
+  assert.deepEqual(ok, { ok: true });
+
+  assert.deepEqual(
+    evaluateDeleteConfirmation({
+      confirm: "3A",
+      expectedToken: "3A",
+      hasProtectedData: true,
+    }),
+    { ok: true },
+  );
 });

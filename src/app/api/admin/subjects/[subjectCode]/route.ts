@@ -6,7 +6,7 @@ import {
 import { jsonError } from "@/lib/errors";
 import {
   assertCanAccessSchoolSettings,
-  resolveAdminSchoolId,
+  tryResolveAdminSchoolId,
 } from "@/lib/school-settings";
 import { NextResponse } from "next/server";
 
@@ -35,14 +35,20 @@ export async function PATCH(request: Request, context: Ctx) {
     return NextResponse.json({ error: "archived required" }, { status: 400 });
   }
 
-  const schoolId = resolveAdminSchoolId(
+  const resolved = tryResolveAdminSchoolId(
     session?.user?.schoolId,
     body.schoolId,
   );
+  if (!resolved.ok) {
+    return NextResponse.json(
+      { error: resolved.error, code: resolved.code },
+      { status: resolved.status },
+    );
+  }
 
   try {
     const result = await setSubjectArchived(
-      schoolId,
+      resolved.schoolId,
       decodeURIComponent(subjectCode),
       body.archived,
     );
@@ -68,21 +74,33 @@ export async function DELETE(request: Request, context: Ctx) {
   const { subjectCode } = await context.params;
   const { searchParams } = new URL(request.url);
   let bodySchoolId: string | null = null;
+  let confirm: unknown;
   try {
-    const body = (await request.json()) as { schoolId?: string };
+    const body = (await request.json()) as {
+      schoolId?: string;
+      confirm?: unknown;
+    };
     bodySchoolId = body.schoolId ?? null;
+    confirm = body.confirm;
   } catch {
-    // empty body ok
+    // empty body ok for subjects without protected data
   }
-  const schoolId = resolveAdminSchoolId(
+  const resolved = tryResolveAdminSchoolId(
     session?.user?.schoolId,
     bodySchoolId ?? searchParams.get("schoolId"),
   );
+  if (!resolved.ok) {
+    return NextResponse.json(
+      { error: resolved.error, code: resolved.code },
+      { status: resolved.status },
+    );
+  }
 
   try {
     const result = await deleteSubject(
-      schoolId,
+      resolved.schoolId,
       decodeURIComponent(subjectCode),
+      confirm,
     );
     return NextResponse.json({ ok: true, ...result });
   } catch (error) {

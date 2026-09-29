@@ -5,7 +5,6 @@
  * New AnalysisJobs must read analysisLlmModel; never rewrite historical llmModel.
  */
 
-import type { Role } from "@/lib/roles";
 import { getOpenRouterModelAllowlist } from "@/lib/config/openrouter-model-allowlist";
 import {
   assertAllowedAnalysisModel,
@@ -13,6 +12,17 @@ import {
 } from "@/lib/llm/openrouter-models";
 import { listSystemPrompts, saveSystemPrompts } from "@/lib/llm/system-prompts";
 import { prisma } from "@/lib/prisma";
+import {
+  CROSS_SCHOOL_FORBIDDEN_CODE,
+  CROSS_SCHOOL_FORBIDDEN_MESSAGE,
+  CrossSchoolAccessError,
+  DEMO_SCHOOL_ID,
+  assertCanAccessSchoolSettings,
+  canAccessSchoolSettings,
+  resolveAdminSchoolId,
+  schoolIdFromAdminSession,
+  tryResolveAdminSchoolId,
+} from "@/lib/school-settings/access";
 import type {
   AnalysisModelChoiceDto,
   CreateSchoolYearInput,
@@ -28,33 +38,17 @@ import type {
 import bcrypt from "bcryptjs";
 import { randomBytes } from "node:crypto";
 
-/** Stub/demo school used when platform admin has no schoolId. */
-export const DEMO_SCHOOL_ID = "demo_school";
-
-export function canAccessSchoolSettings(role: Role | undefined | null): boolean {
-  return role === "ADMIN";
-}
-
-export function assertCanAccessSchoolSettings(
-  role: Role | undefined | null,
-): void {
-  if (!canAccessSchoolSettings(role)) {
-    throw new Error("Forbidden: school settings are admin-only");
-  }
-}
-
-/**
- * Resolve the school an admin is configuring.
- * Platform admins (schoolId null) manage the demo school in the stub.
- */
-export function resolveAdminSchoolId(
-  sessionSchoolId: string | null | undefined,
-  requestedSchoolId?: string | null,
-): string {
-  if (requestedSchoolId?.trim()) return requestedSchoolId.trim();
-  if (sessionSchoolId?.trim()) return sessionSchoolId.trim();
-  return DEMO_SCHOOL_ID;
-}
+export {
+  CROSS_SCHOOL_FORBIDDEN_CODE,
+  CROSS_SCHOOL_FORBIDDEN_MESSAGE,
+  CrossSchoolAccessError,
+  DEMO_SCHOOL_ID,
+  assertCanAccessSchoolSettings,
+  canAccessSchoolSettings,
+  resolveAdminSchoolId,
+  schoolIdFromAdminSession,
+  tryResolveAdminSchoolId,
+};
 
 function formatDateYmd(d: Date): string {
   return d.toISOString().slice(0, 10);

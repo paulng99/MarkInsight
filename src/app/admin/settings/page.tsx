@@ -27,10 +27,8 @@ export default async function AdminSchoolSettingsPage({
   const t = getDictionary(locale);
   const session = await requireRolePage("ADMIN", locale, "/admin/settings");
 
-  const schoolId = resolveAdminSchoolId(
-    session.user.schoolId,
-    params.schoolId,
-  );
+  // School scope follows the signed-in admin only (ignore URL schoolId).
+  const schoolId = resolveAdminSchoolId(session.user.schoolId);
 
   let initialPage: SchoolSettingsPageDto | null = null;
   let initialError: string | null = null;

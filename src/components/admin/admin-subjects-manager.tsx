@@ -94,10 +94,11 @@ export function AdminSubjectsManager({ t, schoolId }: Props) {
   }
 
   async function deleteClass(cls: AdminClassSubjectDto) {
-    const res = await fetch(
-      `/api/admin/class-subjects/${cls.id}?schoolId=${encodeURIComponent(schoolId)}`,
-      { method: "DELETE" },
-    );
+    const res = await fetch(`/api/admin/class-subjects/${cls.id}`, {
+      method: "DELETE",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ schoolId, confirm: cls.name }),
+    });
     const data = await res.json().catch(() => ({}));
     if (!res.ok) throw new Error(data.error || t.adminSubjectsErrorAction);
   }
@@ -117,8 +118,12 @@ export function AdminSubjectsManager({ t, schoolId }: Props) {
 
   async function deleteSubject(subjectCode: string) {
     const res = await fetch(
-      `/api/admin/subjects/${encodeURIComponent(subjectCode)}?schoolId=${encodeURIComponent(schoolId)}`,
-      { method: "DELETE" },
+      `/api/admin/subjects/${encodeURIComponent(subjectCode)}`,
+      {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ schoolId, confirm: subjectCode }),
+      },
     );
     const data = await res.json().catch(() => ({}));
     if (!res.ok) throw new Error(data.error || t.adminSubjectsErrorAction);

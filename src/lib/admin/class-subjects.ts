@@ -3,6 +3,10 @@
  * Archive is soft (archivedAt); delete removes ClassSubject rows (cascade).
  */
 
+import {
+  deleteHasProtectedData,
+  evaluateDeleteConfirmation,
+} from "@/lib/admin/delete-confirm";
 import { AppError } from "@/lib/errors";
 import { prisma } from "@/lib/prisma";
 import { assertSubjectCode } from "@/lib/subjects/syllabus";
@@ -149,11 +153,78 @@ export async function setClassArchived(
   });
 }
 
+async function countProtectedDataForClass(
+  schoolId: string,
+  classSubjectId: string,
+): Promise<{ submissionCount: number; analysisJobCount: number }> {
+  const [submissionCount, analysisJobCount] = await Promise.all([
+    prisma.submission.count({
+      where: { schoolId, exam: { classSubjectId } },
+    }),
+    prisma.analysisJob.count({
+      where: {
+        schoolId,
+        OR: [
+          { exam: { classSubjectId } },
+          { submission: { exam: { classSubjectId } } },
+        ],
+      },
+    }),
+  ]);
+  return { submissionCount, analysisJobCount };
+}
+
+async function countProtectedDataForSubject(
+  schoolId: string,
+  subjectCode: string,
+): Promise<{ submissionCount: number; analysisJobCount: number }> {
+  const [submissionCount, analysisJobCount] = await Promise.all([
+    prisma.submission.count({
+      where: { schoolId, exam: { classSubject: { subjectCode } } },
+    }),
+    prisma.analysisJob.count({
+      where: {
+        schoolId,
+        OR: [
+          { exam: { classSubject: { subjectCode } } },
+          { submission: { exam: { classSubject: { subjectCode } } } },
+        ],
+      },
+    }),
+  ]);
+  return { submissionCount, analysisJobCount };
+}
+
+function assertDeleteConfirmOrThrow(
+  confirm: unknown,
+  expectedToken: string,
+  hasProtectedData: boolean,
+): void {
+  const result = evaluateDeleteConfirmation({
+    confirm,
+    expectedToken,
+    hasProtectedData,
+  });
+  if (!result.ok) {
+    throw new AppError(result.error, result.status, result.code);
+  }
+}
+
 export async function deleteClassSubject(
   schoolId: string,
   classSubjectId: string,
+  confirm?: unknown,
 ) {
-  await requireClassInSchool(schoolId, classSubjectId);
+  const row = await requireClassInSchool(schoolId, classSubjectId);
+  const protectedCounts = await countProtectedDataForClass(
+    schoolId,
+    classSubjectId,
+  );
+  assertDeleteConfirmOrThrow(
+    confirm,
+    row.name,
+    deleteHasProtectedData(protectedCounts),
+  );
   await prisma.classSubject.delete({ where: { id: classSubjectId } });
 }
 
@@ -177,8 +248,18 @@ export async function setSubjectArchived(
 export async function deleteSubject(
   schoolId: string,
   subjectCodeRaw: string,
+  confirm?: unknown,
 ) {
   const subjectCode = assertSubjectCode(subjectCodeRaw);
+  const protectedCounts = await countProtectedDataForSubject(
+    schoolId,
+    subjectCode,
+  );
+  assertDeleteConfirmOrThrow(
+    confirm,
+    subjectCode,
+    deleteHasProtectedData(protectedCounts),
+  );
   const deleted = await prisma.$transaction(async (tx) => {
     const removed = await tx.classSubject.deleteMany({
       where: { schoolId, subjectCode },

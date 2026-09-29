@@ -6,7 +6,7 @@ import {
 import { jsonError } from "@/lib/errors";
 import {
   assertCanAccessSchoolSettings,
-  resolveAdminSchoolId,
+  tryResolveAdminSchoolId,
 } from "@/lib/school-settings";
 import { NextResponse } from "next/server";
 
@@ -35,13 +35,19 @@ export async function PATCH(request: Request, context: Ctx) {
     return NextResponse.json({ error: "archived required" }, { status: 400 });
   }
 
-  const schoolId = resolveAdminSchoolId(
+  const resolved = tryResolveAdminSchoolId(
     session?.user?.schoolId,
     body.schoolId,
   );
+  if (!resolved.ok) {
+    return NextResponse.json(
+      { error: resolved.error, code: resolved.code },
+      { status: resolved.status },
+    );
+  }
 
   try {
-    const row = await setClassArchived(schoolId, id, body.archived);
+    const row = await setClassArchived(resolved.schoolId, id, body.archived);
     return NextResponse.json({
       ok: true,
       classSubject: {
@@ -72,19 +78,30 @@ export async function DELETE(request: Request, context: Ctx) {
   const { id } = await context.params;
   const { searchParams } = new URL(request.url);
   let bodySchoolId: string | null = null;
+  let confirm: unknown;
   try {
-    const body = (await request.json()) as { schoolId?: string };
+    const body = (await request.json()) as {
+      schoolId?: string;
+      confirm?: unknown;
+    };
     bodySchoolId = body.schoolId ?? null;
+    confirm = body.confirm;
   } catch {
-    // DELETE may have an empty body
+    // DELETE may have an empty body when there is no protected data
   }
-  const schoolId = resolveAdminSchoolId(
+  const resolved = tryResolveAdminSchoolId(
     session?.user?.schoolId,
     bodySchoolId ?? searchParams.get("schoolId"),
   );
+  if (!resolved.ok) {
+    return NextResponse.json(
+      { error: resolved.error, code: resolved.code },
+      { status: resolved.status },
+    );
+  }
 
   try {
-    await deleteClassSubject(schoolId, id);
+    await deleteClassSubject(resolved.schoolId, id, confirm);
     return NextResponse.json({ ok: true });
   } catch (error) {
     const { body: errBody, status } = jsonError(

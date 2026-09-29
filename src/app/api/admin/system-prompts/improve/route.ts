@@ -3,8 +3,8 @@ import { jsonError } from "@/lib/errors";
 import { improveSystemPrompt } from "@/lib/llm/improve-system-prompt";
 import {
   assertCanAccessSchoolSettings,
-  resolveAdminSchoolId,
   resolveAnalysisLlmModelForNewJob,
+  tryResolveAdminSchoolId,
 } from "@/lib/school-settings";
 import { NextResponse } from "next/server";
 
@@ -26,13 +26,22 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "invalid_json" }, { status: 400 });
   }
 
-  const schoolId = resolveAdminSchoolId(session?.user?.schoolId, body.schoolId);
+  const resolved = tryResolveAdminSchoolId(
+    session?.user?.schoolId,
+    body.schoolId,
+  );
+  if (!resolved.ok) {
+    return NextResponse.json(
+      { error: resolved.error, code: resolved.code },
+      { status: resolved.status },
+    );
+  }
   if (!body.key || typeof body.draft !== "string") {
     return NextResponse.json({ error: "invalid_prompt" }, { status: 400 });
   }
 
   try {
-    const model = await resolveAnalysisLlmModelForNewJob(schoolId);
+    const model = await resolveAnalysisLlmModelForNewJob(resolved.schoolId);
     const prompt = await improveSystemPrompt({
       key: body.key,
       draft: body.draft,

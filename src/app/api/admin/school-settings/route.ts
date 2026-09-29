@@ -3,7 +3,7 @@ import { listSystemPrompts } from "@/lib/llm/system-prompts";
 import {
   assertCanAccessSchoolSettings,
   getSchoolSettingsPage,
-  resolveAdminSchoolId,
+  tryResolveAdminSchoolId,
   upsertSchoolSettings,
 } from "@/lib/school-settings";
 import type { UpsertSchoolSettingsInput } from "@/lib/school-settings/types";
@@ -26,13 +26,19 @@ export async function GET(request: Request) {
   }
 
   const { searchParams } = new URL(request.url);
-  const schoolId = resolveAdminSchoolId(
+  const resolved = tryResolveAdminSchoolId(
     session?.user?.schoolId,
     searchParams.get("schoolId"),
   );
+  if (!resolved.ok) {
+    return NextResponse.json(
+      { error: resolved.error, code: resolved.code },
+      { status: resolved.status },
+    );
+  }
 
   try {
-    const page = await getSchoolSettingsPage(schoolId);
+    const page = await getSchoolSettingsPage(resolved.schoolId);
     return NextResponse.json(page);
   } catch (error) {
     const message =
@@ -56,14 +62,23 @@ export async function PUT(request: Request) {
     return NextResponse.json({ error: "invalid_json" }, { status: 400 });
   }
 
-  const schoolId = resolveAdminSchoolId(
+  const resolved = tryResolveAdminSchoolId(
     session?.user?.schoolId,
     body.schoolId,
   );
+  if (!resolved.ok) {
+    return NextResponse.json(
+      { error: resolved.error, code: resolved.code },
+      { status: resolved.status },
+    );
+  }
 
   try {
-    const settings = await upsertSchoolSettings({ ...body, schoolId });
-    const systemPrompts = await listSystemPrompts(schoolId);
+    const settings = await upsertSchoolSettings({
+      ...body,
+      schoolId: resolved.schoolId,
+    });
+    const systemPrompts = await listSystemPrompts(resolved.schoolId);
     return NextResponse.json({ ok: true, settings, systemPrompts });
   } catch (error) {
     const message = error instanceof Error ? error.message : "validation_failed";

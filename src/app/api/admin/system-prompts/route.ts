@@ -4,7 +4,7 @@ import {
   assertCanAccessSchoolSettings,
   getAnalysisLlmModel,
   listAnalysisModelChoices,
-  resolveAdminSchoolId,
+  tryResolveAdminSchoolId,
   updateAnalysisLlmModel,
 } from "@/lib/school-settings";
 import type { SystemPromptSettingDto } from "@/lib/school-settings/types";
@@ -29,17 +29,29 @@ export async function PUT(request: Request) {
     return NextResponse.json({ error: "invalid_json" }, { status: 400 });
   }
 
-  const schoolId = resolveAdminSchoolId(session?.user?.schoolId, body.schoolId);
+  const resolved = tryResolveAdminSchoolId(
+    session?.user?.schoolId,
+    body.schoolId,
+  );
+  if (!resolved.ok) {
+    return NextResponse.json(
+      { error: resolved.error, code: resolved.code },
+      { status: resolved.status },
+    );
+  }
   if (!body.systemPrompts) {
     return NextResponse.json({ error: "invalid_prompt" }, { status: 400 });
   }
 
   try {
-    const systemPrompts = await saveSystemPrompts(schoolId, body.systemPrompts);
-    let analysisLlmModel = await getAnalysisLlmModel(schoolId);
+    const systemPrompts = await saveSystemPrompts(
+      resolved.schoolId,
+      body.systemPrompts,
+    );
+    let analysisLlmModel = await getAnalysisLlmModel(resolved.schoolId);
     if (typeof body.analysisLlmModel === "string" && body.analysisLlmModel.trim()) {
       analysisLlmModel = await updateAnalysisLlmModel(
-        schoolId,
+        resolved.schoolId,
         body.analysisLlmModel,
       );
     }
@@ -59,13 +71,19 @@ export async function GET(request: Request) {
   }
 
   const { searchParams } = new URL(request.url);
-  const schoolId = resolveAdminSchoolId(
+  const resolved = tryResolveAdminSchoolId(
     session?.user?.schoolId,
     searchParams.get("schoolId"),
   );
+  if (!resolved.ok) {
+    return NextResponse.json(
+      { error: resolved.error, code: resolved.code },
+      { status: resolved.status },
+    );
+  }
   const [systemPrompts, analysisLlmModel, models] = await Promise.all([
-    listSystemPrompts(schoolId),
-    getAnalysisLlmModel(schoolId),
+    listSystemPrompts(resolved.schoolId),
+    getAnalysisLlmModel(resolved.schoolId),
     listAnalysisModelChoices(),
   ]);
   return NextResponse.json({

@@ -7,7 +7,7 @@ import {
 import { jsonError } from "@/lib/errors";
 import {
   assertCanAccessSchoolSettings,
-  resolveAdminSchoolId,
+  tryResolveAdminSchoolId,
 } from "@/lib/school-settings";
 import { NextResponse } from "next/server";
 
@@ -24,14 +24,20 @@ export async function GET(request: Request) {
   }
 
   const { searchParams } = new URL(request.url);
-  const schoolId = resolveAdminSchoolId(
+  const resolved = tryResolveAdminSchoolId(
     session?.user?.schoolId,
     searchParams.get("schoolId"),
   );
+  if (!resolved.ok) {
+    return NextResponse.json(
+      { error: resolved.error, code: resolved.code },
+      { status: resolved.status },
+    );
+  }
 
   try {
-    const subjects = await listAdminSubjectGroups(schoolId);
-    return NextResponse.json({ schoolId, subjects });
+    const subjects = await listAdminSubjectGroups(resolved.schoolId);
+    return NextResponse.json({ schoolId: resolved.schoolId, subjects });
   } catch (error) {
     const { body, status } = jsonError(error, "Could not list subjects", 500);
     return NextResponse.json(body, { status });
@@ -53,18 +59,24 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "invalid_json" }, { status: 400 });
   }
 
-  const schoolId = resolveAdminSchoolId(
+  const resolved = tryResolveAdminSchoolId(
     session?.user?.schoolId,
     body.schoolId,
   );
+  if (!resolved.ok) {
+    return NextResponse.json(
+      { error: resolved.error, code: resolved.code },
+      { status: resolved.status },
+    );
+  }
 
   try {
     if (body.action === "archive_all") {
-      const result = await archiveAllClassSubjects(schoolId);
+      const result = await archiveAllClassSubjects(resolved.schoolId);
       return NextResponse.json({ ok: true, ...result });
     }
     if (body.action === "delete_archived") {
-      const result = await deleteAllArchivedClassSubjects(schoolId);
+      const result = await deleteAllArchivedClassSubjects(resolved.schoolId);
       return NextResponse.json({ ok: true, ...result });
     }
     return NextResponse.json({ error: "invalid_action" }, { status: 400 });

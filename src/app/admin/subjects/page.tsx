@@ -17,10 +17,8 @@ export default async function AdminSubjectsPage({
   const locale = parseLocale(params.locale);
   const t = getDictionary(locale);
   const session = await requireRolePage("ADMIN", locale, "/admin/subjects");
-  const schoolId = resolveAdminSchoolId(
-    session.user.schoolId,
-    params.schoolId,
-  );
+  // School scope follows the signed-in admin only (ignore URL schoolId).
+  const schoolId = resolveAdminSchoolId(session.user.schoolId);
 
   return (
     <AppShell user={session.user} locale={locale} t={t}>

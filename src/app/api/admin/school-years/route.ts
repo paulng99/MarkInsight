@@ -2,7 +2,7 @@ import { auth } from "@/auth";
 import {
   assertCanAccessSchoolSettings,
   createSchoolYear,
-  resolveAdminSchoolId,
+  tryResolveAdminSchoolId,
 } from "@/lib/school-settings";
 import type { CreateSchoolYearInput } from "@/lib/school-settings/types";
 import { NextResponse } from "next/server";
@@ -27,13 +27,22 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "invalid_json" }, { status: 400 });
   }
 
-  const schoolId = resolveAdminSchoolId(
+  const resolved = tryResolveAdminSchoolId(
     session?.user?.schoolId,
     body.schoolId,
   );
+  if (!resolved.ok) {
+    return NextResponse.json(
+      { error: resolved.error, code: resolved.code },
+      { status: resolved.status },
+    );
+  }
 
   try {
-    const year = await createSchoolYear({ ...body, schoolId });
+    const year = await createSchoolYear({
+      ...body,
+      schoolId: resolved.schoolId,
+    });
     return NextResponse.json({ ok: true, year }, { status: 201 });
   } catch (error) {
     const message = error instanceof Error ? error.message : "create_failed";
