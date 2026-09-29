@@ -156,7 +156,7 @@ export function AdminDeleteDialog({
             </h2>
             <p
               id={impactId}
-              className="mt-2 text-sm leading-relaxed text-[var(--ink-secondary)]"
+              className="mt-2 whitespace-pre-line text-sm leading-relaxed text-[var(--ink-secondary)]"
             >
               {impact}
             </p>

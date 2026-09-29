@@ -123,7 +123,7 @@ export function AdminSubjectsManager({ t, schoolId }: Props) {
 
   async function deleteClass(
     cls: AdminClassSubjectDto,
-    expected: { exams: number; submissions: number },
+    expected: { exams: number; submissions: number; analysisJobs: number },
   ) {
     const res = await fetch(`/api/admin/class-subjects/${cls.id}`, {
       method: "DELETE",
@@ -133,6 +133,7 @@ export function AdminSubjectsManager({ t, schoolId }: Props) {
         confirm: cls.name,
         expectedExams: expected.exams,
         expectedSubmissions: expected.submissions,
+        expectedAnalysisJobs: expected.analysisJobs,
       }),
     });
     if (!res.ok) throw new Error(t.adminSubjectsDeleteRejected);
@@ -153,7 +154,7 @@ export function AdminSubjectsManager({ t, schoolId }: Props) {
 
   async function deleteSubject(
     subjectCode: string,
-    expected: { exams: number; submissions: number },
+    expected: { exams: number; submissions: number; analysisJobs: number },
   ) {
     const res = await fetch(
       `/api/admin/subjects/${encodeURIComponent(subjectCode)}`,
@@ -165,6 +166,7 @@ export function AdminSubjectsManager({ t, schoolId }: Props) {
           confirm: subjectCode,
           expectedExams: expected.exams,
           expectedSubmissions: expected.submissions,
+          expectedAnalysisJobs: expected.analysisJobs,
         }),
       },
     );
@@ -185,6 +187,7 @@ export function AdminSubjectsManager({ t, schoolId }: Props) {
     classes: number;
     exams: number;
     submissions: number;
+    analysisJobs: number;
   }) {
     const res = await fetch("/api/admin/class-subjects", {
       method: "POST",
@@ -196,9 +199,28 @@ export function AdminSubjectsManager({ t, schoolId }: Props) {
         expectedClasses: expected.classes,
         expectedExams: expected.exams,
         expectedSubmissions: expected.submissions,
+        expectedAnalysisJobs: expected.analysisJobs,
       }),
     });
     if (!res.ok) throw new Error(t.adminSubjectsDeleteRejected);
+  }
+
+  function formatDeleteImpact(
+    template: string,
+    counts: {
+      classes: number;
+      enrollments: number;
+      exams: number;
+      submissions: number;
+      analysisJobs: number;
+    },
+  ): string {
+    const main = fillDeleteImpactTemplate(template, counts);
+    const roster = fillDeleteImpactTemplate(
+      t.adminSubjectsDeleteRosterLine,
+      counts,
+    );
+    return `${main}\n${roster}`;
   }
 
   if (!subjects) {
@@ -230,7 +252,7 @@ export function AdminSubjectsManager({ t, schoolId }: Props) {
     const counts = sumClassImpact(deleteDialog.cls);
     deleteDialogView = {
       title: t.adminSubjectsDeleteDialogTitleClass,
-      impact: fillDeleteImpactTemplate(t.adminSubjectsDeleteImpactClass, counts),
+      impact: formatDeleteImpact(t.adminSubjectsDeleteImpactClass, counts),
       confirmToken: deleteDialog.cls.name,
       onConfirm: () =>
         runDelete(
@@ -238,6 +260,7 @@ export function AdminSubjectsManager({ t, schoolId }: Props) {
             deleteClass(deleteDialog.cls, {
               exams: counts.exams,
               submissions: counts.submissions,
+              analysisJobs: counts.analysisJobs,
             }),
           t.adminSubjectsDeleteClassSuccess,
         ),
@@ -253,10 +276,7 @@ export function AdminSubjectsManager({ t, schoolId }: Props) {
     const counts = sumClassesImpact(deleteDialog.group.classes);
     deleteDialogView = {
       title: t.adminSubjectsDeleteDialogTitleSubject,
-      impact: fillDeleteImpactTemplate(
-        t.adminSubjectsDeleteImpactSubject,
-        counts,
-      ),
+      impact: formatDeleteImpact(t.adminSubjectsDeleteImpactSubject, counts),
       confirmToken: deleteDialog.group.subjectCode,
       onConfirm: () =>
         runDelete(
@@ -264,6 +284,7 @@ export function AdminSubjectsManager({ t, schoolId }: Props) {
             deleteSubject(deleteDialog.group.subjectCode, {
               exams: counts.exams,
               submissions: counts.submissions,
+              analysisJobs: counts.analysisJobs,
             }),
           t.adminSubjectsDeleteSubjectSuccess,
         ),
@@ -280,10 +301,7 @@ export function AdminSubjectsManager({ t, schoolId }: Props) {
     const counts = sumClassesImpact(archivedClasses);
     deleteDialogView = {
       title: t.adminSubjectsDeleteDialogTitleArchived,
-      impact: fillDeleteImpactTemplate(
-        t.adminSubjectsDeleteImpactArchived,
-        counts,
-      ),
+      impact: formatDeleteImpact(t.adminSubjectsDeleteImpactArchived, counts),
       confirmToken: ADMIN_BULK_DELETE_ARCHIVED_CONFIRM,
       onConfirm: () =>
         runDelete(
@@ -292,6 +310,7 @@ export function AdminSubjectsManager({ t, schoolId }: Props) {
               classes: counts.classes,
               exams: counts.exams,
               submissions: counts.submissions,
+              analysisJobs: counts.analysisJobs,
             }),
           t.adminSubjectsDeleteArchivedSuccess,
         ),

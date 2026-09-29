@@ -38,27 +38,37 @@ export function assertCanAccessSchoolSettings(
   }
 }
 
+function requireStringSchoolIdOrForbid(value: unknown): string | null {
+  if (value === null || value === undefined) return null;
+  if (typeof value !== "string") {
+    throw new CrossSchoolAccessError();
+  }
+  return value;
+}
+
 /**
  * Resolve the school an admin may configure from their session.
  * Platform admins with a null schoolId use the demo school stub only.
+ * Non-string values are rejected with 403 (never TypeError).
  */
-export function schoolIdFromAdminSession(
-  sessionSchoolId: string | null | undefined,
-): string {
-  if (sessionSchoolId?.trim()) return sessionSchoolId.trim();
+export function schoolIdFromAdminSession(sessionSchoolId: unknown): string {
+  const value = requireStringSchoolIdOrForbid(sessionSchoolId);
+  if (value?.trim()) return value.trim();
   return DEMO_SCHOOL_ID;
 }
 
 /**
  * Resolve the school an admin is configuring.
  * Session school wins; a non-empty requested schoolId must match or we 403.
+ * Non-string schoolId values yield 403 instead of TypeError/500.
  */
 export function resolveAdminSchoolId(
-  sessionSchoolId: string | null | undefined,
-  requestedSchoolId?: string | null,
+  sessionSchoolId: unknown,
+  requestedSchoolId?: unknown,
 ): string {
   const schoolId = schoolIdFromAdminSession(sessionSchoolId);
-  const requested = requestedSchoolId?.trim();
+  const requestedRaw = requireStringSchoolIdOrForbid(requestedSchoolId);
+  const requested = requestedRaw?.trim();
   if (requested && requested !== schoolId) {
     throw new CrossSchoolAccessError();
   }
@@ -67,8 +77,8 @@ export function resolveAdminSchoolId(
 
 /** Non-throwing form for API routes that prefer a Result over an exception. */
 export function tryResolveAdminSchoolId(
-  sessionSchoolId: string | null | undefined,
-  requestedSchoolId?: string | null,
+  sessionSchoolId: unknown,
+  requestedSchoolId?: unknown,
 ):
   | { ok: true; schoolId: string }
   | { ok: false; status: 403; error: string; code: string } {

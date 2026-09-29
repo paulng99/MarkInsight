@@ -60,6 +60,29 @@ test("resolveAdminSchoolId prefers session and rejects a different requested sch
   );
 });
 
+test("resolveAdminSchoolId rejects non-string schoolId with 403 not TypeError", () => {
+  assert.throws(
+    () => resolveAdminSchoolId("school_a", 123 as unknown as string),
+    (error: unknown) =>
+      error instanceof CrossSchoolAccessError && error.status === 403,
+  );
+  assert.throws(
+    () => resolveAdminSchoolId("school_a", { id: "x" } as unknown as string),
+    (error: unknown) => error instanceof CrossSchoolAccessError,
+  );
+  assert.throws(
+    () => resolveAdminSchoolId(["school_a"] as unknown as string),
+    (error: unknown) => error instanceof CrossSchoolAccessError,
+  );
+
+  const denied = tryResolveAdminSchoolId("school_a", 99 as unknown as string);
+  assert.equal(denied.ok, false);
+  if (!denied.ok) {
+    assert.equal(denied.status, 403);
+    assert.equal(denied.code, CROSS_SCHOOL_FORBIDDEN_CODE);
+  }
+});
+
 test("tryResolveAdminSchoolId returns 403 for cross-school requests", () => {
   const ok = tryResolveAdminSchoolId("school_a", "school_a");
   assert.deepEqual(ok, { ok: true, schoolId: "school_a" });

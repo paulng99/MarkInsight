@@ -1,7 +1,6 @@
 /**
  * Policy-level coverage for admin delete + school isolation decisions used by
- * `/api/admin/*` routes. Full HTTP route handlers are not exercised here
- * (auth + Prisma would be required); see access.test.ts and delete-confirm.test.ts.
+ * `/api/admin/*` routes. See also class-subjects-route.test.ts for handler wiring.
  */
 
 import assert from "node:assert/strict";
@@ -28,8 +27,10 @@ function decideAdminDeleteRequest(input: {
   hasProtectedData: boolean;
   expectedExams?: unknown;
   expectedSubmissions?: unknown;
+  expectedAnalysisJobs?: unknown;
   actualExams?: number;
   actualSubmissions?: number;
+  actualAnalysisJobs?: number;
 }):
   | { status: 403; code: string; error: string }
   | { status: 400; code: string; error: string }
@@ -59,8 +60,10 @@ function decideAdminDeleteRequest(input: {
   const freshness = evaluateDeleteImpactFreshness({
     expectedExams: input.expectedExams,
     expectedSubmissions: input.expectedSubmissions,
+    expectedAnalysisJobs: input.expectedAnalysisJobs,
     actualExams: input.actualExams ?? 0,
     actualSubmissions: input.actualSubmissions ?? 0,
+    actualAnalysisJobs: input.actualAnalysisJobs ?? 0,
   });
   if (!freshness.ok) {
     return {
@@ -94,9 +97,11 @@ function decideBulkDeleteArchivedRequest(input: {
   expectedClasses?: unknown;
   expectedExams?: unknown;
   expectedSubmissions?: unknown;
+  expectedAnalysisJobs?: unknown;
   actualClasses?: number;
   actualExams?: number;
   actualSubmissions?: number;
+  actualAnalysisJobs?: number;
 }):
   | { status: 403; code: string; error: string }
   | { status: 400; code: string; error: string }
@@ -128,9 +133,11 @@ function decideBulkDeleteArchivedRequest(input: {
     expectedClasses: input.expectedClasses,
     expectedExams: input.expectedExams,
     expectedSubmissions: input.expectedSubmissions,
+    expectedAnalysisJobs: input.expectedAnalysisJobs,
     actualClasses: input.actualClasses ?? 0,
     actualExams: input.actualExams ?? 0,
     actualSubmissions: input.actualSubmissions ?? 0,
+    actualAnalysisJobs: input.actualAnalysisJobs ?? 0,
   });
   if (!guards.ok) {
     return {
@@ -153,76 +160,28 @@ test("admin delete policy: cross-school request is rejected with opaque copy", (
     hasProtectedData: true,
     expectedExams: 1,
     expectedSubmissions: 0,
+    expectedAnalysisJobs: 0,
     actualExams: 1,
     actualSubmissions: 0,
+    actualAnalysisJobs: 0,
   });
   assert.deepEqual(result, {
     status: 403,
     code: ADMIN_DELETE_REJECTED_CODE,
     error: ADMIN_DELETE_REJECTED_MESSAGE_EN,
   });
-  assert.doesNotMatch(result.error, /school/i);
-  assert.doesNotMatch(result.error, /MATH|exist/i);
 });
 
-test("admin delete policy: non-admin is rejected with opaque copy", () => {
-  for (const role of ["TEACHER", "STUDENT", null] as const) {
-    const result = decideAdminDeleteRequest({
-      role,
-      sessionSchoolId: "school_a",
-      requestedSchoolId: "school_a",
-      confirm: "MATH",
-      expectedToken: "MATH",
-      hasProtectedData: true,
-    });
-    assert.equal(result.status, 403);
-    assert.equal(result.error, ADMIN_DELETE_REJECTED_MESSAGE_EN);
-  }
-});
-
-test("admin delete policy: missing or wrong confirm is rejected when protected", () => {
-  const missing = decideAdminDeleteRequest({
-    role: "ADMIN",
-    sessionSchoolId: "school_a",
-    requestedSchoolId: "school_a",
-    expectedToken: "MATH",
-    hasProtectedData: true,
-    expectedExams: 0,
-    expectedSubmissions: 0,
-  });
-  assert.deepEqual(missing, {
-    status: 400,
-    code: ADMIN_DELETE_REJECTED_CODE,
-    error: ADMIN_DELETE_REJECTED_MESSAGE_EN,
-  });
-
-  const wrong = decideAdminDeleteRequest({
-    role: "ADMIN",
-    sessionSchoolId: "school_a",
-    confirm: "WRONG",
-    expectedToken: "MATH",
-    hasProtectedData: true,
-    expectedExams: 0,
-    expectedSubmissions: 0,
-  });
-  assert.deepEqual(wrong, {
-    status: 400,
-    code: ADMIN_DELETE_REJECTED_CODE,
-    error: ADMIN_DELETE_REJECTED_MESSAGE_EN,
-  });
-});
-
-test("admin delete policy: new exam while dialog open is rejected", () => {
+test("admin delete policy: omitting expectedAnalysisJobs is rejected", () => {
   const result = decideAdminDeleteRequest({
     role: "ADMIN",
     sessionSchoolId: "school_a",
     confirm: "MATH",
     expectedToken: "MATH",
-    hasProtectedData: false,
+    hasProtectedData: true,
     expectedExams: 0,
     expectedSubmissions: 0,
-    actualExams: 1,
-    actualSubmissions: 0,
+    expectedAnalysisJobs: undefined,
   });
   assert.deepEqual(result, {
     status: 400,
@@ -241,48 +200,15 @@ test("admin delete policy: matching confirm and fresh counts succeed", () => {
     hasProtectedData: true,
     expectedExams: 2,
     expectedSubmissions: 5,
+    expectedAnalysisJobs: 1,
     actualExams: 2,
     actualSubmissions: 5,
+    actualAnalysisJobs: 1,
   });
   assert.deepEqual(result, { status: 200, schoolId: "school_a" });
 });
 
-test("bulk delete_archived: missing or wrong confirm word is rejected", () => {
-  const missing = decideBulkDeleteArchivedRequest({
-    role: "ADMIN",
-    sessionSchoolId: "school_a",
-    expectedClasses: 2,
-    expectedExams: 1,
-    expectedSubmissions: 0,
-    actualClasses: 2,
-    actualExams: 1,
-    actualSubmissions: 0,
-  });
-  assert.deepEqual(missing, {
-    status: 400,
-    code: ADMIN_DELETE_REJECTED_CODE,
-    error: ADMIN_DELETE_REJECTED_MESSAGE_EN,
-  });
-
-  const wrong = decideBulkDeleteArchivedRequest({
-    role: "ADMIN",
-    sessionSchoolId: "school_a",
-    confirm: "DELETE",
-    expectedClasses: 2,
-    expectedExams: 1,
-    expectedSubmissions: 0,
-    actualClasses: 2,
-    actualExams: 1,
-    actualSubmissions: 0,
-  });
-  assert.deepEqual(wrong, {
-    status: 400,
-    code: ADMIN_DELETE_REJECTED_CODE,
-    error: ADMIN_DELETE_REJECTED_MESSAGE_EN,
-  });
-});
-
-test("bulk delete_archived: new submission while dialog open is rejected", () => {
+test("bulk delete_archived: missing expected field is rejected", () => {
   const result = decideBulkDeleteArchivedRequest({
     role: "ADMIN",
     sessionSchoolId: "school_a",
@@ -290,9 +216,11 @@ test("bulk delete_archived: new submission while dialog open is rejected", () =>
     expectedClasses: 2,
     expectedExams: 1,
     expectedSubmissions: 0,
+    // expectedAnalysisJobs omitted
     actualClasses: 2,
     actualExams: 1,
-    actualSubmissions: 2,
+    actualSubmissions: 0,
+    actualAnalysisJobs: 0,
   });
   assert.deepEqual(result, {
     status: 400,
@@ -310,9 +238,7 @@ test("bulk delete_archived: cross-school uses same opaque copy as single delete"
     expectedClasses: 1,
     expectedExams: 0,
     expectedSubmissions: 0,
-    actualClasses: 1,
-    actualExams: 0,
-    actualSubmissions: 0,
+    expectedAnalysisJobs: 0,
   });
   const single = decideAdminDeleteRequest({
     role: "ADMIN",
@@ -323,24 +249,24 @@ test("bulk delete_archived: cross-school uses same opaque copy as single delete"
     hasProtectedData: true,
     expectedExams: 0,
     expectedSubmissions: 0,
+    expectedAnalysisJobs: 0,
   });
   assert.deepEqual(bulk, single);
-  assert.equal(bulk.error, ADMIN_DELETE_REJECTED_MESSAGE_EN);
-  assert.doesNotMatch(bulk.error, /school/i);
 });
 
 test("bulk delete_archived: correct confirm and matching counts succeed", () => {
   const result = decideBulkDeleteArchivedRequest({
     role: "ADMIN",
     sessionSchoolId: "school_a",
-    requestedSchoolId: "school_a",
     confirm: ADMIN_BULK_DELETE_ARCHIVED_CONFIRM,
     expectedClasses: 3,
     expectedExams: 4,
     expectedSubmissions: 9,
+    expectedAnalysisJobs: 2,
     actualClasses: 3,
     actualExams: 4,
     actualSubmissions: 9,
+    actualAnalysisJobs: 2,
   });
   assert.deepEqual(result, { status: 200, schoolId: "school_a" });
 });

@@ -222,11 +222,13 @@ const dictionaries = {
     adminSubjectsDeleteDialogTitleSubject: "Delete subject permanently?",
     adminSubjectsDeleteDialogTitleArchived: "Delete all archived classes?",
     adminSubjectsDeleteImpactClass:
-      "This class has {enrollments} enrollments, {exams} exams with analysis results, and {submissions} submissions. Deletion cannot be undone. Prefer archive instead.",
+      "This class has {exams} exams, {submissions} submissions, and {analysisJobs} analysis jobs. Deletion cannot be undone. Prefer archive instead.",
     adminSubjectsDeleteImpactSubject:
-      "This subject has {classes} classes, {exams} exams with analysis results, and {submissions} submissions. Deletion cannot be undone. Prefer archive instead.",
+      "This subject has {classes} classes, {exams} exams, {submissions} submissions, and {analysisJobs} analysis jobs. Deletion cannot be undone. Prefer archive instead.",
     adminSubjectsDeleteImpactArchived:
-      "You are about to permanently delete {classes} archived classes ({exams} exams, {submissions} submissions / analysis results). This cannot be undone.",
+      "You are about to permanently delete {classes} archived classes ({exams} exams, {submissions} submissions, {analysisJobs} analysis jobs). This cannot be undone.",
+    adminSubjectsDeleteRosterLine:
+      "Class student roster ({enrollments} students) will also be deleted.",
     adminSubjectsDeleteTypePrompt: "Type {token} to confirm",
     adminSubjectsDeleteTypeHint:
       "The delete button stays disabled until the text matches exactly.",
@@ -782,11 +784,12 @@ const dictionaries = {
     adminSubjectsDeleteDialogTitleSubject: "永久刪除此科目？",
     adminSubjectsDeleteDialogTitleArchived: "刪除所有已封存班別？",
     adminSubjectsDeleteImpactClass:
-      "此班別有 {enrollments} 名成員、{exams} 份試卷與分析結果、{submissions} 份答卷。刪除後無法復原。建議改用封存。",
+      "此班別有 {exams} 份試卷、{submissions} 份答卷、{analysisJobs} 個分析工作。刪除後無法復原。建議改用封存。",
     adminSubjectsDeleteImpactSubject:
-      "此科目下有 {classes} 個班別、{exams} 份試卷與分析結果、{submissions} 份答卷。刪除後無法復原。建議改用封存。",
+      "此科目下有 {classes} 個班別、{exams} 份試卷、{submissions} 份答卷、{analysisJobs} 個分析工作。刪除後無法復原。建議改用封存。",
     adminSubjectsDeleteImpactArchived:
-      "即將永久刪除 {classes} 個已封存班別（{exams} 份試卷、{submissions} 份答卷／分析結果）。刪除後無法復原。",
+      "即將永久刪除 {classes} 個已封存班別（{exams} 份試卷、{submissions} 份答卷、{analysisJobs} 個分析工作）。刪除後無法復原。",
+    adminSubjectsDeleteRosterLine: "班別學生名單（{enrollments} 人）將一併刪除。",
     adminSubjectsDeleteTypePrompt: "請輸入 {token} 以確認",
     adminSubjectsDeleteTypeHint: "輸入內容須完全相符，刪除按鈕才會啟用。",
     adminSubjectsDeleteConfirm: "永久刪除",

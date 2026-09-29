@@ -4,12 +4,13 @@
  */
 
 import {
+  ADMIN_BULK_DELETE_ARCHIVED_CONFIRM,
   ADMIN_DELETE_REJECTED_CODE,
   ADMIN_DELETE_REJECTED_MESSAGE_EN,
   deleteHasProtectedData,
-  evaluateBulkDeleteArchivedGuards,
   evaluateDeleteConfirmation,
   evaluateDeleteImpactFreshness,
+  evaluateRequiredExpectedCounts,
 } from "@/lib/admin/delete-confirm";
 import { AppError } from "@/lib/errors";
 import { prisma } from "@/lib/prisma";
@@ -20,6 +21,7 @@ export type AdminDeleteOptions = {
   confirm?: unknown;
   expectedExams?: unknown;
   expectedSubmissions?: unknown;
+  expectedAnalysisJobs?: unknown;
   expectedClasses?: unknown;
 };
 
@@ -47,8 +49,10 @@ export type AdminClassSubjectDto = {
   archivedAt: string | null;
   enrollmentCount: number;
   examCount: number;
-  /** Submissions (and thus analysis results) under this class's exams. */
+  /** Submissions under this class's exams. */
   submissionCount: number;
+  /** Analysis jobs tied to this class's exams or submissions. */
+  analysisJobCount: number;
 };
 
 export type AdminSubjectGroupDto = {
@@ -60,8 +64,42 @@ export type AdminSubjectGroupDto = {
   enrollmentCount: number;
   examCount: number;
   submissionCount: number;
+  analysisJobCount: number;
   classes: AdminClassSubjectDto[];
 };
+
+async function analysisJobCountsByClassId(
+  schoolId: string,
+  classIds: string[],
+): Promise<Map<string, number>> {
+  const counts = new Map<string, number>();
+  if (classIds.length === 0) return counts;
+  for (const id of classIds) counts.set(id, 0);
+
+  const jobs = await prisma.analysisJob.findMany({
+    where: {
+      schoolId,
+      OR: [
+        { exam: { classSubjectId: { in: classIds } } },
+        { submission: { exam: { classSubjectId: { in: classIds } } } },
+      ],
+    },
+    select: {
+      exam: { select: { classSubjectId: true } },
+      submission: { select: { exam: { select: { classSubjectId: true } } } },
+    },
+  });
+
+  for (const job of jobs) {
+    const classSubjectId =
+      job.exam?.classSubjectId ??
+      job.submission?.exam?.classSubjectId ??
+      null;
+    if (!classSubjectId) continue;
+    counts.set(classSubjectId, (counts.get(classSubjectId) ?? 0) + 1);
+  }
+  return counts;
+}
 
 export async function listAdminSubjectGroups(
   schoolId: string,
@@ -84,6 +122,11 @@ export async function listAdminSubjectGroups(
     }),
   ]);
 
+  const analysisByClass = await analysisJobCountsByClassId(
+    schoolId,
+    classes.map((c) => c.id),
+  );
+
   const syllabusByCode = new Map(
     syllabi.map((s) => [s.subjectCode, s.originalName ?? null]),
   );
@@ -103,6 +146,7 @@ export async function listAdminSubjectGroups(
         enrollmentCount: 0,
         examCount: 0,
         submissionCount: 0,
+        analysisJobCount: 0,
         classes: [],
       };
       groups.set(cs.subjectCode, group);
@@ -122,12 +166,14 @@ export async function listAdminSubjectGroups(
       enrollmentCount: cs._count.enrollments,
       examCount: cs._count.exams,
       submissionCount,
+      analysisJobCount: analysisByClass.get(cs.id) ?? 0,
     };
     if (cs.archivedAt) group.archivedClassCount += 1;
     else group.activeClassCount += 1;
     group.enrollmentCount += dto.enrollmentCount;
     group.examCount += dto.examCount;
     group.submissionCount += dto.submissionCount;
+    group.analysisJobCount += dto.analysisJobCount;
     group.classes.push(dto);
   }
 
@@ -143,6 +189,7 @@ export async function listAdminSubjectGroups(
         enrollmentCount: 0,
         examCount: 0,
         submissionCount: 0,
+        analysisJobCount: 0,
         classes: [],
       });
     }
@@ -240,21 +287,36 @@ async function countDeleteImpactForArchivedClasses(
   classCount: number;
   examCount: number;
   submissionCount: number;
+  analysisJobCount: number;
 }> {
   const archivedWhere = { schoolId, archivedAt: { not: null } } as const;
-  const [classCount, examCount, submissionCount] = await Promise.all([
-    db.classSubject.count({ where: archivedWhere }),
-    db.exam.count({
-      where: { schoolId, classSubject: { archivedAt: { not: null } } },
-    }),
-    db.submission.count({
-      where: {
-        schoolId,
-        exam: { classSubject: { archivedAt: { not: null } } },
-      },
-    }),
-  ]);
-  return { classCount, examCount, submissionCount };
+  const [classCount, examCount, submissionCount, analysisJobCount] =
+    await Promise.all([
+      db.classSubject.count({ where: archivedWhere }),
+      db.exam.count({
+        where: { schoolId, classSubject: { archivedAt: { not: null } } },
+      }),
+      db.submission.count({
+        where: {
+          schoolId,
+          exam: { classSubject: { archivedAt: { not: null } } },
+        },
+      }),
+      db.analysisJob.count({
+        where: {
+          schoolId,
+          OR: [
+            { exam: { classSubject: { archivedAt: { not: null } } } },
+            {
+              submission: {
+                exam: { classSubject: { archivedAt: { not: null } } },
+              },
+            },
+          ],
+        },
+      }),
+    ]);
+  return { classCount, examCount, submissionCount, analysisJobCount };
 }
 
 function assertDeleteGuardsOrThrow(input: {
@@ -262,6 +324,7 @@ function assertDeleteGuardsOrThrow(input: {
   expectedToken: string;
   expectedExams: unknown;
   expectedSubmissions: unknown;
+  expectedAnalysisJobs: unknown;
   examCount: number;
   submissionCount: number;
   analysisJobCount: number;
@@ -269,8 +332,10 @@ function assertDeleteGuardsOrThrow(input: {
   const freshness = evaluateDeleteImpactFreshness({
     expectedExams: input.expectedExams,
     expectedSubmissions: input.expectedSubmissions,
+    expectedAnalysisJobs: input.expectedAnalysisJobs,
     actualExams: input.examCount,
     actualSubmissions: input.submissionCount,
+    actualAnalysisJobs: input.analysisJobCount,
   });
   if (!freshness.ok) {
     throw new AppError(freshness.error, freshness.status, freshness.code);
@@ -298,6 +363,15 @@ export async function deleteClassSubject(
   classSubjectId: string,
   options: AdminDeleteOptions = {},
 ) {
+  const required = evaluateRequiredExpectedCounts({
+    expectedExams: options.expectedExams,
+    expectedSubmissions: options.expectedSubmissions,
+    expectedAnalysisJobs: options.expectedAnalysisJobs,
+  });
+  if (!required.ok) {
+    throw new AppError(required.error, required.status, required.code);
+  }
+
   await prisma.$transaction(async (tx) => {
     const row = await tx.classSubject.findFirst({
       where: { id: classSubjectId, schoolId },
@@ -311,6 +385,7 @@ export async function deleteClassSubject(
       expectedToken: row.name,
       expectedExams: options.expectedExams,
       expectedSubmissions: options.expectedSubmissions,
+      expectedAnalysisJobs: options.expectedAnalysisJobs,
       ...impact,
     });
     await tx.classSubject.delete({ where: { id: classSubjectId } });
@@ -340,6 +415,14 @@ export async function deleteSubject(
   options: AdminDeleteOptions = {},
 ) {
   const subjectCode = assertSubjectCode(subjectCodeRaw);
+  const required = evaluateRequiredExpectedCounts({
+    expectedExams: options.expectedExams,
+    expectedSubmissions: options.expectedSubmissions,
+    expectedAnalysisJobs: options.expectedAnalysisJobs,
+  });
+  if (!required.ok) {
+    throw new AppError(required.error, required.status, required.code);
+  }
   const deleted = await prisma.$transaction(async (tx) => {
     const impact = await countDeleteImpactForSubject(tx, schoolId, subjectCode);
     assertDeleteGuardsOrThrow({
@@ -347,6 +430,7 @@ export async function deleteSubject(
       expectedToken: subjectCode,
       expectedExams: options.expectedExams,
       expectedSubmissions: options.expectedSubmissions,
+      expectedAnalysisJobs: options.expectedAnalysisJobs,
       ...impact,
     });
     const removed = await tx.classSubject.deleteMany({
@@ -374,19 +458,42 @@ export async function deleteAllArchivedClassSubjects(
   schoolId: string,
   options: AdminDeleteOptions = {},
 ) {
+  // Reject omitted expected* / wrong confirm before opening a DB transaction.
+  const fieldsOk = evaluateRequiredExpectedCounts({
+    expectedExams: options.expectedExams,
+    expectedSubmissions: options.expectedSubmissions,
+    expectedAnalysisJobs: options.expectedAnalysisJobs,
+    expectedClasses: options.expectedClasses,
+    requireClasses: true,
+  });
+  if (!fieldsOk.ok) {
+    throw new AppError(fieldsOk.error, fieldsOk.status, fieldsOk.code);
+  }
+  const confirmOk = evaluateDeleteConfirmation({
+    confirm: options.confirm,
+    expectedToken: ADMIN_BULK_DELETE_ARCHIVED_CONFIRM,
+    hasProtectedData: true,
+    requireConfirm: true,
+  });
+  if (!confirmOk.ok) {
+    throw new AppError(confirmOk.error, confirmOk.status, confirmOk.code);
+  }
+
   const deleted = await prisma.$transaction(async (tx) => {
     const impact = await countDeleteImpactForArchivedClasses(tx, schoolId);
-    const guards = evaluateBulkDeleteArchivedGuards({
-      confirm: options.confirm,
+    const freshness = evaluateDeleteImpactFreshness({
       expectedClasses: options.expectedClasses,
       expectedExams: options.expectedExams,
       expectedSubmissions: options.expectedSubmissions,
+      expectedAnalysisJobs: options.expectedAnalysisJobs,
       actualClasses: impact.classCount,
       actualExams: impact.examCount,
       actualSubmissions: impact.submissionCount,
+      actualAnalysisJobs: impact.analysisJobCount,
+      requireClasses: true,
     });
-    if (!guards.ok) {
-      throw new AppError(guards.error, guards.status, guards.code);
+    if (!freshness.ok) {
+      throw new AppError(freshness.error, freshness.status, freshness.code);
     }
 
     const archived = await tx.classSubject.findMany({

@@ -7,6 +7,7 @@ export type DeleteImpactCounts = {
   enrollments: number;
   exams: number;
   submissions: number;
+  analysisJobs: number;
 };
 
 /** Opaque code for any failed admin subject/class delete. */
@@ -66,6 +67,10 @@ function rejected(): {
   };
 }
 
+function isFiniteNumber(value: unknown): value is number {
+  return typeof value === "number" && Number.isFinite(value);
+}
+
 /**
  * Server-side delete confirmation.
  * When the target has exams / submissions / analysis results, `confirm` must
@@ -93,42 +98,61 @@ export function evaluateDeleteConfirmation(input: {
 }
 
 /**
- * Reject when exam/submission/(optional class) counts no longer match the
- * dialog snapshot (e.g. another user added an exam while the dialog was open).
+ * Required expected-count fields must all be finite numbers; omitting any
+ * yields the opaque delete rejection (no silent skip).
+ */
+export function evaluateRequiredExpectedCounts(input: {
+  expectedExams: unknown;
+  expectedSubmissions: unknown;
+  expectedAnalysisJobs: unknown;
+  expectedClasses?: unknown;
+  requireClasses?: boolean;
+}):
+  | { ok: true }
+  | { ok: false; status: 400; error: string; code: string } {
+  if (
+    !isFiniteNumber(input.expectedExams) ||
+    !isFiniteNumber(input.expectedSubmissions) ||
+    !isFiniteNumber(input.expectedAnalysisJobs)
+  ) {
+    return rejected();
+  }
+  if (input.requireClasses && !isFiniteNumber(input.expectedClasses)) {
+    return rejected();
+  }
+  return { ok: true };
+}
+
+/**
+ * Reject when exam/submission/analysisJob/(optional class) counts no longer
+ * match the dialog snapshot. Omitting any required expected* field rejects.
  */
 export function evaluateDeleteImpactFreshness(input: {
   expectedExams: unknown;
   expectedSubmissions: unknown;
+  expectedAnalysisJobs: unknown;
   actualExams: number;
   actualSubmissions: number;
+  actualAnalysisJobs: number;
   expectedClasses?: unknown;
   actualClasses?: number;
+  requireClasses?: boolean;
 }):
   | { ok: true }
   | { ok: false; status: 400; error: string; code: string } {
-  const requireClasses = input.expectedClasses !== undefined;
+  const required = evaluateRequiredExpectedCounts({
+    expectedExams: input.expectedExams,
+    expectedSubmissions: input.expectedSubmissions,
+    expectedAnalysisJobs: input.expectedAnalysisJobs,
+    expectedClasses: input.expectedClasses,
+    requireClasses: input.requireClasses,
+  });
+  if (!required.ok) return required;
 
-  if (
-    typeof input.expectedExams !== "number" ||
-    typeof input.expectedSubmissions !== "number" ||
-    !Number.isFinite(input.expectedExams) ||
-    !Number.isFinite(input.expectedSubmissions)
-  ) {
+  if (input.requireClasses) {
     if (
-      input.actualExams > 0 ||
-      input.actualSubmissions > 0 ||
-      (input.actualClasses ?? 0) > 0
-    ) {
-      return rejected();
-    }
-    if (!requireClasses) return { ok: true };
-  }
-
-  if (requireClasses) {
-    if (
-      typeof input.expectedClasses !== "number" ||
+      !isFiniteNumber(input.expectedClasses) ||
       typeof input.actualClasses !== "number" ||
-      !Number.isFinite(input.expectedClasses) ||
       !Number.isFinite(input.actualClasses)
     ) {
       return rejected();
@@ -139,32 +163,26 @@ export function evaluateDeleteImpactFreshness(input: {
   }
 
   if (
-    typeof input.expectedExams !== "number" ||
-    typeof input.expectedSubmissions !== "number" ||
-    !Number.isFinite(input.expectedExams) ||
-    !Number.isFinite(input.expectedSubmissions)
-  ) {
-    return rejected();
-  }
-
-  if (
     input.actualExams !== input.expectedExams ||
-    input.actualSubmissions !== input.expectedSubmissions
+    input.actualSubmissions !== input.expectedSubmissions ||
+    input.actualAnalysisJobs !== input.expectedAnalysisJobs
   ) {
     return rejected();
   }
   return { ok: true };
 }
 
-/** Bulk delete_archived: always require confirm「刪除」plus class/exam/submission counts. */
+/** Bulk delete_archived: always require confirm「刪除」plus all expected counts. */
 export function evaluateBulkDeleteArchivedGuards(input: {
   confirm: unknown;
   expectedClasses: unknown;
   expectedExams: unknown;
   expectedSubmissions: unknown;
+  expectedAnalysisJobs: unknown;
   actualClasses: number;
   actualExams: number;
   actualSubmissions: number;
+  actualAnalysisJobs: number;
 }):
   | { ok: true }
   | { ok: false; status: 400; error: string; code: string } {
@@ -180,9 +198,12 @@ export function evaluateBulkDeleteArchivedGuards(input: {
     expectedClasses: input.expectedClasses,
     expectedExams: input.expectedExams,
     expectedSubmissions: input.expectedSubmissions,
+    expectedAnalysisJobs: input.expectedAnalysisJobs,
     actualClasses: input.actualClasses,
     actualExams: input.actualExams,
     actualSubmissions: input.actualSubmissions,
+    actualAnalysisJobs: input.actualAnalysisJobs,
+    requireClasses: true,
   });
 }
 
@@ -201,12 +222,14 @@ export function sumClassImpact(input: {
   enrollmentCount: number;
   examCount: number;
   submissionCount: number;
+  analysisJobCount: number;
 }): DeleteImpactCounts {
   return {
     classes: 1,
     enrollments: input.enrollmentCount,
     exams: input.examCount,
     submissions: input.submissionCount,
+    analysisJobs: input.analysisJobCount,
   };
 }
 
@@ -215,6 +238,7 @@ export function sumClassesImpact(
     enrollmentCount: number;
     examCount: number;
     submissionCount: number;
+    analysisJobCount: number;
   }>,
 ): DeleteImpactCounts {
   return classes.reduce<DeleteImpactCounts>(
@@ -223,7 +247,14 @@ export function sumClassesImpact(
       enrollments: acc.enrollments + row.enrollmentCount,
       exams: acc.exams + row.examCount,
       submissions: acc.submissions + row.submissionCount,
+      analysisJobs: acc.analysisJobs + row.analysisJobCount,
     }),
-    { classes: 0, enrollments: 0, exams: 0, submissions: 0 },
+    {
+      classes: 0,
+      enrollments: 0,
+      exams: 0,
+      submissions: 0,
+      analysisJobs: 0,
+    },
   );
 }

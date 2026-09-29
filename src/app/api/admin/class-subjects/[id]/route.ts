@@ -95,17 +95,20 @@ export async function DELETE(request: Request, context: Ctx) {
   let confirm: unknown;
   let expectedExams: unknown;
   let expectedSubmissions: unknown;
+  let expectedAnalysisJobs: unknown;
   try {
     const body = (await request.json()) as {
       schoolId?: string;
       confirm?: unknown;
       expectedExams?: unknown;
       expectedSubmissions?: unknown;
+      expectedAnalysisJobs?: unknown;
     };
     bodySchoolId = body.schoolId ?? null;
     confirm = body.confirm;
     expectedExams = body.expectedExams;
     expectedSubmissions = body.expectedSubmissions;
+    expectedAnalysisJobs = body.expectedAnalysisJobs;
   } catch {
     // DELETE may have an empty body when there is no protected data
   }
@@ -122,6 +125,7 @@ export async function DELETE(request: Request, context: Ctx) {
       confirm,
       expectedExams,
       expectedSubmissions,
+      expectedAnalysisJobs,
     });
     return NextResponse.json({ ok: true });
   } catch (error) {

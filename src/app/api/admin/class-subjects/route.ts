@@ -68,6 +68,7 @@ export async function POST(request: Request) {
     expectedClasses?: unknown;
     expectedExams?: unknown;
     expectedSubmissions?: unknown;
+    expectedAnalysisJobs?: unknown;
   };
   try {
     body = (await request.json()) as typeof body;
@@ -107,6 +108,7 @@ export async function POST(request: Request) {
         expectedClasses: body.expectedClasses,
         expectedExams: body.expectedExams,
         expectedSubmissions: body.expectedSubmissions,
+        expectedAnalysisJobs: body.expectedAnalysisJobs,
       });
       return NextResponse.json({ ok: true, ...result });
     }
