@@ -38,40 +38,47 @@ Every successful analysis persists the model id on `AnalysisJob.llmModel` plus `
 npm install
 cp .env.example .env
 # set DATABASE_URL, NEXTAUTH_SECRET / AUTH_SECRET, NEXTAUTH_URL
-# optional for offline success path: MARKINSIGHT_ANALYSIS_DEMO=true
+# for local demo login with "password": set MARKINSIGHT_ANALYSIS_DEMO=true
+# (.env.example defaults to false — you must set this manually)
 npx prisma db push
 npm run dev
 ```
 
-### Run with Docker (production-like)
+**Public deploy:** see **[docs/DEPLOYMENT.md](./docs/DEPLOYMENT.md)**. Keep `MARKINSIGHT_ANALYSIS_DEMO=false` (or unset) so the legacy password cannot work; create real accounts with `npm run db:seed-admin`. There is no self-service password change — re-run the seed with new values to reset.
+
+### Run with Docker (local laptop demo)
 
 Requires Docker Compose and a root `.env` (copy from `.env.example`). Compose starts Postgres and the built Next.js app; it **overrides** `DATABASE_URL` to the Compose `db` service (does not use the optional local `markinsight-db` on port 5434).
 
+For the classic demo (`password` + login-page hint), **set `MARKINSIGHT_ANALYSIS_DEMO=true` in `.env`** and leave `MARKINSIGHT_DEMO_PASSWORD` unset. The example file defaults to `false` so a public deploy cannot inherit the legacy password by accident.
+
 ```bash
 cp .env.example .env   # if needed; set NEXTAUTH_SECRET / AUTH_SECRET
+# echo 'MARKINSIGHT_ANALYSIS_DEMO=true' >> .env   # required for local demo login
 docker compose up --build -d
 # App: http://localhost:3000
 docker compose logs -f web
 ```
 
-### Public IP (DigitalOcean droplet)
+### Public HTTPS (any Linux VPS)
 
-Auth.js follows `NEXTAUTH_URL`. If that stays `http://localhost:3000`, login and `/api/auth/*` redirect the browser to the visitor's own computer, so the app looks broken when you open `http://<droplet-ip>:3000`.
-
-The container drops a loopback `NEXTAUTH_URL` / `AUTH_URL` and trusts the request host. You can also set the real origin in `.env` before `docker compose up`:
+Do **not** expose the app as plain `http://<ip>:3000` for a public site. Use a reverse proxy with HTTPS and set the public origin before starting Compose:
 
 ```bash
-# NEXTAUTH_URL=http://<droplet-ip>:3000
+# NEXTAUTH_URL=https://markinsight.example.com
+# AUTH_URL=https://markinsight.example.com
+# MARKINSIGHT_ANALYSIS_DEMO=false   # required on a public URL
 ```
 
-Open TCP **3000** on the droplet firewall (and any DigitalOcean cloud firewall), then use `http://<droplet-ip>:3000`. After changing `.env`, recreate the web container: `docker compose up -d --force-recreate web`.
+Follow **[docs/DEPLOYMENT.md](./docs/DEPLOYMENT.md)** (Caddy／nginx, firewall, named volumes, first admin via `npm run db:seed-admin` inside the web container). After changing `.env`, recreate the web container: `docker compose -f docker-compose.prod.example.yml up -d --force-recreate web` (or the local demo compose file you are using).
 
 ```bash
 docker compose down       # keep volumes
 docker compose down -v    # wipe DB + upload volumes
 ```
 
-Then verify:
+Requires **Node.js 22+** for local `npm` workflows (see `.nvmrc` / `package.json` `engines`). Docker images pin Node 22 as well.
+Then verify (local demo only — `MARKINSIGHT_ANALYSIS_DEMO=true`):
 
 1. (Optional) Admin `admin@example.com` / `password` → School settings → pick analysis model + enable **Allow teachers to upload on behalf of students** → Save
 2. Teacher `teacher@example.com` / `password` → **開卷** → create exam for class → upload question paper (PDF/image) → **Start structure analysis** → watch PENDING→排隊中 / RUNNING→進行中 / SUCCEEDED→成功 (or FAILED→失敗 + retry)
@@ -105,7 +112,9 @@ See **[docs/architecture.md](./docs/architecture.md)**.
 - Local object storage + in-process job runner (MVP)
 - i18n: English + 繁體中文（香港）; dates **yyyy-mm-dd**
 
-### Dev sign-in
+### Dev sign-in (local only)
+
+Only when you have **manually** set `MARKINSIGHT_ANALYSIS_DEMO=true` and left `MARKINSIGHT_DEMO_PASSWORD` unset:
 
 | Email | Password | Role |
 |-------|----------|------|
@@ -113,7 +122,7 @@ See **[docs/architecture.md](./docs/architecture.md)**.
 | `teacher@example.com` | `password` | Teacher |
 | `student@example.com` | `password` | Student |
 
-Demo teacher/student are upserted into Postgres on first workspace/exam API call (`demo_school`).
+Demo teacher/student are upserted into Postgres on first workspace/exam API call (`demo_school`) **only while demo login is enabled**. On a public deploy with demo login disabled, use `npm run db:seed-admin` instead (see [docs/DEPLOYMENT.md](./docs/DEPLOYMENT.md)).
 
 ### 已知風險
 

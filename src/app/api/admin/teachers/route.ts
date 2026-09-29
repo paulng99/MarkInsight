@@ -10,7 +10,7 @@ import { NextResponse } from "next/server";
 
 /**
  * Admin-only teacher account management for a school (MVP).
- * Create with email + name; stub password is "password" (dev).
+ * Create returns a one-time temporaryPassword (never logged; not stored in plaintext).
  */
 
 export async function GET(request: Request) {
@@ -58,10 +58,17 @@ export async function POST(request: Request) {
 
   try {
     const teacher = await createTeacherAccount({ ...body, schoolId });
-    return NextResponse.json({ ok: true, teacher }, { status: 201 });
+    // temporaryPassword is in the JSON body — never cache this response.
+    return NextResponse.json(
+      { ok: true, teacher },
+      { status: 201, headers: { "Cache-Control": "no-store" } },
+    );
   } catch (error) {
     const message = error instanceof Error ? error.message : "create_failed";
     const status = message.includes("already exists") ? 409 : 400;
-    return NextResponse.json({ error: message }, { status });
+    return NextResponse.json(
+      { error: message },
+      { status, headers: { "Cache-Control": "no-store" } },
+    );
   }
 }

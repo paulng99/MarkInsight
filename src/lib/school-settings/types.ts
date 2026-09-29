@@ -20,6 +20,11 @@ export type TeacherAccountDto = {
   name: string | null;
 };
 
+/** Create-teacher response: plaintext temporary password is returned exactly once. */
+export type CreateTeacherResult = TeacherAccountDto & {
+  temporaryPassword: string;
+};
+
 export type SchoolSettingsDto = {
   schoolId: string;
   displayName: string;

@@ -17,6 +17,7 @@ import type {
   AnalysisModelChoiceDto,
   CreateSchoolYearInput,
   CreateTeacherInput,
+  CreateTeacherResult,
   SchoolSettingsDto,
   SchoolSettingsPageDto,
   SchoolYearDto,
@@ -25,6 +26,7 @@ import type {
   UpsertSchoolSettingsInput,
 } from "@/lib/school-settings/types";
 import bcrypt from "bcryptjs";
+import { randomBytes } from "node:crypto";
 
 /** Stub/demo school used when platform admin has no schoolId. */
 export const DEMO_SCHOOL_ID = "demo_school";
@@ -344,8 +346,10 @@ export async function createSchoolYear(
   }
 }
 
-/** Stub default password for newly created teacher accounts (dev only). */
-const TEACHER_STUB_PASSWORD = "password";
+/** Cryptographically random temporary password (≥16 chars). Never log this. */
+export function generateTemporaryPassword(): string {
+  return randomBytes(16).toString("base64url");
+}
 
 export async function listTeachersForSchool(
   schoolId: string,
@@ -359,7 +363,7 @@ export async function listTeachersForSchool(
 
 export async function createTeacherAccount(
   input: CreateTeacherInput,
-): Promise<TeacherAccountDto> {
+): Promise<CreateTeacherResult> {
   const schoolId = input.schoolId.trim();
   const email = input.email.toLowerCase().trim();
   const name = input.name.trim();
@@ -374,7 +378,8 @@ export async function createTeacherAccount(
     throw new Error("A user with this email already exists");
   }
 
-  const passwordHash = await bcrypt.hash(TEACHER_STUB_PASSWORD, 10);
+  const temporaryPassword = generateTemporaryPassword();
+  const passwordHash = await bcrypt.hash(temporaryPassword, 10);
   const user = await prisma.user.create({
     data: {
       email,
@@ -385,7 +390,7 @@ export async function createTeacherAccount(
     },
     select: { id: true, email: true, name: true },
   });
-  return user;
+  return { ...user, temporaryPassword };
 }
 
 /**
@@ -453,6 +458,7 @@ export type {
   SchoolSettingsPageDto,
   SchoolYearDto,
   TeacherAccountDto,
+  CreateTeacherResult,
   UpsertSchoolSettingsInput,
   SystemPromptSettingDto,
   CreateTeacherInput,
