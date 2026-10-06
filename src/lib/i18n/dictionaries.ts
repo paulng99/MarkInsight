@@ -1092,7 +1092,7 @@ const dictionaries = {
       "老師尚未完成試卷設定，暫時無法上載，請稍後再試。若長時間仍無法上載，請通知老師。",
     uploadFileTypeRejected: "只接受 PDF、JPG 或 PNG 檔案。",
     analysisTimeout:
-      "分析需時太長，未能完成。檔案已保存，不需要重新上載，請按「重新分析」。",
+      "分析需時太長，未能完成。檔案已保存，不需要重新上載，請按『重新分析』。",
     proxyUploadTitle: "代學生上載答卷",
     proxyUploadDisabled: "學校設定未允許教師代學生上載。",
     proxySelectStudent: "學生",

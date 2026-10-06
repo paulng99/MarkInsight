@@ -12,7 +12,7 @@ import { getDictionary } from "../i18n/dictionaries.ts";
 test("ANALYSIS_TIMEOUT_ZH matches PD copy and references 重新分析", () => {
   assert.equal(
     ANALYSIS_TIMEOUT_ZH,
-    "分析需時太長，未能完成。檔案已保存，不需要重新上載，請按「重新分析」。",
+    "分析需時太長，未能完成。檔案已保存，不需要重新上載，請按『重新分析』。",
   );
   assert.ok(!ANALYSIS_TIMEOUT_ZH.includes("稍後"));
   assert.ok(!ANALYSIS_TIMEOUT_ZH.includes("上傳"));
