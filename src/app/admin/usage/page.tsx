@@ -20,6 +20,7 @@ import {
   type UsageRollup,
   type UsageSchoolNode,
 } from "@/lib/admin/analysis-usage";
+import { usageFailureReason } from "@/lib/admin/usage-failure-reason";
 import type { Dictionary, Locale } from "@/lib/i18n/dictionaries";
 import type { AnalysisJobKind, AnalysisJobStatus } from "@prisma/client";
 
@@ -441,8 +442,13 @@ function JobRow({ job, locale, t }: { job: UsageJobRow; locale: Locale; t: Dicti
       <td className="max-w-[12rem] truncate px-3 py-3 font-mono text-xs text-[var(--muted)]" title={job.llmModel ?? undefined}>
         {job.llmModel ?? "—"}
       </td>
-      <td className="px-3 py-3">
+      <td className="w-64 max-w-xs whitespace-normal px-3 py-3 align-top">
         <span className={`badge ${statusBadge[job.status]}`}>{statusLabel(job.status, t)}</span>
+        {job.status === "FAILED" ? (
+          <p className="mt-1 text-xs leading-snug break-words text-[var(--color-error)]">
+            {usageFailureReason(job.status, job.errorMessage, locale) ?? t.usageFailureUnknown}
+          </p>
+        ) : null}
       </td>
       <td className="px-3 py-3 text-right tabular-nums">{tokens(job.promptTokens, recorded, locale)}</td>
       <td className="px-3 py-3 text-right tabular-nums">{tokens(job.completionTokens, recorded, locale)}</td>

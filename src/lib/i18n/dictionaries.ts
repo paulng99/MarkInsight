@@ -179,6 +179,7 @@ const dictionaries = {
     usageModel: "Model",
     usageWhen: "Date",
     usageStatus: "Status",
+    usageFailureUnknown: "No failure reason was recorded.",
     usageEmpty: "No analyses in this date range.",
     usageTruncated: "Showing the latest 200 analyses. Totals above include the full date range.",
     usageFootnote:
@@ -774,6 +775,7 @@ const dictionaries = {
     usageModel: "模型",
     usageWhen: "日期",
     usageStatus: "狀態",
+    usageFailureUnknown: "沒有記錄失敗原因。",
     usageEmpty: "此日期範圍內沒有分析。",
     usageTruncated: "列表只顯示最近 200 次分析。上方總計涵蓋整個日期範圍。",
     usageFootnote:

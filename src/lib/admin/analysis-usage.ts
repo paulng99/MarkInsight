@@ -35,6 +35,7 @@ export type UsageJobRow = {
   costUsd: number | null;
   costComplete: boolean;
   callCount: number;
+  errorMessage: string | null;
 };
 
 export type UsageExamNode = UsageRollup & {
@@ -454,6 +455,7 @@ export async function getAnalysisUsagePage(input: {
       costUsd: money(row.costUsd),
       costComplete: row.costComplete,
       callCount: row.llmCallCount,
+      errorMessage: row.errorMessage,
     };
   });
 
