@@ -362,6 +362,9 @@ const dictionaries = {
       "Delete this subject permanently? Exams, uploads, and scores for every class you teach in it will be removed. This cannot be undone.",
     deleteClassConfirm:
       "Delete this class permanently? Its exams, uploads, and scores will be removed. This cannot be undone.",
+    deleteImpactSubmissions:
+      "This will permanently delete {submissions} answer scripts. This cannot be undone.",
+    deleteImpactExams: "This includes {exams} exams.",
     archiveSubjectDone: "Subject archived.",
     archiveClassDone: "Class archived.",
     restoreSubjectDone: "Subject restored.",
@@ -454,12 +457,12 @@ const dictionaries = {
     fileNameOther: "file",
     examUploadHint: "PDF, JPG, or PNG only, max 100MB.",
     examAnalyze: "Start structure analysis",
-    examReanalyze: "Re-run structure analysis",
+    examReanalyze: "Re-analyze",
     analysisWaitingReanalyzeHint:
       "The system is checking the analysis status. You can re-analyze in about 3 minutes; your uploaded files are not affected.",
     examAnalyzeReadyHint:
       "The question structure is ready and students can upload their scripts. Re-run the analysis if you replace the paper.",
-    examAnalyzing: "Starting…",
+    examAnalyzing: "Analysing…",
     examAnalyzeSuccess: "Analysis queued.",
     examStructureReady: "Structure analysis complete.",
     examStructureTitle: "Extracted question structure",
@@ -512,7 +515,7 @@ const dictionaries = {
       "The teacher has not finished setting up this exam yet. Upload is unavailable — please try again later. If upload remains unavailable for a long time, please notify your teacher.",
     uploadFileTypeRejected: "Only PDF, JPG, or PNG files are accepted.",
     analysisTimeout:
-      "Analysis took too long and could not finish. You can run the analysis again.",
+      'Analysis took too long and could not finish. Your uploads are saved — no need to re-upload. Click "Re-analyze".',
     proxyUploadTitle: "Upload on behalf of student",
     proxyUploadDisabled: "School settings do not allow teacher upload on behalf.",
     proxySelectStudent: "Student",
@@ -532,7 +535,7 @@ const dictionaries = {
     stateError: "Something went wrong.",
     stateDefault: "Ready",
     stateSuccess: "Done",
-    analyzeRetry: "Retry analysis",
+    analyzeRetry: "Re-analyze",
     checkFile: "Please check the file",
     topicChip: "Topic",
     itemTypeChip: "Type",
@@ -943,6 +946,8 @@ const dictionaries = {
     deleteSubjectConfirm:
       "刪除後無法還原。你在此科目所教班別的試卷、上載與成績會一併刪除。",
     deleteClassConfirm: "刪除後無法還原。此班別的試卷、上載與成績會一併刪除。",
+    deleteImpactSubmissions: "將刪除 {submissions} 份答卷，無法復原。",
+    deleteImpactExams: "其中包括 {exams} 份試卷。",
     archiveSubjectDone: "已封存科目。",
     archiveClassDone: "已封存班別。",
     restoreSubjectDone: "已回復科目。",
@@ -1033,11 +1038,11 @@ const dictionaries = {
     fileNameOther: "檔案",
     examUploadHint: "只接受 PDF、JPG 或 PNG，上限 100MB。",
     examAnalyze: "開始結構分析",
-    examReanalyze: "重新執行結構分析",
+    examReanalyze: "重新分析",
     analysisWaitingReanalyzeHint:
       "系統正在確認分析狀態，約 3 分鐘後可重新分析，已上載的檔案不受影響。",
     examAnalyzeReadyHint: "題目結構已就緒，學生可以上載答卷。若更換試題紙，請重新執行分析。",
-    examAnalyzing: "啟動中…",
+    examAnalyzing: "分析中…",
     examAnalyzeSuccess: "分析已排隊。",
     examStructureReady: "結構分析完成。",
     examStructureTitle: "已抽取題目結構",
@@ -1086,7 +1091,8 @@ const dictionaries = {
     uploadStructureNotReady:
       "老師尚未完成試卷設定，暫時無法上載，請稍後再試。若長時間仍無法上載，請通知老師。",
     uploadFileTypeRejected: "只接受 PDF、JPG 或 PNG 檔案。",
-    analysisTimeout: "分析花了太長時間，未能完成。你可以重新分析。",
+    analysisTimeout:
+      "分析需時太長，未能完成。答卷已保存，不需要重新上傳，請按「重新分析」。",
     proxyUploadTitle: "代學生上載答卷",
     proxyUploadDisabled: "學校設定未允許教師代學生上載。",
     proxySelectStudent: "學生",
@@ -1106,7 +1112,7 @@ const dictionaries = {
     stateError: "出現錯誤。",
     stateDefault: "就緒",
     stateSuccess: "完成",
-    analyzeRetry: "重試分析",
+    analyzeRetry: "重新分析",
     checkFile: "請檢查檔案",
     topicChip: "課題",
     itemTypeChip: "題型",

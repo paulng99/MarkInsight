@@ -23,6 +23,7 @@ register(
 const {
   ANALYSIS_STALL_IDLE_MS,
   ANALYSIS_WAITING_HINT_IDLE_MS,
+  assertExamStructureAnalysisAvailable,
   resolveAnalysisReanalyzeGate,
 } = await import("./analysis-reanalyze-gate.ts");
 
@@ -124,4 +125,39 @@ test("succeeded or failed jobs do not show the waiting hint", () => {
     assert.equal(gate.showWaitingHint, false);
     assert.equal(gate.blockedByActiveJob, false);
   }
+});
+
+test("assertExamStructureAnalysisAvailable blocks a fresh active job", () => {
+  assert.throws(
+    () =>
+      assertExamStructureAnalysisAvailable({
+        activeStatus: "RUNNING",
+        touchedAt: new Date(NOW - 30_000),
+        now: NOW,
+      }),
+    (error: unknown) =>
+      error instanceof Error &&
+      "code" in error &&
+      (error as { code: string }).code === "analysis_in_progress",
+  );
+});
+
+test("assertExamStructureAnalysisAvailable allows a stalled active job", () => {
+  assert.doesNotThrow(() =>
+    assertExamStructureAnalysisAvailable({
+      activeStatus: "RUNNING",
+      touchedAt: new Date(NOW - ANALYSIS_STALL_IDLE_MS - 1),
+      now: NOW,
+    }),
+  );
+});
+
+test("assertExamStructureAnalysisAvailable allows when no active job", () => {
+  assert.doesNotThrow(() =>
+    assertExamStructureAnalysisAvailable({
+      activeStatus: null,
+      touchedAt: null,
+      now: NOW,
+    }),
+  );
 });

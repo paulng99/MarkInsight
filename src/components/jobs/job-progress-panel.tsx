@@ -261,7 +261,7 @@ export function JobProgressPanel({
           {onRetry ? (
             <button type="button" onClick={onRetry} className="btn btn-primary btn-sm mt-3">
               <Icon.Refresh size={14} />
-              {t.analyzeRetry}
+              {t.examReanalyze}
             </button>
           ) : null}
         </div>

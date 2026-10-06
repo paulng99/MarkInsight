@@ -255,31 +255,6 @@ export function TeacherExamDetail({
     })();
   }
 
-  async function retryJob() {
-    if (!jobId) return;
-    const previous = jobId;
-    pinJob.current = true;
-    const startedAt = new Date().toISOString();
-    setJobId(null);
-    setLiveJob({
-      id: "pending",
-      status: "PENDING",
-      startedAt,
-      progress: emptyAnalysisProgress(startedAt),
-    });
-    const res = await fetch(`/api/jobs/${previous}`, { method: "POST" });
-    const data = await res.json();
-    pinJob.current = false;
-    if (res.ok) {
-      setJobId(data.jobId);
-      setBanner(null);
-    } else {
-      setBanner(data.error || t.examAnalyzeError);
-      setLiveJob(null);
-      await load();
-    }
-  }
-
   if (error && !exam) {
     return (
       <Alert
@@ -623,7 +598,13 @@ export function TeacherExamDetail({
                 }
               >
                 {running ? <Icon.Loader size={16} /> : <Icon.Zap size={16} />}
-                {running ? headline : jobSucceeded || stalled ? t.examReanalyze : t.examAnalyze}
+                {startingAnalysis
+                  ? t.examAnalyzing
+                  : running
+                    ? headline
+                    : jobSucceeded || stalled || jobFailed
+                      ? t.examReanalyze
+                      : t.examAnalyze}
               </button>
               {showWaitingHint ? (
                 <p
@@ -639,12 +620,24 @@ export function TeacherExamDetail({
           <JobProgressPanel
             jobId={jobId}
             t={t}
-            onRetry={archived ? undefined : () => void retryJob()}
+            onRetry={
+              archived || running
+                ? undefined
+                : () => {
+                    startAnalyze();
+                  }
+            }
             successHint={t.examStructureReady}
             onSucceeded={onStructureSucceeded}
             onSnapshot={onJobSnapshot}
             placeholder={!jobId && running ? liveJob : null}
-            headline={running || stalled ? headline : undefined}
+            headline={
+              startingAnalysis
+                ? t.examAnalyzing
+                : running || stalled
+                  ? headline
+                  : undefined
+            }
             percent={running || jobSucceeded ? activity.percent : undefined}
             indeterminate={running && activity.indeterminate}
             badgeText={stalled ? t.analysisStalledBadge : undefined}
