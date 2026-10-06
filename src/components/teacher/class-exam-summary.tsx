@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useEffect, useState } from "react";
+import { useEffect, useState } from "react";
 import type { Dictionary, Locale } from "@/lib/i18n/dictionaries";
 import { Alert, EmptyState, LoadingBlock } from "@/components/ui/feedback";
 import { Icon } from "@/components/ui/icons";
@@ -56,30 +56,41 @@ export function TeacherClassExamSummary({
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [sortAsc, setSortAsc] = useState(true);
-
-  const load = useCallback(async () => {
-    setLoading(true);
-    try {
-      const res = await fetch(`/api/exams/${examId}/summary`);
-      const json = await res.json();
-      if (!res.ok) {
-        setError(json.error || t.classExamSummaryError);
-        setData(null);
-        return;
-      }
-      setData(json.summary as SummaryPayload);
-      setError(null);
-    } catch {
-      setError(t.classExamSummaryError);
-      setData(null);
-    } finally {
-      setLoading(false);
-    }
-  }, [examId, t.classExamSummaryError]);
+  const [reloadKey, setReloadKey] = useState(0);
 
   useEffect(() => {
-    void load();
-  }, [load]);
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch(`/api/exams/${examId}/summary`);
+        const json = await res.json();
+        if (cancelled) return;
+        if (!res.ok) {
+          setError(json.error || t.classExamSummaryError);
+          setData(null);
+          return;
+        }
+        setData(json.summary as SummaryPayload);
+        setError(null);
+      } catch {
+        if (!cancelled) {
+          setError(t.classExamSummaryError);
+          setData(null);
+        }
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [examId, reloadKey, t.classExamSummaryError]);
+
+  function retry() {
+    setLoading(true);
+    setError(null);
+    setReloadKey((k) => k + 1);
+  }
 
   if (loading && !data) {
     return <LoadingBlock label={t.classExamSummaryLoading} className="mt-8" />;
@@ -91,7 +102,7 @@ export function TeacherClassExamSummary({
         tone="error"
         className="mt-8"
         action={
-          <button type="button" className="btn btn-secondary btn-sm" onClick={() => void load()}>
+          <button type="button" className="btn btn-secondary btn-sm" onClick={retry}>
             <Icon.Refresh size={14} />
             {t.settingsRetry}
           </button>
