@@ -126,6 +126,16 @@ export function TeacherClassResults({
     <div className="teacher-results mt-8 space-y-6">
       {error ? <Alert tone="error">{error}</Alert> : null}
 
+      <div className="flex flex-wrap items-center justify-end gap-2">
+        <Link
+          href={`/teacher/exams/${examId}/summary?locale=${locale}`}
+          className="btn btn-secondary btn-sm"
+        >
+          <Icon.TrendingUp size={14} />
+          {t.classExamSummaryNav}
+        </Link>
+      </div>
+
       <div className="grid gap-6 lg:grid-cols-[18rem_minmax(0,1fr)]">
         {/* Student list */}
         <aside className="card animate-fade-up-delay self-start overflow-hidden">
