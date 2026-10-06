@@ -210,6 +210,8 @@ export async function listTeacherSubjectGroups(user: SessionUser) {
         id: string;
         name: string;
         archivedAt: string;
+        examCount: number;
+        submissionCount: number;
       }>;
     }
   >();
@@ -238,6 +240,11 @@ export async function listTeacherSubjectGroups(user: SessionUser) {
         id: cs.id,
         name: cs.name,
         archivedAt: formatArchiveDate(cs.classArchivedAt),
+        examCount: cs.exams.length,
+        submissionCount: cs.exams.reduce(
+          (sum, exam) => sum + exam._count.submissions,
+          0,
+        ),
       });
       continue;
     }

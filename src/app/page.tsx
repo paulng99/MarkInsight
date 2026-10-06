@@ -266,14 +266,20 @@ function ProductPreview({ t }: { t: Dictionary }) {
     { label: "D", v: 91, c: "var(--chart-2)" },
     { label: "E", v: 57, c: "var(--chart-4)" },
   ];
+  const sampleAvg = t.crossExamSampleAvg.replace("{pct}", "58");
   return (
     <div className="animate-fade-up-delay-2 relative mx-auto w-full max-w-md pb-14 lg:max-w-none" aria-hidden>
       <div className="animate-float rounded-2xl border border-white/30 bg-white/95 p-5 text-[var(--ink)] shadow-[0_30px_80px_-20px_rgba(15,23,42,0.5)] backdrop-blur">
-        <div className="flex items-center justify-between">
+        <div className="flex items-center justify-between gap-3">
           <div>
-            <p className="text-[0.68rem] font-bold uppercase tracking-[0.14em] text-[var(--muted)]">
-              {t.resultsTitle}
-            </p>
+            <div className="flex flex-wrap items-center gap-2">
+              <p className="text-[0.68rem] font-bold uppercase tracking-[0.14em] text-[var(--muted)]">
+                {t.resultsTitle}
+              </p>
+              <span className="rounded-md border border-[var(--border)] bg-[var(--surface-sunken)] px-1.5 py-0.5 text-[10px] font-semibold text-[var(--muted)]">
+                {t.previewSampleBadge}
+              </span>
+            </div>
             <p className="mt-0.5 text-base font-bold">{t.chartStubTitle}</p>
           </div>
           <span className="badge badge-success badge-dot">{t.jobStatusSucceeded}</span>
@@ -307,16 +313,19 @@ function ProductPreview({ t }: { t: Dictionary }) {
         </div>
       </div>
       <div className="absolute bottom-0 -left-6 hidden rounded-xl border border-white/30 bg-white/95 px-4 py-3 text-[var(--ink)] shadow-lg backdrop-blur sm:block">
-        <p className="text-[10px] font-bold uppercase tracking-wider text-[var(--muted)]">
-          {t.crossExamWeaknessTitle}
-        </p>
+        <div className="flex flex-wrap items-center gap-2">
+          <p className="text-[10px] font-bold uppercase tracking-wider text-[var(--muted)]">
+            {t.crossExamWeaknessTitle}
+          </p>
+          <span className="rounded-md border border-[var(--border)] bg-[var(--surface-sunken)] px-1.5 py-0.5 text-[10px] font-semibold text-[var(--muted)]">
+            {t.previewSampleBadge}
+          </span>
+        </div>
         <div className="mt-1.5 flex items-center gap-2">
           <span className="chip chip--hue" style={{ ["--chip-hue" as string]: 350 }}>
             {t.topicChip} B
           </span>
-          <span className="inline-flex items-center gap-1 text-xs font-semibold text-emerald-600">
-            <Icon.TrendingUp size={14} /> +12%
-          </span>
+          <span className="text-xs font-semibold text-rose-600">{sampleAvg}</span>
         </div>
       </div>
     </div>

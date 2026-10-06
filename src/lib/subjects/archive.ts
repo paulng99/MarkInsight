@@ -10,6 +10,9 @@
 
 import { unlink } from "fs/promises";
 import path from "path";
+import {
+  evaluateDeleteConfirmation,
+} from "@/lib/admin/delete-confirm";
 import { AppError } from "@/lib/errors";
 import { prisma } from "@/lib/prisma";
 import type { SessionUser } from "@/lib/rbac";
@@ -21,6 +24,15 @@ import {
 } from "@/lib/subjects/archive-state";
 
 export { activeClassWhere, formatArchiveDate, isClassInactive };
+
+export type TeacherDeleteImpact = {
+  examCount: number;
+  submissionCount: number;
+};
+
+export type TeacherDeleteOptions = {
+  confirm?: unknown;
+};
 
 export function assertClassIsActive(row: {
   archivedAt?: Date | null;
@@ -76,18 +88,76 @@ async function teacherClassesForSubject(
 async function ownedClass(user: SessionUser, classSubjectId: string) {
   const schoolId = requireTeacher(user);
   const cs = await prisma.classSubject.findFirst({
-    where: {
-      id: classSubjectId,
-      schoolId,
-      enrollments: {
-        some: { userId: user.id, schoolId, role: "TEACHER" },
-      },
-    },
+    where: { id: classSubjectId },
   });
   if (!cs) {
     throw new AppError("Class not found", 404, "class_not_found");
   }
+  if (cs.schoolId !== schoolId) {
+    throw new AppError("Forbidden", 403, "forbidden");
+  }
+  const enrollment = await prisma.enrollment.findFirst({
+    where: {
+      classSubjectId,
+      userId: user.id,
+      schoolId,
+      role: "TEACHER",
+    },
+  });
+  if (!enrollment) {
+    throw new AppError("Forbidden", 403, "forbidden");
+  }
   return { schoolId, cs };
+}
+
+/** DB counts for permanent-delete impact copy (teacher archive UI + server). */
+export async function countTeacherDeleteImpactForClass(
+  schoolId: string,
+  classSubjectId: string,
+): Promise<TeacherDeleteImpact> {
+  const [examCount, submissionCount] = await Promise.all([
+    prisma.exam.count({ where: { schoolId, classSubjectId } }),
+    prisma.submission.count({
+      where: { schoolId, exam: { classSubjectId } },
+    }),
+  ]);
+  return { examCount, submissionCount };
+}
+
+export async function countTeacherDeleteImpactForSubject(
+  schoolId: string,
+  teacherId: string,
+  subjectCode: string,
+): Promise<TeacherDeleteImpact> {
+  const classes = await teacherClassesForSubject(schoolId, teacherId, subjectCode);
+  const ids = classes.map((row) => row.id);
+  if (ids.length === 0) {
+    return { examCount: 0, submissionCount: 0 };
+  }
+  const [examCount, submissionCount] = await Promise.all([
+    prisma.exam.count({
+      where: { schoolId, classSubjectId: { in: ids } },
+    }),
+    prisma.submission.count({
+      where: { schoolId, exam: { classSubjectId: { in: ids } } },
+    }),
+  ]);
+  return { examCount, submissionCount };
+}
+
+function assertTeacherDeleteConfirm(input: {
+  confirm: unknown;
+  expectedToken: string;
+}): void {
+  const result = evaluateDeleteConfirmation({
+    confirm: input.confirm,
+    expectedToken: input.expectedToken,
+    hasProtectedData: true,
+    requireConfirm: true,
+  });
+  if (!result.ok) {
+    throw new AppError(result.error, result.status, result.code);
+  }
 }
 
 async function removeExamStructureFile(examId: string) {
@@ -197,9 +267,14 @@ export async function restoreSubject(user: SessionUser, rawCode: string) {
   ]);
 }
 
-export async function deleteArchivedSubject(user: SessionUser, rawCode: string) {
+export async function deleteArchivedSubject(
+  user: SessionUser,
+  rawCode: string,
+  options: TeacherDeleteOptions = {},
+) {
   const schoolId = requireTeacher(user);
   const subjectCode = assertSubjectCode(rawCode);
+  const classes = await teacherClassesForSubject(schoolId, user.id, subjectCode);
   const archive = await prisma.subjectArchive.findUnique({
     where: {
       schoolId_teacherId_subjectCode: {
@@ -210,9 +285,15 @@ export async function deleteArchivedSubject(user: SessionUser, rawCode: string) 
     },
   });
   if (!archive) {
+    if (classes.length === 0) {
+      throw new AppError("Forbidden", 403, "forbidden");
+    }
     throw new AppError("請先封存才可刪除。", 400, "not_archived");
   }
-  const classes = await teacherClassesForSubject(schoolId, user.id, subjectCode);
+  assertTeacherDeleteConfirm({
+    confirm: options.confirm,
+    expectedToken: subjectCode,
+  });
   for (const row of classes) {
     await purgeClassSubject(schoolId, row.id);
   }
@@ -247,7 +328,11 @@ export async function restoreClass(user: SessionUser, classSubjectId: string) {
   });
 }
 
-export async function deleteArchivedClass(user: SessionUser, classSubjectId: string) {
+export async function deleteArchivedClass(
+  user: SessionUser,
+  classSubjectId: string,
+  options: TeacherDeleteOptions = {},
+) {
   const { schoolId, cs } = await ownedClass(user, classSubjectId);
   if (cs.subjectArchivedAt) {
     throw new AppError("此科目已封存。請在封存頁刪除科目。", 409, "subject_archived");
@@ -255,6 +340,10 @@ export async function deleteArchivedClass(user: SessionUser, classSubjectId: str
   if (!cs.classArchivedAt) {
     throw new AppError("請先封存才可刪除。", 400, "not_archived");
   }
+  assertTeacherDeleteConfirm({
+    confirm: options.confirm,
+    expectedToken: cs.name,
+  });
   const subjectCode = cs.subjectCode;
   await purgeClassSubject(schoolId, cs.id);
   await deleteSyllabusIfUnused(schoolId, subjectCode);
@@ -274,9 +363,16 @@ export async function listArchivedSubjects(user: SessionUser) {
       user.id,
       archive.subjectCode,
     );
+    const impact = await countTeacherDeleteImpactForSubject(
+      schoolId,
+      user.id,
+      archive.subjectCode,
+    );
     subjects.push({
       subjectCode: archive.subjectCode,
       archivedAt: formatArchiveDate(archive.archivedAt),
+      examCount: impact.examCount,
+      submissionCount: impact.submissionCount,
       classes: classes.map((row) => ({
         id: row.id,
         name: row.name,

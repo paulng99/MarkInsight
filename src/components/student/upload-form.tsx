@@ -26,6 +26,7 @@ export function StudentUploadForm({
   const [submissionId, setSubmissionId] = useState<string | null>(null);
   const [fileReset, setFileReset] = useState(0);
   const [pending, startTransition] = useTransition();
+  const [retryPending, setRetryPending] = useState(false);
   const [archived, setArchived] = useState(false);
   const [structureReady, setStructureReady] = useState(true);
   const [checked, setChecked] = useState(false);
@@ -84,18 +85,24 @@ export function StudentUploadForm({
   }
 
   async function retry() {
-    if (!submissionId) return;
-    const res = await fetch(`/api/submissions/${submissionId}/analyze`, {
-      method: "POST",
-    });
-    const data = await res.json();
-    if (res.ok) {
-      setJobId(data.jobId);
-      setError(null);
-      setShowCheckFile(false);
-    } else {
-      setError(data.error || t.examAnalyzeError);
-      setShowCheckFile(false);
+    if (!submissionId || retryPending) return;
+    setRetryPending(true);
+    setError(null);
+    setShowCheckFile(false);
+    try {
+      const res = await fetch(`/api/submissions/${submissionId}/analyze`, {
+        method: "POST",
+      });
+      const data = await res.json();
+      if (res.ok) {
+        setJobId(data.jobId);
+      } else {
+        setError(data.error || t.examAnalyzeError);
+      }
+    } catch {
+      setError(t.examAnalyzeError);
+    } finally {
+      setRetryPending(false);
     }
   }
 
@@ -196,7 +203,8 @@ export function StudentUploadForm({
         <JobProgressPanel
           jobId={jobId}
           t={t}
-          onRetry={() => void retry()}
+          onRetry={archived ? undefined : () => void retry()}
+          retryPending={retryPending}
           successHint={t.stateSuccess}
         />
         <div className="rounded-2xl border border-teal-100 bg-[var(--role-student-soft)] p-5 text-sm text-teal-900">

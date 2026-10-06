@@ -1,3 +1,4 @@
+import { AppError } from "../errors";
 import { normalizeJobStatus } from "./status-copy";
 
 /** Idle window before an active PENDING/RUNNING job is treated as stalled and re-analyze is allowed. */
@@ -55,3 +56,31 @@ export function resolveAnalysisReanalyzeGate(
     showWaitingHint,
   };
 }
+
+/**
+ * Reject starting a second analysis while one is still active
+ * (PENDING/RUNNING and not past the stall idle window).
+ * Used for exam-structure and submission-scoring jobs.
+ */
+export function assertAnalysisJobAvailable(input: {
+  activeStatus: string | null | undefined;
+  touchedAt: string | Date | null | undefined;
+  now?: number;
+}): void {
+  if (!input.activeStatus) return;
+  const touchedAt =
+    input.touchedAt instanceof Date
+      ? input.touchedAt.toISOString()
+      : input.touchedAt ?? null;
+  const gate = resolveAnalysisReanalyzeGate({
+    jobStatus: input.activeStatus,
+    touchedAt,
+    now: input.now ?? Date.now(),
+  });
+  if (gate.blockedByActiveJob) {
+    throw new AppError("分析進行中，請稍候。", 409, "analysis_in_progress");
+  }
+}
+
+/** @deprecated Prefer assertAnalysisJobAvailable — same behaviour. */
+export const assertExamStructureAnalysisAvailable = assertAnalysisJobAvailable;

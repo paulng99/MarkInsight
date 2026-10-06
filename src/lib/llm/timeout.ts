@@ -6,7 +6,7 @@
 export const DEFAULT_LLM_TIMEOUT_MS = 120_000;
 
 export const ANALYSIS_TIMEOUT_ZH =
-  "分析花了太長時間，未能完成。你可以重新分析。";
+  "分析需時太長，未能完成。檔案已保存，不需要重新上載，請按『重新分析』。";
 
 export function llmTimeoutMs(): number {
   const raw = process.env.MARKINSIGHT_LLM_TIMEOUT_MS?.trim();

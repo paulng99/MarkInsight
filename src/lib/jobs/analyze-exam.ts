@@ -18,6 +18,7 @@ import type { LlmClient, LlmUsageTotals, StructureProgressUpdate } from "@/lib/l
 import { ANALYSIS_TIMEOUT_ZH } from "@/lib/llm/timeout";
 import { sumUsage } from "@/lib/llm/usage";
 import { resolveSystemPrompt } from "@/lib/llm/system-prompts";
+import { assertAnalysisJobAvailable } from "@/lib/jobs/analysis-reanalyze-gate";
 import { saveJobProgress } from "@/lib/jobs/job-progress";
 import { emptyAnalysisProgress, type AnalysisProgress } from "@/lib/jobs/progress-types";
 import { prisma } from "@/lib/prisma";
@@ -88,6 +89,22 @@ export async function enqueueAnalyzeExam(payload: {
     throw new AppError("請先上載試題紙。", 400, "missing_assets");
   }
 
+  const active = await prisma.analysisJob.findFirst({
+    where: {
+      schoolId: payload.schoolId,
+      examId: payload.examId,
+      kind: "EXAM_STRUCTURE",
+      status: { in: ["PENDING", "RUNNING"] },
+    },
+    orderBy: { createdAt: "desc" },
+  });
+  if (active) {
+    assertAnalysisJobAvailable({
+      activeStatus: active.status,
+      touchedAt: active.updatedAt ?? active.startedAt ?? active.createdAt,
+    });
+  }
+
   const job = await prisma.analysisJob.create({
     data: {
       schoolId: payload.schoolId,
@@ -128,6 +145,22 @@ export async function enqueueAnalyzeSubmission(payload: {
   }
   if (!submission.assetId) {
     throw new AppError("請先上載答卷。", 400, "missing_script");
+  }
+
+  const active = await prisma.analysisJob.findFirst({
+    where: {
+      schoolId: payload.schoolId,
+      submissionId: payload.submissionId,
+      kind: "SUBMISSION_SCORING",
+      status: { in: ["PENDING", "RUNNING"] },
+    },
+    orderBy: { createdAt: "desc" },
+  });
+  if (active) {
+    assertAnalysisJobAvailable({
+      activeStatus: active.status,
+      touchedAt: active.updatedAt ?? active.startedAt ?? active.createdAt,
+    });
   }
 
   await prisma.submission.update({
