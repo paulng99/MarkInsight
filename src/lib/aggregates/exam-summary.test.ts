@@ -114,3 +114,40 @@ test("topic for a question uses majority vote with topic-name tie-break", () => 
   ]);
   assert.equal(result.questions[0].topic, "Alpha");
 });
+
+test("rows with maxScore <= 0 are skipped and do not appear as 0%", () => {
+  const result = aggregateClassExamScores([
+    {
+      scores: [
+        { questionKey: "Q0", topic: "Bonus", score: 0, maxScore: 0 },
+        { questionKey: "Q1", topic: "Algebra", score: 5, maxScore: 10 },
+        { questionKey: "Q2", topic: "Geometry", score: 8, maxScore: 10 },
+      ],
+    },
+    {
+      scores: [
+        { questionKey: "Q0", topic: "Bonus", score: 0, maxScore: 0 },
+        // Mixed: one valid row for Q-neg kept; non-positive maxScore ignored
+        { questionKey: "Q-neg", topic: "Misc", score: 0, maxScore: -1 },
+        { questionKey: "Q1", topic: "Algebra", score: 5, maxScore: 10 },
+        { questionKey: "Q2", topic: "Geometry", score: 6, maxScore: 10 },
+      ],
+    },
+  ]);
+
+  assert.equal(
+    result.questions.find((q) => q.questionKey === "Q0"),
+    undefined,
+  );
+  assert.equal(
+    result.questions.find((q) => q.questionKey === "Q-neg"),
+    undefined,
+  );
+  assert.equal(result.topics.find((t) => t.topic === "Bonus"), undefined);
+  assert.ok(!result.weakestThree.some((q) => q.questionKey === "Q0"));
+  assert.deepEqual(
+    result.weakestThree.map((q) => q.questionKey),
+    ["Q1", "Q2"],
+  );
+  assert.equal(result.questions.find((q) => q.questionKey === "Q1")?.avgScoreRatio, 0.5);
+});

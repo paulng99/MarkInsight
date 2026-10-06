@@ -44,6 +44,7 @@ function pickTopic(topicCounts: Map<string, number>): string {
 /**
  * Aggregate per-question and per-topic averages across succeeded submissions.
  * Missing questionKeys on a submission are skipped (not treated as zero).
+ * Rows with maxScore <= 0 are skipped entirely (e.g. 0/0 must not appear as 0%).
  * Ties on average are broken by questionKey / topic ascending.
  */
 export function aggregateClassExamScores(
@@ -61,6 +62,7 @@ export function aggregateClassExamScores(
 
   for (const sub of submissions) {
     for (const s of sub.scores) {
+      if (s.maxScore <= 0) continue;
       const r = ratio(s.score, s.maxScore);
       const q = questionMap.get(s.questionKey) ?? {
         sum: 0,
