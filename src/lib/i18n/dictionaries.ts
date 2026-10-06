@@ -86,7 +86,7 @@ const dictionaries = {
     loginErrorInvalid: "Incorrect email or password. Please try again.",
     loginSidebarTitle: "Insight, not just marks.",
     loginSidebarDesc:
-      "Every question scored. Every topic tracked. Weak points across exams — so the next step is always clear.",
+      "Every question scored. Every topic tracked. Weak points found across exams — so the next step is always clear.",
     // --- Dashboards ---
     statSubjects: "Subjects",
     statClasses: "Classes",
@@ -682,7 +682,7 @@ const dictionaries = {
     demoFill: "使用此帳戶",
     loginErrorInvalid: "電郵或密碼不正確，請再試一次。",
     loginSidebarTitle: "不只是分數，而是洞察。",
-    loginSidebarDesc: "逐題評分、追蹤每個課題、比較每次考試 — 下一步永遠清晰。",
+    loginSidebarDesc: "逐題評分、追蹤每個課題、找出跨卷薄弱點 — 下一步永遠清晰。",
     // --- Dashboards ---
     statSubjects: "科目",
     statClasses: "班別",
