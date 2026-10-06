@@ -23,6 +23,7 @@ register(
 const {
   ANALYSIS_STALL_IDLE_MS,
   ANALYSIS_WAITING_HINT_IDLE_MS,
+  assertAnalysisJobAvailable,
   assertExamStructureAnalysisAvailable,
   resolveAnalysisReanalyzeGate,
 } = await import("./analysis-reanalyze-gate.ts");
@@ -127,10 +128,10 @@ test("succeeded or failed jobs do not show the waiting hint", () => {
   }
 });
 
-test("assertExamStructureAnalysisAvailable blocks a fresh active job", () => {
+test("assertAnalysisJobAvailable blocks a fresh active job", () => {
   assert.throws(
     () =>
-      assertExamStructureAnalysisAvailable({
+      assertAnalysisJobAvailable({
         activeStatus: "RUNNING",
         touchedAt: new Date(NOW - 30_000),
         now: NOW,
@@ -142,22 +143,26 @@ test("assertExamStructureAnalysisAvailable blocks a fresh active job", () => {
   );
 });
 
-test("assertExamStructureAnalysisAvailable allows a stalled active job", () => {
+test("assertAnalysisJobAvailable allows a stalled active job", () => {
   assert.doesNotThrow(() =>
-    assertExamStructureAnalysisAvailable({
-      activeStatus: "RUNNING",
+    assertAnalysisJobAvailable({
+      activeStatus: "PENDING",
       touchedAt: new Date(NOW - ANALYSIS_STALL_IDLE_MS - 1),
       now: NOW,
     }),
   );
 });
 
-test("assertExamStructureAnalysisAvailable allows when no active job", () => {
+test("assertAnalysisJobAvailable allows when no active job", () => {
   assert.doesNotThrow(() =>
-    assertExamStructureAnalysisAvailable({
+    assertAnalysisJobAvailable({
       activeStatus: null,
       touchedAt: null,
       now: NOW,
     }),
   );
+});
+
+test("assertExamStructureAnalysisAvailable remains an alias", () => {
+  assert.equal(assertExamStructureAnalysisAvailable, assertAnalysisJobAvailable);
 });

@@ -78,7 +78,7 @@ export async function assertTeacherOwnsExam(
 ) {
   const schoolId = requireSchoolId(user);
   const exam = await prisma.exam.findFirst({
-    where: { id: examId, schoolId },
+    where: { id: examId },
     include: {
       classSubject: { include: { schoolYear: true } },
       assets: { orderBy: { createdAt: "desc" } },
@@ -91,6 +91,9 @@ export async function assertTeacherOwnsExam(
   });
   if (!exam) {
     throw new AppError("Exam not found", 404, "exam_not_found");
+  }
+  if (exam.schoolId !== schoolId) {
+    throw new AppError("Forbidden", 403, "forbidden");
   }
   if (user.role === "TEACHER") {
     const enrollment = await prisma.enrollment.findFirst({

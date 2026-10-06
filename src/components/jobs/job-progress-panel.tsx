@@ -103,6 +103,7 @@ export function JobProgressPanel({
   indeterminate,
   badgeText,
   showThinking = true,
+  retryPending = false,
 }: {
   jobId: string | null;
   t: Dictionary;
@@ -120,6 +121,8 @@ export function JobProgressPanel({
   badgeText?: string;
   /** When false, hide the live “checking” line. */
   showThinking?: boolean;
+  /** Disable retry and show analysing label (blocks double-click). */
+  retryPending?: boolean;
 }) {
   const { job, error, refresh } = useJobPoll(jobId);
   const [notifiedSuccess, setNotifiedSuccess] = useState(false);
@@ -259,9 +262,14 @@ export function JobProgressPanel({
             <p className="mt-1 text-xs opacity-80">{t.checkFile}</p>
           ) : null}
           {onRetry ? (
-            <button type="button" onClick={onRetry} className="btn btn-primary btn-sm mt-3">
-              <Icon.Refresh size={14} />
-              {t.examReanalyze}
+            <button
+              type="button"
+              onClick={onRetry}
+              disabled={retryPending}
+              className="btn btn-primary btn-sm mt-3"
+            >
+              {retryPending ? <Icon.Loader size={14} /> : <Icon.Refresh size={14} />}
+              {retryPending ? t.examAnalyzing : t.examReanalyze}
             </button>
           ) : null}
         </div>

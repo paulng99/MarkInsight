@@ -88,10 +88,13 @@ async function teacherClassesForSubject(
 async function ownedClass(user: SessionUser, classSubjectId: string) {
   const schoolId = requireTeacher(user);
   const cs = await prisma.classSubject.findFirst({
-    where: { id: classSubjectId, schoolId },
+    where: { id: classSubjectId },
   });
   if (!cs) {
     throw new AppError("Class not found", 404, "class_not_found");
+  }
+  if (cs.schoolId !== schoolId) {
+    throw new AppError("Forbidden", 403, "forbidden");
   }
   const enrollment = await prisma.enrollment.findFirst({
     where: {

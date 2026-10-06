@@ -58,10 +58,11 @@ export function resolveAnalysisReanalyzeGate(
 }
 
 /**
- * Reject starting a second exam-structure analysis while one is still active
+ * Reject starting a second analysis while one is still active
  * (PENDING/RUNNING and not past the stall idle window).
+ * Used for exam-structure and submission-scoring jobs.
  */
-export function assertExamStructureAnalysisAvailable(input: {
+export function assertAnalysisJobAvailable(input: {
   activeStatus: string | null | undefined;
   touchedAt: string | Date | null | undefined;
   now?: number;
@@ -80,3 +81,6 @@ export function assertExamStructureAnalysisAvailable(input: {
     throw new AppError("分析進行中，請稍候。", 409, "analysis_in_progress");
   }
 }
+
+/** @deprecated Prefer assertAnalysisJobAvailable — same behaviour. */
+export const assertExamStructureAnalysisAvailable = assertAnalysisJobAvailable;
