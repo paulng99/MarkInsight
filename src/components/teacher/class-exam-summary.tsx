@@ -2,6 +2,10 @@
 
 import Link from "next/link";
 import { useEffect, useState } from "react";
+import {
+  mapClassExamSummaryError,
+  type ClassExamSummaryUiError,
+} from "@/lib/aggregates/exam-summary-error";
 import type { Dictionary, Locale } from "@/lib/i18n/dictionaries";
 import { Alert, EmptyState, LoadingBlock } from "@/components/ui/feedback";
 import { Icon } from "@/components/ui/icons";
@@ -53,7 +57,7 @@ export function TeacherClassExamSummary({
   examId: string;
 }) {
   const [data, setData] = useState<SummaryPayload | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<ClassExamSummaryUiError | null>(null);
   const [loading, setLoading] = useState(true);
   const [sortAsc, setSortAsc] = useState(true);
   const [reloadKey, setReloadKey] = useState(0);
@@ -63,18 +67,19 @@ export function TeacherClassExamSummary({
     (async () => {
       try {
         const res = await fetch(`/api/exams/${examId}/summary`);
-        const json = await res.json();
         if (cancelled) return;
         if (!res.ok) {
-          setError(json.error || t.classExamSummaryError);
+          setError(mapClassExamSummaryError(res.status, t));
           setData(null);
           return;
         }
+        const json = await res.json();
+        if (cancelled) return;
         setData(json.summary as SummaryPayload);
         setError(null);
       } catch {
         if (!cancelled) {
-          setError(t.classExamSummaryError);
+          setError(mapClassExamSummaryError(null, t));
           setData(null);
         }
       } finally {
@@ -84,7 +89,7 @@ export function TeacherClassExamSummary({
     return () => {
       cancelled = true;
     };
-  }, [examId, reloadKey, t.classExamSummaryError]);
+  }, [examId, reloadKey, t]);
 
   function retry() {
     setLoading(true);
@@ -102,13 +107,15 @@ export function TeacherClassExamSummary({
         tone="error"
         className="mt-8"
         action={
-          <button type="button" className="btn btn-secondary btn-sm" onClick={retry}>
-            <Icon.Refresh size={14} />
-            {t.settingsRetry}
-          </button>
+          error.retryable ? (
+            <button type="button" className="btn btn-secondary btn-sm" onClick={retry}>
+              <Icon.Refresh size={14} />
+              {t.settingsRetry}
+            </button>
+          ) : undefined
         }
       >
-        {error}
+        {error.message}
       </Alert>
     );
   }
