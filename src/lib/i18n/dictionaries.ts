@@ -59,7 +59,7 @@ const dictionaries = {
     heroTitleB: "behind every mark.",
     heroStat1: "Per-question scoring",
     heroStat2: "Topic & item-type insight",
-    heroStat3: "Cross-exam trends",
+    heroStat3: "Cross-exam weak points",
     featuresTitle: "From script to insight in three steps",
     featuresIntro:
       "One shared workflow for teachers and students, with role-specific views on top.",
@@ -70,14 +70,15 @@ const dictionaries = {
     step2Desc:
       "Students (or teachers on their behalf) upload PDFs or photos. Every question is scored automatically.",
     step3Title: "Review weak points",
-    step3Desc:
-      "Interactive charts show performance by topic and item type — and how it changes across exams.",
+    step3Desc: "Interactive charts show performance by topic and item type.",
     roleAdminDesc: "School profile, school years, analysis model and teacher accounts.",
     roleTeacherDesc: "Open exams, distribute papers, upload on behalf, and review class results.",
     roleStudentDesc: "Upload your scripts and track weak topics across every exam.",
     landingCtaTitle: "Ready to look inside your marks?",
     landingCtaDesc: "Sign in with a demo account to explore the teacher and student experiences.",
     footerNote: "Dates use yyyy-mm-dd. Available in English and 繁體中文（香港）.",
+    previewSampleBadge: "Example",
+    crossExamSampleAvg: "Avg {pct}%",
     // --- Login ---
     signInSubtitle: "Sign in to your MarkInsight workspace.",
     demoTitle: "Demo accounts",
@@ -85,7 +86,7 @@ const dictionaries = {
     loginErrorInvalid: "Incorrect email or password. Please try again.",
     loginSidebarTitle: "Insight, not just marks.",
     loginSidebarDesc:
-      "Every question scored. Every topic tracked. Every exam compared — so the next step is always clear.",
+      "Every question scored. Every topic tracked. Weak points across exams — so the next step is always clear.",
     // --- Dashboards ---
     statSubjects: "Subjects",
     statClasses: "Classes",
@@ -658,7 +659,7 @@ const dictionaries = {
     heroTitleB: "薄弱點。",
     heroStat1: "逐題評分",
     heroStat2: "課題與題型洞察",
-    heroStat3: "跨卷趨勢",
+    heroStat3: "跨卷薄弱點",
     featuresTitle: "三步由答卷到洞察",
     featuresIntro: "教師與學生共用同一流程，各自擁有專屬視圖。",
     step1Title: "開卷",
@@ -666,13 +667,15 @@ const dictionaries = {
     step2Title: "上載答卷",
     step2Desc: "學生（或教師代為）上載 PDF 或相片，系統自動逐題評分。",
     step3Title: "檢視薄弱點",
-    step3Desc: "互動圖表按課題與題型呈現表現，並追蹤跨卷變化。",
+    step3Desc: "互動圖表按課題與題型呈現表現。",
     roleAdminDesc: "學校資料、學年、分析模型與教師帳戶。",
     roleTeacherDesc: "開卷、分發試卷、代學生上載，並查看班別結果。",
     roleStudentDesc: "上載答卷，追蹤每次考試的薄弱課題。",
     landingCtaTitle: "準備好看清楚你的分數了嗎？",
     landingCtaDesc: "使用示範帳戶登入，體驗教師與學生的工作區。",
     footerNote: "日期格式為 yyyy-mm-dd。支援 English 與繁體中文（香港）。",
+    previewSampleBadge: "示例",
+    crossExamSampleAvg: "平均 {pct}%",
     // --- Login ---
     signInSubtitle: "登入你的 MarkInsight 工作區。",
     demoTitle: "示範帳戶",
