@@ -464,7 +464,7 @@ export class OpenRouterLlmClient implements LlmClient {
     const scanPages = await rasterizeScanPages(input.assetRefs).catch((error: unknown) => {
       console.error(
         "[llm] page raster failed",
-        error instanceof Error ? error.name : "error",
+        error instanceof Error ? error.message : "error",
       );
       return [] as ScanPage[];
     });
