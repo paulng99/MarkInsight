@@ -102,6 +102,110 @@ export const STRUCTURE_PROMPT_ADDENDUM = [
   'Write assessmentObjective, difficultyPoints, itemType, questionCategory, topic, and teachingContent in both Traditional Chinese (Hong Kong) and English. Prefer objects {"zh":"...","en":"..."} or the paired keys topicZh/topicEn, itemTypeZh/itemTypeEn, questionCategoryZh/questionCategoryEn, assessmentObjectiveZh/assessmentObjectiveEn, difficultyPointsZh/difficultyPointsEn, teachingContentZh/teachingContentEn.',
 ].join(" ");
 
+/**
+ * Page batches only show part of a scanned paper. This overrides the rule that
+ * the reply must contain every numbered question.
+ */
+export const SCAN_BATCH_OVERRIDE = [
+  "This request overrides the rule that a paper must contain every numbered question.",
+  "These images are only a few pages.",
+  "Return only numbered questions whose printed wording is visible on these pages.",
+  "Omit every question that is not visible. A short list is the correct result.",
+  "Do not invent a question, a part, or a mark.",
+  "Do not replace a question with a curriculum outcome, a syllabus statement, or a textbook summary.",
+  "Keep nested labels separate: (b)(i) and (b)(ii) are partKey values b(i) and b(ii).",
+  "maxScore is the integer printed for that part, such as (2 marks) or (3 分).",
+].join(" ");
+
+export function scanPageSystemPrompt(base: string): string {
+  return `${base.trim()}\n\n${STRUCTURE_PROMPT_ADDENDUM}\n\n${SCAN_BATCH_OVERRIDE}`;
+}
+
+export function formatMarkAllocation(allocation: Record<string, number>): string {
+  return Object.entries(allocation)
+    .sort((a, b) => Number(a[0]) - Number(b[0]))
+    .map(([key, score]) => `${key}=${score}`)
+    .join(", ");
+}
+
+/** Cover-page marks table: question number to that question's printed total. */
+export function readMarkAllocation(parsed: unknown): Record<string, number> {
+  const record = parsed && typeof parsed === "object" ? (parsed as Record<string, unknown>) : null;
+  const list = Array.isArray(record?.allocation)
+    ? record.allocation
+    : Array.isArray(record?.marks)
+      ? record.marks
+      : [];
+  const out: Record<string, number> = {};
+  for (const item of list) {
+    if (!item || typeof item !== "object") continue;
+    const row = item as Record<string, unknown>;
+    const rawKey = textOf(row.questionKey || row.key || row.question).replace(/^Q/i, "");
+    const parent = splitQuestionKey(rawKey).parentKey || rawKey;
+    if (!/^\d+$/.test(parent)) continue;
+    const score = marks(row.maxScore ?? row.marks ?? row.score, 0);
+    if (score <= 0) continue;
+    out[parent] = score;
+  }
+  return out;
+}
+
+export function questionsOffMarkAllocation(
+  rows: FlatStructureQuestion[],
+  allocation: Record<string, number>,
+): string[] {
+  const totals = new Map<string, number>();
+  for (const row of rows) {
+    totals.set(row.parentKey, (totals.get(row.parentKey) ?? 0) + (row.maxScore || 0));
+  }
+  return Object.keys(allocation)
+    .sort((a, b) => Number(a) - Number(b))
+    .filter((key) => totals.get(key) !== allocation[key]);
+}
+
+export function limitToMarkAllocation(
+  rows: FlatStructureQuestion[],
+  allocation: Record<string, number>,
+): FlatStructureQuestion[] {
+  const keys = Object.keys(allocation);
+  if (keys.length === 0) return rows;
+  const allowed = new Set(keys);
+  return rows.filter((row) => allowed.has(row.parentKey));
+}
+
+export function scanBatchInstruction(
+  from: number,
+  to: number,
+  allocation: Record<string, number>,
+  onlyKeys?: string[],
+): string {
+  const keys = onlyKeys?.filter((key) => allocation[key] != null);
+  const focus =
+    keys && keys.length > 0
+      ? `Return a question only when its number is one of: ${keys.join(", ")}. `
+      : "";
+  const scoped =
+    keys && keys.length > 0
+      ? Object.fromEntries(keys.map((key) => [key, allocation[key]]))
+      : allocation;
+  const totals = formatMarkAllocation(scoped);
+  const totalLine = totals
+    ? `Printed question totals: ${totals}. Parts of a question must sum to that question's total. If you cannot see every part, omit the question. `
+    : "";
+  return (
+    `These upright images are question-paper pages ${from}–${to}. ` +
+    focus +
+    "Extract only numbered questions whose wording is visible here. " +
+    "Do not add questions that are not on these pages. " +
+    "Copy each lettered part in the paper's language. Do not summarise, translate, or invent a question. " +
+    "partKey is the printed label without the question number, such as a, b, c, b(i), or b(ii). An empty partKey is invalid. " +
+    "maxScore is the mark printed for that part. " +
+    totalLine +
+    "Write assessmentObjective (考核要求) and difficultyPoints (難點) in Traditional Chinese (Hong Kong), about that part only. " +
+    "Skip cover pages, instructions, and blank answer lines."
+  );
+}
+
 function textOf(value: unknown): string {
   return typeof value === "string" ? value.trim() : "";
 }
@@ -527,9 +631,19 @@ export function dedupePartRows(rows: FlatStructureQuestion[]): FlatStructureQues
 export function mergeParentRows(
   current: FlatStructureQuestion[],
   incoming: FlatStructureQuestion[],
+  expectedMax?: number,
 ): FlatStructureQuestion[] {
   const parent = incoming[0]?.parentKey;
   if (!parent || incoming.every((row) => !row.partKey.trim())) return current;
+  const currentRows = current.filter((row) => row.parentKey === parent);
+  const currentSum = currentRows.reduce((sum, row) => sum + (row.maxScore || 0), 0);
+  const incomingSum = incoming.reduce((sum, row) => sum + (row.maxScore || 0), 0);
+  if (expectedMax && expectedMax > 0) {
+    if (incomingSum === expectedMax && currentSum !== expectedMax) {
+      return replaceParentQuestions(current, parent, incoming);
+    }
+    if (currentSum === expectedMax && incomingSum !== expectedMax) return current;
+  }
   const byPart = new Map<string, FlatStructureQuestion>();
   for (const row of current) {
     if (row.parentKey === parent) byPart.set(row.partKey, row);

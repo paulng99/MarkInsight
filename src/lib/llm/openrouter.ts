@@ -5,9 +5,14 @@ import {
   applySyllabusLabels,
   type SyllabusLabel,
   dedupePartRows,
+  limitToMarkAllocation,
   mergeParentRows,
   parentsMissingParts,
+  questionsOffMarkAllocation,
+  readMarkAllocation,
   replaceParentQuestions,
+  scanBatchInstruction,
+  scanPageSystemPrompt,
   STRUCTURE_PROMPT_ADDENDUM,
   type DigestedQuestion,
   type FlatStructureQuestion,
@@ -651,80 +656,55 @@ export class OpenRouterLlmClient implements LlmClient {
     let questions: FlatStructureQuestion[] = [];
     let total = 0;
     const fingerprints = new Map<string, string>();
-    const system = `${(input.systemPrompt?.trim() || DEFAULT_SYSTEM_PROMPTS.exam_structure).trim()}\n\n${STRUCTURE_PROMPT_ADDENDUM}`;
+    const system = scanPageSystemPrompt(
+      input.systemPrompt?.trim() || DEFAULT_SYSTEM_PROMPTS.exam_structure,
+    );
+    const allocation = await this.readPrintedMarkAllocation(llmModel, pages);
 
-    for (const batch of batches) {
+    const absorb = async (
+      batch: ScanPage[],
+      onlyKeys: string[] | undefined,
+      note: string,
+    ) => {
       const from = batch[0]?.page ?? 1;
       const to = batch[batch.length - 1]?.page ?? from;
       const parents = new Set(questions.map((row) => row.parentKey));
       await report({
         stage: "receiving",
         completed: parents.size,
-        total: Math.max(total, parents.size),
+        total: Math.max(total, Object.keys(allocation).length, parents.size),
         questionKey: null,
         partKeys: [],
-        note: `正在閱讀第 ${from}–${to} 頁，逐項抄錄分題、分數、考核要求同難點。`,
+        note,
         commit: false,
       });
 
-      const content: LlmContentPart[] = [
+      const buffer = await this.completeScanChat(llmModel, system, [
         {
           type: "text",
-          text:
-            `These upright images are question-paper pages ${from}–${to}. ` +
-            "Extract only numbered questions whose wording is visible here. " +
-            "Copy each lettered part in the paper's language. Do not summarise, translate, or invent a question. " +
-            "partKey is the printed label without the question number, such as a, b, c, b(i), or b(ii). An empty partKey is invalid. " +
-            "maxScore is the mark printed for that part. " +
-            "Write assessmentObjective (考核要求) and difficultyPoints (難點) in Traditional Chinese (Hong Kong), about that part only. " +
-            "Skip cover pages, instructions, and blank answer lines. " +
-            'If a marks table is visible, set total to the number of questions. Otherwise set total to 0.',
+          text: scanBatchInstruction(from, to, allocation, onlyKeys),
         },
-      ];
-      for (const page of batch) {
-        content.push({
-          type: "text",
-          text: `Page ${page.page} of ${page.pageCount}.`,
-        });
-        content.push({ type: "image_url", image_url: { url: page.dataUrl } });
-      }
+        ...batch.flatMap((page) => [
+          {
+            type: "text" as const,
+            text: `Page ${page.page} of ${page.pageCount}.`,
+          },
+          { type: "image_url" as const, image_url: { url: page.dataUrl } },
+        ]),
+      ]);
+      if (!buffer.trim()) return;
 
-      let buffer = "";
-      const request: LlmChatRequest = {
-        model: llmModel,
-        temperature: 0.1,
-        maxTokens: 8192,
-        responseFormat: "json_object",
-        messages: [
-          { role: "system", content: system },
-          { role: "user", content },
-        ],
-      };
       try {
-        for await (const delta of this.chatDeltas(request)) {
-          if (delta.text) buffer += delta.text;
+        const extra = readMarkAllocation(extractJsonObject(buffer));
+        for (const [key, score] of Object.entries(extra)) {
+          if (allocation[key] == null) allocation[key] = score;
         }
-      } catch (error) {
-        if (!buffer.trim()) {
-          try {
-            const chat = await this.chat(request);
-            buffer = chat.content;
-          } catch (fallbackError) {
-            console.error(
-              "[llm] page batch failed",
-              from,
-              fallbackError instanceof Error ? fallbackError.name : "error",
-            );
-            continue;
-          }
-        } else if (error instanceof AppError && error.code !== "llm_http_error") {
-          throw error;
-        }
+      } catch {
+        // A partial question payload has no marks table.
       }
-      if (!buffer.trim()) continue;
 
       let items = digestStructureBuffer(buffer, 0).fresh;
-      total = Math.max(total, digestStructureBuffer(buffer, 0).total);
+      total = Math.max(total, digestStructureBuffer(buffer, 0).total, Object.keys(allocation).length);
       if (items.length === 0) {
         try {
           const parsed = flattenStructurePayload(extractJsonObject(buffer));
@@ -741,11 +721,12 @@ export class OpenRouterLlmClient implements LlmClient {
             rows,
           }));
         } catch {
-          continue;
+          return;
         }
       }
 
       for (const item of items) {
+        if (onlyKeys && !onlyKeys.includes(item.questionKey)) continue;
         if (!usableScanQuestion(item)) continue;
         const fingerprint = item.rows.map((row) => row.prompt.trim()).join("\n");
         const duplicate = [...fingerprints.entries()].find(
@@ -753,13 +734,16 @@ export class OpenRouterLlmClient implements LlmClient {
         );
         if (duplicate) continue;
         fingerprints.set(item.questionKey, fingerprint);
-        questions = mergeParentRows(questions, item.rows);
-        const done = new Set(questions.map((row) => row.parentKey));
+        const expected = allocation[item.questionKey];
+        questions = mergeParentRows(questions, item.rows, expected);
         const rows = questions.filter((row) => row.parentKey === item.questionKey);
+        const sum = rows.reduce((score, row) => score + (row.maxScore || 0), 0);
+        if (expected && sum !== expected) continue;
+        const done = new Set(questions.map((row) => row.parentKey));
         await report({
           stage: "question",
           completed: done.size,
-          total: Math.max(total, done.size),
+          total: Math.max(total, Object.keys(allocation).length, done.size),
           questionKey: item.questionKey,
           partKeys: rows.map((row) => row.partKey).filter(Boolean),
           note: item.note || "已分析此題的分題。",
@@ -768,9 +752,126 @@ export class OpenRouterLlmClient implements LlmClient {
           questions: rows,
         });
       }
+    };
+
+    for (const batch of batches) {
+      const from = batch[0]?.page ?? 1;
+      const to = batch[batch.length - 1]?.page ?? from;
+      await absorb(
+        batch,
+        undefined,
+        `正在閱讀第 ${from}–${to} 頁，逐項抄錄分題、分數、考核要求同難點。`,
+      );
     }
 
-    return dedupePartRows(questions);
+    let pending = questionsOffMarkAllocation(questions, allocation);
+    if (pending.length > 0) {
+      for (const batch of batches) {
+        pending = questionsOffMarkAllocation(questions, allocation);
+        if (pending.length === 0) break;
+        const from = batch[0]?.page ?? 1;
+        const to = batch[batch.length - 1]?.page ?? from;
+        await absorb(
+          batch,
+          pending,
+          `正在按封面分數表核對第 ${pending.join("、")} 題（第 ${from}–${to} 頁）。`,
+        );
+      }
+    }
+
+    questions = limitToMarkAllocation(dedupePartRows(questions), allocation);
+    const off = questionsOffMarkAllocation(questions, allocation);
+    if (off.length > 0) {
+      throw new AppError(
+        `分析未完成，第 ${off.join("、")} 題的分數同封面分數表不符，請再試一次。`,
+        502,
+        "llm_marks_mismatch",
+      );
+    }
+    return questions;
+  }
+
+  private async readPrintedMarkAllocation(
+    llmModel: string,
+    pages: ScanPage[],
+  ): Promise<Record<string, number>> {
+    const head = pages.slice(0, 2);
+    if (head.length === 0) return {};
+    const content: LlmContentPart[] = [
+      {
+        type: "text",
+        text:
+          "Look only for a printed marks table (Question No. / Marks, or 題號 / 分數). " +
+          'Return JSON {"allocation":[{"questionKey":"1","maxScore":5}]}. ' +
+          "questionKey is the question number. maxScore is that question's total marks from the table, not a part mark. " +
+          'If no marks table is visible, return {"allocation":[]}. Do not extract question text.',
+      },
+      ...head.flatMap((page) => [
+        { type: "text" as const, text: `Page ${page.page}.` },
+        { type: "image_url" as const, image_url: { url: page.dataUrl } },
+      ]),
+    ];
+    try {
+      const chat = await this.chat({
+        model: llmModel,
+        temperature: 0,
+        maxTokens: 1024,
+        responseFormat: "json_object",
+        messages: [
+          {
+            role: "system",
+            content: "You read a marks table from an exam cover. Reply with JSON only.",
+          },
+          { role: "user", content },
+        ],
+      });
+      return readMarkAllocation(extractJsonObject(chat.content));
+    } catch (error) {
+      console.error(
+        "[llm] marks table failed",
+        error instanceof Error ? error.name : "error",
+      );
+      return {};
+    }
+  }
+
+  private async completeScanChat(
+    llmModel: string,
+    system: string,
+    content: LlmContentPart[],
+  ): Promise<string> {
+    const request: LlmChatRequest = {
+      model: llmModel,
+      temperature: 0.1,
+      maxTokens: 8192,
+      responseFormat: "json_object",
+      messages: [
+        { role: "system", content: system },
+        { role: "user", content },
+      ],
+    };
+    let buffer = "";
+    try {
+      for await (const delta of this.chatDeltas(request)) {
+        if (delta.text) buffer += delta.text;
+      }
+    } catch (error) {
+      if (!buffer.trim()) {
+        try {
+          const chat = await this.chat(request);
+          buffer = chat.content;
+        } catch (fallbackError) {
+          console.error(
+            "[llm] page batch failed",
+            fallbackError instanceof Error ? fallbackError.name : "error",
+          );
+          return "";
+        }
+      } else if (error instanceof AppError && error.code !== "llm_http_error") {
+        throw error;
+      }
+    }
+    return buffer;
   }
 
   async classifyAgainstSyllabus(

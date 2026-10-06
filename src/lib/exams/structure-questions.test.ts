@@ -6,9 +6,15 @@ import {
   selectSyllabusText,
   digestStructureBuffer,
   flattenRawQuestion,
+  formatMarkAllocation,
   groupStructureQuestions,
+  limitToMarkAllocation,
   mergeParentRows,
   parentsMissingParts,
+  questionsOffMarkAllocation,
+  readMarkAllocation,
+  scanBatchInstruction,
+  scanPageSystemPrompt,
 } from "./structure-questions.ts";
 
 test("streams numbered questions and keeps every part", () => {
@@ -182,4 +188,95 @@ test("keeps a question even when topic is missing and groups legacy part keys", 
   assert.equal(groups.length, 1);
   assert.equal(groups[0].questionKey, "1");
   assert.equal(groups[0].parts.map((part) => part.partKey).join(""), "ab");
+});
+
+test("reads the cover marks table and flags questions that do not add up", () => {
+  const allocation = readMarkAllocation({
+    allocation: [
+      { questionKey: "1", maxScore: 5 },
+      { questionKey: "Q4", marks: 11 },
+      { questionKey: "9", maxScore: 12 },
+      { questionKey: "cover", maxScore: 84 },
+    ],
+  });
+  assert.deepEqual(allocation, { "1": 5, "4": 11, "9": 12 });
+  assert.equal(formatMarkAllocation(allocation), "1=5, 4=11, 9=12");
+
+  const rows = [
+    ...flattenRawQuestion({
+      questionKey: "1",
+      parts: [
+        { partKey: "a", prompt: "Estimate the power.", maxScore: 3 },
+        { partKey: "b", prompt: "Find the flow rate.", maxScore: 2 },
+      ],
+    }),
+    ...flattenRawQuestion({
+      questionKey: "4",
+      parts: [{ partKey: "a", prompt: "Explain the brakes on a long hill.", maxScore: 1 }],
+    }),
+    ...flattenRawQuestion({
+      questionKey: "11",
+      parts: [{ partKey: "a", prompt: "This question is not on the cover table.", maxScore: 1 }],
+    }),
+  ];
+  assert.deepEqual(questionsOffMarkAllocation(rows, allocation), ["4", "9"]);
+  const limited = limitToMarkAllocation(rows, allocation);
+  assert.deepEqual(
+    limited.map((row) => row.parentKey),
+    ["1", "1", "4"],
+  );
+});
+
+test("replaces invented parts when a later read matches the printed total", () => {
+  const invented = flattenRawQuestion({
+    questionKey: "4",
+    parts: [
+      { partKey: "a", prompt: "State the three states of matter in a long curriculum sentence.", maxScore: 1 },
+      { partKey: "b", prompt: "Determine the melting point and boiling point of a substance.", maxScore: 1 },
+      { partKey: "c", prompt: "Realize latent heat as energy transferred during a change of state.", maxScore: 1 },
+    ],
+  });
+  const printed = flattenRawQuestion({
+    questionKey: "4",
+    parts: [
+      { partKey: "a(i)", prompt: "Calculate the force.", maxScore: 3 },
+      { partKey: "a(ii)", prompt: "Find the acceleration.", maxScore: 2 },
+      { partKey: "b", prompt: "Explain the energy change.", maxScore: 4 },
+      { partKey: "c", prompt: "State the assumption.", maxScore: 2 },
+    ],
+  });
+  const merged = mergeParentRows(invented, printed, 11);
+  assert.equal(
+    merged.reduce((sum, row) => sum + row.maxScore, 0),
+    11,
+  );
+  assert.deepEqual(
+    merged.map((row) => row.partKey),
+    ["a(i)", "a(ii)", "b", "c"],
+  );
+
+  const worse = flattenRawQuestion({
+    questionKey: "4",
+    parts: [
+      {
+        partKey: "a",
+        prompt: "A much longer invented prompt that should not replace the printed question parts.",
+        maxScore: 1,
+      },
+    ],
+  });
+  const kept = mergeParentRows(merged, worse, 11);
+  assert.equal(kept.length, 4);
+  assert.equal(kept[0].partKey, "a(i)");
+});
+
+test("a scanned page batch must not be told to invent the rest of the paper", () => {
+  const prompt = scanPageSystemPrompt("Analyze the paper.");
+  const overrideAt = prompt.lastIndexOf("Omit every question that is not visible");
+  const requireAllAt = prompt.indexOf("must contain 10 objects");
+  assert.ok(overrideAt > requireAllAt);
+  const instruction = scanBatchInstruction(1, 4, { "1": 5, "4": 11 }, ["4"]);
+  assert.match(instruction, /one of: 4/);
+  assert.match(instruction, /4=11/);
+  assert.match(instruction, /Do not add questions that are not on these pages/);
 });
