@@ -461,7 +461,17 @@ export class OpenRouterLlmClient implements LlmClient {
       commit: false,
     });
 
-    const scanPages = await rasterizeScanPages(input.assetRefs).catch((error: unknown) => {
+    const scanPages = await rasterizeScanPages(input.assetRefs, async ({ page, pageCount }) => {
+      await report({
+        stage: "reading",
+        completed: page - 1,
+        total: pageCount,
+        questionKey: null,
+        partKeys: [],
+        note: `正在把試卷轉成圖片（第 ${page}/${pageCount} 頁）。`,
+        commit: false,
+      });
+    }).catch((error: unknown) => {
       console.error(
         "[llm] page raster failed",
         error instanceof Error ? error.message : "error",

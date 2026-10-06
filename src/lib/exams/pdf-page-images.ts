@@ -1,3 +1,4 @@
+import { readResolvedImage, type ResolvedPdfImage } from "@/lib/exams/pdf-image-lookup";
 import { getObjectBytes, isPdfMime } from "@/lib/storage";
 import { deflateSync } from "node:zlib";
 
@@ -163,12 +164,7 @@ function roleFromName(fileName: string): "paper" | "scheme" | null {
   return null;
 }
 
-type PdfImage = {
-  width: number;
-  height: number;
-  kind: number;
-  data: Uint8Array | Uint8ClampedArray;
-};
+type PdfImage = ResolvedPdfImage;
 
 /**
  * Scanned or encrypted PDFs often cannot be read as files by the model.
@@ -181,6 +177,7 @@ export async function rasterizeScanPages(
     mimeType?: string | null;
     fileName?: string | null;
   }>,
+  onPage?: (update: { page: number; pageCount: number }) => void | Promise<void>,
 ): Promise<ScanPage[]> {
   const pdfjs = await import("pdfjs-dist/legacy/build/pdf.mjs");
   const scans: Array<{
@@ -247,6 +244,7 @@ export async function rasterizeScanPages(
       } as Parameters<typeof pdfjs.getDocument>[0])
       .promise;
     for (let n = 1; n <= scan.pageCount; n++) {
+      await onPage?.({ page: n, pageCount: scan.pageCount });
       const page = await doc.getPage(n);
       const ops = await page.getOperatorList();
       let best: PdfImage | null = null;
@@ -254,10 +252,8 @@ export async function rasterizeScanPages(
         if (ops.fnArray[i] !== pdfjs.OPS.paintImageXObject) continue;
         const name = String(ops.argsArray[i]?.[0] ?? "");
         if (!name) continue;
-        const img = await new Promise<PdfImage | null>((resolve) => {
-          page.objs.get(name, (value: PdfImage | null) => resolve(value));
-        });
-        if (!img?.width || !img.height || !img.data) continue;
+        const img = readResolvedImage([page.objs, page.commonObjs], name);
+        if (!img) continue;
         if (!best || img.width * img.height > best.width * best.height) best = img;
       }
       if (!best) continue;
