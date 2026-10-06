@@ -298,6 +298,7 @@ export function TeacherExamDetail({
   const running = reanalyzeGate.blockedByActiveJob;
   const questions = running && progress ? progress.questions : savedQuestions;
   const groups = groupStructureQuestions(questions);
+  const paperTotal = groups.reduce((sum, group) => sum + group.maxScore, 0);
   const activity = describeAnalysisActivity(
     {
       status: displayStatus || "PENDING",
@@ -664,6 +665,16 @@ export function TeacherExamDetail({
                 : groups.length > 0
                   ? countLabel(groups.length, t.questionsCount, t.questionsCountOne)
                   : undefined
+            }
+            actions={
+              !running && groups.length > 0 ? (
+                <p className="inline-flex items-baseline gap-1.5 rounded-lg bg-primary-50 px-3 py-1.5 text-sm text-primary-800">
+                  <span className="text-xs font-medium">{t.examStructurePaperTotal}</span>
+                  <span className="text-lg font-semibold tabular-nums leading-none">
+                    {paperTotal}
+                  </span>
+                </p>
+              ) : undefined
             }
           />
         </div>
