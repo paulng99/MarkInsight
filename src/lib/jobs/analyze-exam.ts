@@ -441,7 +441,11 @@ async function runSubmissionScoring(
     where: { examId, schoolId, kind: "ANSWER_KEY" },
     orderBy: { createdAt: "asc" },
   });
-  if (answerKeys.length === 0) {
+  // Offline demo scoring returns deterministic marks without reading an answer key.
+  const offlineDemo =
+    process.env.MARKINSIGHT_ANALYSIS_DEMO === "true" &&
+    !process.env.OPENROUTER_API_KEY?.trim();
+  if (answerKeys.length === 0 && !offlineDemo) {
     throw new AppError(
       "請先上載答案。評分必須對照已上載的題目、答案和評分標準。",
       400,

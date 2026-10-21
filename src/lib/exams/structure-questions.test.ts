@@ -15,6 +15,7 @@ import {
   readMarkAllocation,
   scanBatchInstruction,
   scanPageSystemPrompt,
+  usableScanQuestion,
 } from "./structure-questions.ts";
 
 test("streams numbered questions and keeps every part", () => {
@@ -160,6 +161,67 @@ test("finds questions that still have no lettered part", () => {
     }),
   ];
   assert.deepEqual(parentsMissingParts(rows), ["1"]);
+});
+
+test("usableScanQuestion keeps undivided questions and lettered parts", () => {
+  const undividedRows = flattenRawQuestion({
+    questionKey: "2",
+    stem: "如圖，AB = AC，∠ABC = 50°。求 ∠BAC。",
+    parts: [
+      {
+        partKey: "",
+        prompt: "如圖，AB = AC，∠ABC = 50°。求 ∠BAC。",
+        maxScore: 4,
+      },
+    ],
+  });
+  assert.equal(
+    usableScanQuestion({
+      questionKey: "2",
+      partKeys: undividedRows.map((row) => row.partKey).filter(Boolean),
+      note: "",
+      rows: undividedRows,
+    }),
+    true,
+  );
+
+  const lettered = flattenRawQuestion({
+    questionKey: "1",
+    stem: "解下列方程",
+    parts: [
+      { partKey: "a", prompt: "求 2x + 3 = 11 的解。", maxScore: 2 },
+      { partKey: "b", prompt: "把 (a) 的答案代回方程說明是否正確。", maxScore: 4 },
+    ],
+  });
+  assert.equal(
+    usableScanQuestion({
+      questionKey: "1",
+      partKeys: lettered.map((row) => row.partKey).filter(Boolean),
+      note: "",
+      rows: lettered,
+    }),
+    true,
+  );
+
+  assert.equal(
+    usableScanQuestion({
+      questionKey: "x",
+      partKeys: ["a"],
+      note: "",
+      rows: lettered,
+    }),
+    false,
+  );
+  assert.equal(
+    usableScanQuestion({
+      questionKey: "3",
+      partKeys: [],
+      note: "",
+      rows: [],
+    }),
+    false,
+  );
+  assert.match(scanBatchInstruction(1, 2, {}), /empty partKey/);
 });
 
 test("keeps a question even when topic is missing and groups legacy part keys", () => {
