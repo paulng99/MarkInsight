@@ -14,6 +14,7 @@ import {
   scanBatchInstruction,
   scanPageSystemPrompt,
   STRUCTURE_PROMPT_ADDENDUM,
+  usableScanQuestion,
   type DigestedQuestion,
   type FlatStructureQuestion,
 } from "@/lib/exams/structure-questions";
@@ -493,11 +494,23 @@ export class OpenRouterLlmClient implements LlmClient {
     const paperPages = scanPages.filter((page) => page.role === "paper");
     if (paperPages.length > 0) {
       const scanned = await this.analyzeScannedPaper(llmModel, input, paperPages, report);
-      if (scanned.length === 0) {
-        throw new AppError(ANALYSIS_FAILED_GENERIC, 502, "llm_no_questions");
+      if (scanned.length > 0) {
+        const classified = await this.classifyAgainstSyllabus(llmModel, input, scanned, report);
+        return { llmModel, questions: classified, rawModelText: "" };
       }
-      const classified = await this.classifyAgainstSyllabus(llmModel, input, scanned, report);
-      return { llmModel, questions: classified, rawModelText: "" };
+      // Raster pages existed but yielded nothing usable (e.g. undivided items
+      // filtered out, or a text PDF misclassified as a scan). Fall through to
+      // the normal file / multimodal path instead of failing with a generic error.
+      console.error("[llm] scanned paper yielded no questions; falling back to file analysis");
+      await report({
+        stage: "reading",
+        completed: 0,
+        total: 0,
+        questionKey: null,
+        partKeys: [],
+        note: "掃描頁未能抽出題目，改以原檔分析。",
+        commit: false,
+      });
     }
 
     const assetParts = await this.assetParts(input.assetRefs);
@@ -1387,7 +1400,15 @@ export class OpenRouterLlmClient implements LlmClient {
           },
         ],
       });
-      apply(parseMarkingGuidePayload(extractJsonObject(chat.content)));
+      try {
+        apply(parseMarkingGuidePayload(extractJsonObject(chat.content)));
+      } catch (error) {
+        // Prefer the marking-criteria message over a generic parse failure.
+        console.error(
+          "[llm] marking guide parse failed",
+          error instanceof Error ? error.name : "error",
+        );
+      }
     };
 
     const parents = batchQuestionsByParent(missing());
@@ -1558,13 +1579,6 @@ function pageBatches<T>(pages: T[], size: number, stride: number): T[][] {
     if (index + size >= pages.length) break;
   }
   return batches;
-}
-
-function usableScanQuestion(item: DigestedQuestion): boolean {
-  if (!/^\d+$/.test(item.questionKey)) return false;
-  if (item.partKeys.length === 0) return false;
-  if (item.rows.some((row) => /shared stem/i.test(`${row.stem} ${row.prompt}`))) return false;
-  return item.rows.some((row) => row.prompt.trim().length >= 15);
 }
 
 function structureChatRequest(

@@ -122,7 +122,7 @@ async function main() {
   const examId = data.exam.id;
   console.log("  exam", examId);
 
-  console.log("3) upload question paper");
+  console.log("3) upload question paper + answer key");
   const fd = new FormData();
   fd.set("kind", "QUESTION_PAPER");
   fd.set("file", new Blob([png], { type: "image/png" }), "paper.png");
@@ -132,6 +132,16 @@ async function main() {
   }));
   if (!res.ok) throw new Error(`upload asset ${JSON.stringify(data)}`);
   console.log("  asset", data.asset.id);
+
+  const ak = new FormData();
+  ak.set("kind", "ANSWER_KEY");
+  ak.set("file", new Blob([png], { type: "image/png" }), "answers.png");
+  ({ res, data } = await json(teacher, `/api/exams/${examId}/assets`, {
+    method: "POST",
+    body: ak,
+  }));
+  if (!res.ok) throw new Error(`upload answer key ${JSON.stringify(data)}`);
+  console.log("  answer key", data.asset.id);
 
   console.log("4) structure analysis job");
   ({ res, data } = await json(teacher, `/api/exams/${examId}/analyze`, {

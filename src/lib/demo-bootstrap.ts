@@ -119,6 +119,61 @@ export async function ensureDemoTeachingWorkspace(
       },
       policy.password,
     );
+
+    // Local offline demo needs a ready class + enrollments so smoke / verify
+    // can upload and analyze without an empty teacher workspace.
+    const classSubject = await prisma.classSubject.upsert({
+      where: { id: DEMO_CLASS_SUBJECT_ID },
+      create: {
+        id: DEMO_CLASS_SUBJECT_ID,
+        schoolId,
+        schoolYearId: year.id,
+        name: "3A Mathematics",
+        subjectCode: "MATH",
+        gradeLevel: "S3",
+      },
+      update: {
+        schoolId,
+        schoolYearId: year.id,
+        name: "3A Mathematics",
+        subjectCode: "MATH",
+        archivedAt: null,
+        classArchivedAt: null,
+        subjectArchivedAt: null,
+      },
+    });
+
+    await prisma.enrollment.upsert({
+      where: {
+        classSubjectId_userId: {
+          classSubjectId: classSubject.id,
+          userId: DEMO_TEACHER_ID,
+        },
+      },
+      create: {
+        schoolId,
+        classSubjectId: classSubject.id,
+        userId: DEMO_TEACHER_ID,
+        role: "TEACHER",
+      },
+      update: { role: "TEACHER", schoolId },
+    });
+
+    await prisma.enrollment.upsert({
+      where: {
+        classSubjectId_userId: {
+          classSubjectId: classSubject.id,
+          userId: DEMO_STUDENT_ID,
+        },
+      },
+      create: {
+        schoolId,
+        classSubjectId: classSubject.id,
+        userId: DEMO_STUDENT_ID,
+        role: "STUDENT",
+      },
+      update: { role: "STUDENT", schoolId },
+    });
   }
 
   const classSubjects = await prisma.classSubject.findMany({
