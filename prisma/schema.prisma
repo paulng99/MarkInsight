@@ -386,6 +386,10 @@ model ExamStructureItem {
   difficultyPointsEn    String @default("") @db.Text
   teachingContentZh     String @default("") @db.Text
   teachingContentEn     String @default("") @db.Text
+  /// Official answer copied from the uploaded answer key.
+  modelAnswer           String @default("") @db.Text
+  /// Mark-by-mark criteria copied from the uploaded answer key.
+  markingCriteria       String @default("") @db.Text
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 

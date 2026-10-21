@@ -108,8 +108,16 @@ export type ScoreSubmissionInput = {
   submissionId: string;
   /** Student script asset ref(s). */
   assetRefs: Array<{ kind: string; storageKey: string; mimeType?: string | null }>;
+  /** Uploaded answer key. Scoring copies its mark scheme before judging the script. */
+  answerKeyRefs: Array<{ kind: string; storageKey: string; mimeType?: string | null }>;
   /** Expected items from prior exam-structure analysis. */
   questions: AnalyzeExamStructureResult["questions"];
+  /** Persist guides copied from the answer key so the next run can reuse them. */
+  onMarkingGuides?: (guides: Array<{
+    questionKey: string;
+    modelAnswer: string;
+    markingCriteria: string;
+  }>) => void | Promise<void>;
   /** Allowlisted model id from SchoolSettings for this run. */
   modelOverride?: string;
   /** Admin-configured system prompt. Falls back to the built-in default when omitted. */

@@ -59,6 +59,10 @@ const SUBMISSION_SCORING_SCHEMA = `{
 /** Appended at request time so older saved prompts still return a revision report. */
 export const SCORING_PROMPT_ADDENDUM = [
   "Additional output rules, even if the schema above omits them:",
+  "Each question includes the uploaded question wording, the official answer copied from the uploaded answer key, and the marking criteria copied from that answer key.",
+  "Award marks only as those marking criteria describe. Accept only answers the criteria accept, including stated alternatives.",
+  "Do not award a method the criteria do not allow. Do not withhold a mark the criteria award. Do not change maxScore.",
+  "If the student's working matches the official answer, give the marks the criteria assign to that point.",
   "Return one scores item for every question in the provided list. Do not skip a question.",
   "The student will revise from this report. For each question, judge that student's own working:",
   "didWell — what this answer got right. Cite the actual step, idea, or wording. If little was correct, name what was at least attempted.",
@@ -88,8 +92,8 @@ export const DEFAULT_SYSTEM_PROMPT_BODIES: Record<SystemPromptKey, string> = {
     "(8) No markdown.",
   submission_scoring:
     "You write a revision report for a Hong Kong secondary-school student after scoring their exam script. " +
-    "Use the provided question list. When assessmentObjective and difficultyPoints are present, " +
-    "judge this student's working against them. " +
+    "Score only against the uploaded question, the official answer, and the marking criteria supplied with each question. " +
+    "Those texts come from the uploaded question paper and answer key. Do not replace them with your own mark scheme. " +
     "Every question needs four sections the student can revise from: what they did well, the specific weakness, " +
     "mistakes to watch next time, and how to improve. " +
     "Be concrete. Name the step, idea, unit, or wording. " +

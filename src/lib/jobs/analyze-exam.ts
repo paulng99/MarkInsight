@@ -11,6 +11,7 @@
 
 import type { AnalysisJobKind, Prisma } from "@prisma/client";
 import { refreshSubjectAggregates } from "@/lib/aggregates/weakness";
+import type { MarkingGuide } from "@/lib/exams/marking-scheme";
 import { coerceFlatQuestion, type FlatStructureQuestion } from "@/lib/exams/structure-questions";
 import { AppError, ANALYSIS_FAILED_GENERIC, sanitizeVendorLeak } from "@/lib/errors";
 import { createLlmClient } from "@/lib/llm";
@@ -436,6 +437,18 @@ async function runSubmissionScoring(
     throw new AppError("請先上載答卷。", 400, "missing_script");
   }
 
+  const answerKeys = await prisma.asset.findMany({
+    where: { examId, schoolId, kind: "ANSWER_KEY" },
+    orderBy: { createdAt: "asc" },
+  });
+  if (answerKeys.length === 0) {
+    throw new AppError(
+      "請先上載答案。評分必須對照已上載的題目、答案和評分標準。",
+      400,
+      "missing_answer_key",
+    );
+  }
+
   const clients: LlmClient[] = [];
   try {
   let questions = await getExamStructureQuestions(examId);
@@ -516,6 +529,12 @@ async function runSubmissionScoring(
       storageKey: page.storageKey,
       mimeType: page.mimeType,
     })),
+    answerKeyRefs: answerKeys.map((page) => ({
+      kind: page.kind,
+      storageKey: page.storageKey,
+      mimeType: page.mimeType,
+    })),
+    onMarkingGuides: (guides) => persistMarkingGuides(schoolId, examId, guides),
     onProgress: (update) => {
       progressChain = progressChain.then(() =>
         applyStructureProgress(publish, () => progress, update),
@@ -620,6 +639,24 @@ async function applyStructureProgress(
   });
 }
 
+/** Save answer-key guides onto the existing question rows. Does not rebuild the paper. */
+export async function persistMarkingGuides(
+  schoolId: string,
+  examId: string,
+  guides: MarkingGuide[],
+) {
+  for (const guide of guides) {
+    if (!guide.markingCriteria.trim()) continue;
+    await prisma.examStructureItem.updateMany({
+      where: { examId, schoolId, questionKey: guide.questionKey },
+      data: {
+        modelAnswer: guide.modelAnswer,
+        markingCriteria: guide.markingCriteria,
+      },
+    });
+  }
+}
+
 /** Chinese and English are stored in separate columns. The JSON file remains a fallback. */
 export async function persistExamStructure(
   schoolId: string,
@@ -657,6 +694,8 @@ export async function persistExamStructure(
         difficultyPointsEn: row.difficultyPointsEn,
         teachingContentZh: row.teachingContentZh,
         teachingContentEn: row.teachingContentEn,
+        modelAnswer: row.modelAnswer,
+        markingCriteria: row.markingCriteria,
       })),
     });
   });
@@ -681,6 +720,8 @@ function structureItemToQuestion(row: {
   difficultyPointsEn: string;
   teachingContentZh: string;
   teachingContentEn: string;
+  modelAnswer: string;
+  markingCriteria: string;
 }): QuestionShape | null {
   return coerceFlatQuestion({
     questionKey: row.questionKey,
@@ -707,6 +748,8 @@ function structureItemToQuestion(row: {
     teachingContent: row.teachingContentZh || row.teachingContentEn,
     teachingContentZh: row.teachingContentZh,
     teachingContentEn: row.teachingContentEn,
+    modelAnswer: row.modelAnswer,
+    markingCriteria: row.markingCriteria,
   });
 }
 

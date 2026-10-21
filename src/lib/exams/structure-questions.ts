@@ -29,6 +29,10 @@ export type FlatStructureQuestion = {
   teachingContent: string;
   teachingContentZh: string;
   teachingContentEn: string;
+  /** Official answer copied from the uploaded answer key. */
+  modelAnswer: string;
+  /** How each mark is awarded, copied from the uploaded answer key. */
+  markingCriteria: string;
 };
 
 export type StructurePartView = {
@@ -303,6 +307,8 @@ export function flattenRawQuestion(raw: Record<string, unknown>): FlatStructureQ
           assessmentObjective,
           difficultyPoints,
           teachingContent: textOf(raw.teachingContent),
+          modelAnswer: textOf(raw.modelAnswer),
+          markingCriteria: textOf(raw.markingCriteria),
         },
         raw,
       ),
@@ -334,6 +340,8 @@ export function flattenRawQuestion(raw: Record<string, unknown>): FlatStructureQ
             textOf(record.difficultyPoints || record.difficulty || record.hardPoints) ||
             difficultyPoints,
           teachingContent: textOf(record.teachingContent) || textOf(raw.teachingContent),
+          modelAnswer: textOf(record.modelAnswer) || textOf(raw.modelAnswer),
+          markingCriteria: textOf(record.markingCriteria) || textOf(raw.markingCriteria),
         },
         { ...raw, ...record },
       ),
@@ -826,6 +834,8 @@ export function coerceFlatQuestion(value: Partial<FlatStructureQuestion>): FlatS
         textOf(value.teachingContent) ||
         textOf(value.teachingContentZh) ||
         textOf(value.teachingContentEn),
+      modelAnswer: textOf(value.modelAnswer),
+      markingCriteria: textOf(value.markingCriteria),
     },
     value as Record<string, unknown>,
   );

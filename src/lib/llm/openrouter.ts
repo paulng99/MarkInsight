@@ -18,6 +18,11 @@ import {
   type FlatStructureQuestion,
 } from "@/lib/exams/structure-questions";
 import {
+  formatUploadedMarkingBlock,
+  parseMarkingGuidePayload,
+  type MarkingGuide,
+} from "@/lib/exams/marking-scheme";
+import {
   buildDemoStudyReport,
   parseSubmissionScorePayload,
   readBilingual,
@@ -1199,6 +1204,7 @@ export class OpenRouterLlmClient implements LlmClient {
 
     try {
       await report(pulse);
+      await this.ensureMarkingGuides(llmModel, input, report);
       const parts = await this.assetParts(input.assetRefs);
       const system = `${(input.systemPrompt?.trim() || DEFAULT_SYSTEM_PROMPTS.submission_scoring).trim()}\n\n${SCORING_PROMPT_ADDENDUM}`;
       const scores: ScoreSubmissionResult["scores"] = [];
@@ -1245,12 +1251,7 @@ export class OpenRouterLlmClient implements LlmClient {
                 content: [
                   {
                     type: "text",
-                    text:
-                      `Score only these parts of question ${batch.parentKey} on submission ${input.submissionId}. ` +
-                      `Return one scores item for every questionKey: ${pending.map((row) => row.questionKey).join(", ")}. ` +
-                      "Do not merge parts. Use each questionKey exactly as given. " +
-                      "studyFocus may be empty; the whole-paper focus is written later. " +
-                      `Questions: ${JSON.stringify(pending)}`,
+                    text: scoringInstruction(input.submissionId, batch.parentKey, pending),
                   },
                   ...parts,
                 ],
@@ -1306,6 +1307,117 @@ export class OpenRouterLlmClient implements LlmClient {
     }
   }
 
+  /**
+   * Copy the official answer and mark scheme from the uploaded answer key
+   * onto each question before any student mark is awarded.
+   */
+  private async ensureMarkingGuides(
+    model: string,
+    input: ScoreSubmissionInput,
+    report: (update: StructureProgressUpdate) => Promise<void>,
+  ) {
+    const missing = () => input.questions.filter((row) => !row.markingCriteria.trim());
+    if (missing().length === 0) return;
+    if (input.answerKeyRefs.length === 0) {
+      throw new AppError(
+        "請先上載答案。評分必須對照已上載的題目、答案和評分標準。",
+        400,
+        "missing_answer_key",
+      );
+    }
+
+    await report({
+      stage: "reading",
+      completed: 0,
+      total: missing().length,
+      questionKey: null,
+      partKeys: [],
+      note: "正在對照已上載的答案及評分標準。",
+      commit: false,
+    });
+    const keyParts = await this.assetParts(input.answerKeyRefs);
+    const guides = new Map<string, MarkingGuide>();
+    const apply = (found: MarkingGuide[]) => {
+      for (const guide of found) {
+        guides.set(guide.questionKey, guide);
+        const row = input.questions.find((item) => item.questionKey === guide.questionKey);
+        if (!row) continue;
+        row.modelAnswer = guide.modelAnswer;
+        row.markingCriteria = guide.markingCriteria;
+      }
+    };
+    const read = async (rows: ScoreSubmissionInput["questions"]) => {
+      if (rows.length === 0) return;
+      const chat = await this.chatScoring({
+        model,
+        temperature: 0.1,
+        maxTokens: 8192,
+        timeoutMs: SCORING_LLM_TIMEOUT_MS,
+        responseFormat: "json_object",
+        messages: [
+          {
+            role: "system",
+            content:
+              "You copy a marking scheme. The attached file is the uploaded answer key. " +
+              "The question list is the wording from the uploaded question paper. " +
+              "For every questionKey, copy modelAnswer and markingCriteria from the answer key. " +
+              "markingCriteria must state how each mark is awarded, including accepted alternatives. " +
+              "Do not invent marks or change maxScore. " +
+              'Reply with JSON only: {"items":[{"questionKey":"string","modelAnswer":"string","markingCriteria":"string"}]}',
+          },
+          {
+            role: "user",
+            content: [
+              {
+                type: "text",
+                text:
+                  `Copy the official answer and marking criteria for every questionKey: ${rows.map((row) => row.questionKey).join(", ")}.\n` +
+                  JSON.stringify(
+                    rows.map((row) => ({
+                      questionKey: row.questionKey,
+                      partKey: row.partKey,
+                      maxScore: row.maxScore,
+                      stem: row.stem,
+                      prompt: row.prompt,
+                    })),
+                  ),
+              },
+              ...keyParts,
+            ],
+          },
+        ],
+      });
+      apply(parseMarkingGuidePayload(extractJsonObject(chat.content)));
+    };
+
+    const parents = batchQuestionsByParent(missing());
+    for (let index = 0; index < parents.length; index++) {
+      const batch = parents[index];
+      if (!batch) continue;
+      await report({
+        stage: "reading",
+        completed: index,
+        total: parents.length,
+        questionKey: batch.parentKey,
+        partKeys: batch.questions.map((row) => row.partKey).filter(Boolean),
+        note: `正在讀取第 ${batch.parentKey} 題的上載答案及評分標準（${index + 1}/${parents.length}）。`,
+        commit: false,
+      });
+      await read(batch.questions);
+      const still = batch.questions.filter((row) => !row.markingCriteria.trim());
+      if (still.length > 0) await read(still);
+    }
+
+    if (missing().length > 0) {
+      throw new AppError(
+        "未能從上載的答案讀取評分標準，請檢查答案檔後再分析。",
+        502,
+        "missing_marking_criteria",
+      );
+    }
+    await input.onMarkingGuides?.([...guides.values()]);
+  }
+
   /** One extra attempt when a scoring call is aborted before any score returns. */
   private async chatScoring(request: LlmChatRequest): Promise<LlmChatResponse> {
     try {
@@ -1359,6 +1471,33 @@ export class OpenRouterLlmClient implements LlmClient {
       return { zh: "", en: "" };
     }
   }
+}
+
+function scoringInstruction(
+  submissionId: string,
+  parentKey: string,
+  questions: ScoreSubmissionInput["questions"],
+): string {
+  const blocks = questions.map((row) => {
+    const block = formatUploadedMarkingBlock(row);
+    if (!block) {
+      throw new AppError(
+        "未能從上載的答案讀取評分標準，請檢查答案檔後再分析。",
+        502,
+        "missing_marking_criteria",
+      );
+    }
+    return block;
+  });
+  return [
+    `Score only these parts of question ${parentKey} on submission ${submissionId}.`,
+    `Return one scores item for every questionKey: ${questions.map((row) => row.questionKey).join(", ")}.`,
+    "Do not merge parts. Use each questionKey exactly as given.",
+    "The uploaded question, official answer, and marking criteria below are the only mark scheme.",
+    "Award marks only as the marking criteria describe.",
+    "studyFocus may be empty; the whole-paper focus is written later.",
+    blocks.join("\n\n"),
+  ].join("\n");
 }
 
 const DEMO_STRUCTURE_RAW: Array<Record<string, unknown>> = [
