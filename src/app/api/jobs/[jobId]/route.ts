@@ -19,7 +19,10 @@ export async function GET(_request: Request, context: Ctx) {
       void processJob(job.id);
     }
 
-    const progress = job.kind === "EXAM_STRUCTURE" ? await readJobProgress(job.id) : null;
+    const progress =
+      job.kind === "EXAM_STRUCTURE" || job.kind === "SUBMISSION_SCORING"
+        ? await readJobProgress(job.id)
+        : null;
 
     return NextResponse.json({
       job: {

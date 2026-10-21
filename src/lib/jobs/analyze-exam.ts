@@ -497,6 +497,13 @@ async function runSubmissionScoring(
   const llm = createLlmClient();
   clients.push(llm);
   const scoringPrompt = await resolveSystemPrompt(schoolId, "submission_scoring");
+  let progress = emptyAnalysisProgress();
+  const publish = async (next: AnalysisProgress) => {
+    progress = next;
+    await saveJobProgress(jobId, progress);
+  };
+  await publish(progress);
+  let progressChain = Promise.resolve();
   const result = await llm.scoreSubmission({
     schoolId,
     examId,
@@ -509,6 +516,12 @@ async function runSubmissionScoring(
       storageKey: page.storageKey,
       mimeType: page.mimeType,
     })),
+    onProgress: (update) => {
+      progressChain = progressChain.then(() =>
+        applyStructureProgress(publish, () => progress, update),
+      );
+      return progressChain;
+    },
   });
 
   await prisma.$transaction(async (tx) => {

@@ -33,6 +33,8 @@ export type LlmChatRequest = {
   /** Hint for JSON object responses when the model supports it. */
   responseFormat?: "json_object" | "text";
   maxTokens?: number;
+  /** Overrides the default per-request abort. Scoring batches need longer than a short chat. */
+  timeoutMs?: number;
 };
 
 /** Token and USD totals for one model call, or a sum of calls. */
@@ -112,6 +114,8 @@ export type ScoreSubmissionInput = {
   modelOverride?: string;
   /** Admin-configured system prompt. Falls back to the built-in default when omitted. */
   systemPrompt?: string;
+  /** Called as each numbered question is scored so the result page can show progress. */
+  onProgress?: (update: StructureProgressUpdate) => void | Promise<void>;
 };
 
 export type ScoreSubmissionResult = {

@@ -191,7 +191,20 @@ export function JobProgressPanel({
   const n = normalizeJobStatus(view.status);
   const progress = view.progress ?? null;
   const showLive = Boolean(headline || progress);
-  const bar = typeof percent === "number" ? percent : n === "SUCCEEDED" ? 100 : n === "PENDING" ? 8 : 18;
+  const fromCounts =
+    progress && progress.total > 0
+      ? Math.min(100, Math.round((progress.completed / progress.total) * 100))
+      : null;
+  const bar =
+    typeof percent === "number"
+      ? percent
+      : fromCounts != null
+        ? Math.max(fromCounts, n === "SUCCEEDED" ? 100 : 8)
+        : n === "SUCCEEDED"
+          ? 100
+          : n === "PENDING"
+            ? 8
+            : 18;
   const pulsing = indeterminate ?? (showLive && (progress?.total ?? 0) <= 0 && n !== "SUCCEEDED" && n !== "FAILED");
   const thinking = progress?.note?.trim() || (n === "ANALYZING" || n === "PENDING" ? t.analysisReadingDetail : "");
 

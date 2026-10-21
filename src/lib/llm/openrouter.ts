@@ -17,7 +17,11 @@ import {
   type DigestedQuestion,
   type FlatStructureQuestion,
 } from "@/lib/exams/structure-questions";
-import { buildDemoStudyReport, parseSubmissionScorePayload } from "@/lib/exams/study-report";
+import {
+  buildDemoStudyReport,
+  parseSubmissionScorePayload,
+  readBilingual,
+} from "@/lib/exams/study-report";
 import type {
   AnalyzeExamStructureInput,
   AnalyzeExamStructureResult,
@@ -41,10 +45,12 @@ import {
   sanitizeVendorLeak,
 } from "@/lib/errors";
 import { DEFAULT_SYSTEM_PROMPTS, SCORING_PROMPT_ADDENDUM } from "@/lib/llm/system-prompts";
+import { batchQuestionsByParent } from "@/lib/llm/score-batches";
 import {
   ANALYSIS_TIMEOUT_ZH,
   isAbortError,
   llmTimeoutMs,
+  SCORING_LLM_TIMEOUT_MS,
 } from "@/lib/llm/timeout";
 import { rasterizeScanPages, type ScanPage } from "@/lib/exams/pdf-page-images";
 import { readSyllabusExcerpt } from "@/lib/exams/syllabus-excerpt";
@@ -110,10 +116,10 @@ async function fetchChatWithRetry(
   headers: Record<string, string>,
   body: string,
   model: string,
+  timeoutMs = llmTimeoutMs(),
 ): Promise<Response> {
   const waitsMs = [0, 12_000, 30_000, 45_000];
   let last: Response | null = null;
-  const timeoutMs = llmTimeoutMs();
 
   for (let attempt = 0; attempt < waitsMs.length; attempt++) {
     if (waitsMs[attempt] > 0) {
@@ -211,6 +217,7 @@ export class OpenRouterLlmClient implements LlmClient {
         headers,
         payload,
         request.model,
+        request.timeoutMs,
       );
     } catch (error) {
       if (error instanceof AppError) throw error;
@@ -1172,51 +1179,184 @@ export class OpenRouterLlmClient implements LlmClient {
       throw new AppError(ANALYSIS_NOT_CONFIGURED, 503, "llm_not_configured");
     }
 
-    const parts = await this.assetParts(input.assetRefs);
-
-    const system = `${(input.systemPrompt?.trim() || DEFAULT_SYSTEM_PROMPTS.submission_scoring).trim()}\n\n${SCORING_PROMPT_ADDENDUM}`;
-    const chat = await this.chat({
-      model: llmModel,
-      temperature: 0.2,
-      maxTokens: 16384,
-      responseFormat: "json_object",
-      messages: [
-        {
-          role: "system",
-          content: system,
-        },
-        {
-          role: "user",
-          content: [
-            {
-              type: "text",
-              text:
-                `Score every question on submission ${input.submissionId} for exam ${input.examId}. ` +
-                "Write a revision report the student can study from. " +
-                "For each question, use assessmentObjective and difficultyPoints when present, then say what this student did well, the specific weakness, the mistakes to watch next time, and how to improve. " +
-                `Questions: ${JSON.stringify(input.questions)}`,
-            },
-            ...parts,
-          ],
-        },
-      ],
-    });
+    const batches = batchQuestionsByParent(input.questions);
+    let pulse: StructureProgressUpdate = {
+      stage: "reading",
+      completed: 0,
+      total: batches.length,
+      questionKey: null,
+      partKeys: [],
+      note: "正在閱讀答卷。",
+      commit: false,
+    };
+    const report = async (update: StructureProgressUpdate) => {
+      pulse = update;
+      await input.onProgress?.(update);
+    };
+    const beat = setInterval(() => {
+      void input.onProgress?.({ ...pulse, commit: false, questions: undefined });
+    }, 15_000);
 
     try {
-      const parsed = parseSubmissionScorePayload(extractJsonObject(chat.content), input.questions);
-      if (parsed.scores.length === 0) {
-        throw new AppError(ANALYSIS_FAILED_GENERIC, 502, "llm_no_scores");
+      await report(pulse);
+      const parts = await this.assetParts(input.assetRefs);
+      const system = `${(input.systemPrompt?.trim() || DEFAULT_SYSTEM_PROMPTS.submission_scoring).trim()}\n\n${SCORING_PROMPT_ADDENDUM}`;
+      const scores: ScoreSubmissionResult["scores"] = [];
+      const rawParts: string[] = [];
+      let usedModel = llmModel;
+
+      for (let index = 0; index < batches.length; index++) {
+        const batch = batches[index];
+        if (!batch) continue;
+        const partKeys = batch.questions.map((row) => row.partKey).filter(Boolean);
+        await report({
+          stage: "question",
+          completed: index,
+          total: batches.length,
+          questionKey: batch.parentKey,
+          partKeys,
+          note: `正在評閱第 ${batch.parentKey} 題（${index + 1}/${batches.length}）。`,
+          commit: false,
+        });
+
+        let pending = batch.questions;
+        for (let attempt = 0; attempt < 3 && pending.length > 0; attempt++) {
+          if (attempt > 0) {
+            await report({
+              stage: "question",
+              completed: index,
+              total: batches.length,
+              questionKey: batch.parentKey,
+              partKeys: pending.map((row) => row.partKey).filter(Boolean),
+              note: `正在補評第 ${batch.parentKey} 題未完成的分題。`,
+              commit: false,
+            });
+          }
+          const chat = await this.chatScoring({
+            model: llmModel,
+            temperature: 0.2,
+            maxTokens: 8192,
+            timeoutMs: SCORING_LLM_TIMEOUT_MS,
+            responseFormat: "json_object",
+            messages: [
+              { role: "system", content: system },
+              {
+                role: "user",
+                content: [
+                  {
+                    type: "text",
+                    text:
+                      `Score only these parts of question ${batch.parentKey} on submission ${input.submissionId}. ` +
+                      `Return one scores item for every questionKey: ${pending.map((row) => row.questionKey).join(", ")}. ` +
+                      "Do not merge parts. Use each questionKey exactly as given. " +
+                      "studyFocus may be empty; the whole-paper focus is written later. " +
+                      `Questions: ${JSON.stringify(pending)}`,
+                  },
+                  ...parts,
+                ],
+              },
+            ],
+          });
+          usedModel = chat.llmModel || usedModel;
+          rawParts.push(chat.content);
+          let parsed: ReturnType<typeof parseSubmissionScorePayload>;
+          try {
+            parsed = parseSubmissionScorePayload(extractJsonObject(chat.content), pending);
+          } catch (error) {
+            if (error instanceof AppError) throw error;
+            throw new AppError(ANALYSIS_FAILED_GENERIC, 502, "llm_parse_error");
+          }
+          const returned = new Set(parsed.scores.map((row) => row.questionKey));
+          scores.push(...parsed.scores);
+          pending = pending.filter((row) => !returned.has(row.questionKey));
+        }
+        if (pending.length > 0) {
+          throw new AppError(ANALYSIS_FAILED_GENERIC, 502, "llm_no_scores");
+        }
+        await report({
+          stage: "question",
+          completed: index + 1,
+          total: batches.length,
+          questionKey: batch.parentKey,
+          partKeys,
+          note: `已完成第 ${batch.parentKey} 題。`,
+          commit: true,
+        });
       }
+
+      await report({
+        stage: "saving",
+        completed: batches.length,
+        total: batches.length,
+        questionKey: null,
+        partKeys: [],
+        note: "正在整理全卷溫習重點。",
+        commit: false,
+      });
+      const focus = await this.writeStudyFocus(usedModel, scores);
       return {
-        llmModel: chat.llmModel || llmModel,
-        studyFocusZh: parsed.studyFocusZh,
-        studyFocusEn: parsed.studyFocusEn,
-        scores: parsed.scores,
-        rawModelText: chat.content,
+        llmModel: usedModel,
+        studyFocusZh: focus.zh,
+        studyFocusEn: focus.en,
+        scores,
+        rawModelText: rawParts.join("\n"),
       };
+    } finally {
+      clearInterval(beat);
+    }
+  }
+
+  /** One extra attempt when a scoring call is aborted before any score returns. */
+  private async chatScoring(request: LlmChatRequest): Promise<LlmChatResponse> {
+    try {
+      return await this.chat(request);
     } catch (error) {
-      if (error instanceof AppError) throw error;
-      throw new AppError(ANALYSIS_FAILED_GENERIC, 502, "llm_parse_error");
+      if (error instanceof AppError && error.code === "llm_timeout") {
+        return await this.chat(request);
+      }
+      throw error;
+    }
+  }
+
+  private async writeStudyFocus(
+    model: string,
+    scores: ScoreSubmissionResult["scores"],
+  ): Promise<{ zh: string; en: string }> {
+    const brief = scores
+      .map((row) => `${row.questionKey}: ${row.score}/${row.maxScore}. ${row.weaknessZh || row.weaknessEn}`)
+      .join("\n");
+    try {
+      const chat = await this.chat({
+        model,
+        temperature: 0.2,
+        maxTokens: 1024,
+        timeoutMs: llmTimeoutMs(),
+        responseFormat: "json_object",
+        messages: [
+          {
+            role: "system",
+            content:
+              'Return JSON only: {"studyFocus":{"zh":"...","en":"..."}}. ' +
+              "zh is Traditional Chinese (Hong Kong). " +
+              "List two to four revision priorities for the whole paper, highest first. No markdown.",
+          },
+          {
+            role: "user",
+            content: `Write the study order from these results:\n${brief}`,
+          },
+        ],
+      });
+      const parsed = extractJsonObject(chat.content);
+      if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+        return { zh: "", en: "" };
+      }
+      return readBilingual((parsed as Record<string, unknown>).studyFocus);
+    } catch (error) {
+      console.error(
+        "[llm] study focus failed",
+        error instanceof Error ? error.message : "error",
+      );
+      return { zh: "", en: "" };
     }
   }
 }

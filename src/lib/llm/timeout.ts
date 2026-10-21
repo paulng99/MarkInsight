@@ -5,6 +5,13 @@
 
 export const DEFAULT_LLM_TIMEOUT_MS = 120_000;
 
+/**
+ * One numbered question plus the script still has to be read by a vision model.
+ * The whole-paper call was aborted at 120s with zero tokens, so each question
+ * gets a longer bound.
+ */
+export const SCORING_LLM_TIMEOUT_MS = 180_000;
+
 export const ANALYSIS_TIMEOUT_ZH =
   "分析需時太長，未能完成。檔案已保存，不需要重新上載，請按『重新分析』。";
 

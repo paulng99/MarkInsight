@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 import { countLabel, type Dictionary, type Locale } from "@/lib/i18n/dictionaries";
+import { JobProgressPanel } from "@/components/jobs/job-progress-panel";
 import { JobStatusBadge } from "@/components/jobs/job-status-badge";
 import { ExpandableScoreCards } from "@/components/results/expandable-score-cards";
 import { StudyFocusCard } from "@/components/results/study-report";
@@ -188,13 +189,12 @@ export function StudentResultView({
       ) : null}
 
       {live ? (
-        <div className="card flex items-center gap-3 px-5 py-5 animate-fade-up">
-          <Icon.Loader size={20} className="text-[var(--role-student)]" />
-          <div>
-            <p className="font-semibold text-[var(--ink)]">{t.jobStatusRunning}</p>
-            <p className="text-sm text-[var(--muted)]">{t.stateLoading}</p>
-          </div>
-        </div>
+        <JobProgressPanel
+          jobId={detail.jobs[0]?.id ?? null}
+          t={t}
+          headline={t.jobStatusRunning}
+          onSucceeded={() => void load()}
+        />
       ) : null}
 
       {done ? (
