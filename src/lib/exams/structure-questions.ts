@@ -202,8 +202,9 @@ export function scanBatchInstruction(
     "Extract only numbered questions whose wording is visible here. " +
     "Do not add questions that are not on these pages. " +
     "Copy each lettered part in the paper's language. Do not summarise, translate, or invent a question. " +
-    "partKey is the printed label without the question number, such as a, b, c, b(i), or b(ii). An empty partKey is invalid. " +
-    "maxScore is the mark printed for that part. " +
+    "partKey is the printed label without the question number, such as a, b, c, b(i), or b(ii). " +
+    "If the question has no lettered parts, return exactly one part with an empty partKey and the full question wording. " +
+    "maxScore is the mark printed for that part (or the whole question when partKey is empty). " +
     totalLine +
     "Write assessmentObjective (考核要求) and difficultyPoints (難點) in Traditional Chinese (Hong Kong), about that part only. " +
     "Skip cover pages, instructions, and blank answer lines."
@@ -422,6 +423,26 @@ export function groupStructureQuestions(rows: FlatStructureQuestion[]): Structur
       parts,
     };
   });
+}
+
+/**
+ * Whether a streamed / scanned question object is worth keeping.
+ * Lettered parts need non-empty partKeys; a single undivided question uses one
+ * row with an empty partKey (common on short papers and some HK exam items).
+ */
+export function usableScanQuestion(item: DigestedQuestion): boolean {
+  if (!/^\d+$/.test(item.questionKey)) return false;
+  if (item.rows.length === 0) return false;
+  if (item.rows.some((row) => /shared stem/i.test(`${row.stem} ${row.prompt}`))) {
+    return false;
+  }
+  const hasLetteredParts = item.partKeys.length > 0;
+  const undivided =
+    !hasLetteredParts &&
+    item.rows.length === 1 &&
+    !item.rows[0]!.partKey.trim();
+  if (!hasLetteredParts && !undivided) return false;
+  return item.rows.some((row) => row.prompt.trim().length >= 15);
 }
 
 /** Parent keys that were stored as one block, with no lettered part. */
