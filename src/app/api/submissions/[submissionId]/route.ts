@@ -13,6 +13,16 @@ export async function GET(_request: Request, context: Ctx) {
     const { submissionId } = await context.params;
     const submission = await assertStudentOwnsSubmission(user, submissionId);
 
+    const structureItems = await prisma.examStructureItem.findMany({
+      where: { examId: submission.examId, schoolId: submission.schoolId },
+      select: {
+        questionKey: true,
+        topicZh: true,
+        topicEn: true,
+      },
+    });
+    const topicByKey = new Map(structureItems.map((item) => [item.questionKey, item]));
+
     const aggregates = await prisma.subjectAggregate.findMany({
       where: {
         schoolId: submission.schoolId,
@@ -43,22 +53,27 @@ export async function GET(_request: Request, context: Ctx) {
           archived: isClassInactive(submission.exam.classSubject),
         },
         student: submission.student,
-        questionScores: submission.questionScores.map((q) => ({
-          questionKey: q.questionKey,
-          topic: q.topic,
-          itemType: q.itemType,
-          score: q.score,
-          maxScore: q.maxScore,
-          feedback: q.feedback,
-          didWellZh: q.didWellZh,
-          didWellEn: q.didWellEn,
-          weaknessZh: q.weaknessZh,
-          weaknessEn: q.weaknessEn,
-          mistakesToWatchZh: q.mistakesToWatchZh,
-          mistakesToWatchEn: q.mistakesToWatchEn,
-          howToImproveZh: q.howToImproveZh,
-          howToImproveEn: q.howToImproveEn,
-        })),
+        questionScores: submission.questionScores.map((q) => {
+          const topic = topicByKey.get(q.questionKey);
+          return {
+            questionKey: q.questionKey,
+            topic: q.topic,
+            topicZh: topic?.topicZh ?? "",
+            topicEn: topic?.topicEn ?? "",
+            itemType: q.itemType,
+            score: q.score,
+            maxScore: q.maxScore,
+            feedback: q.feedback,
+            didWellZh: q.didWellZh,
+            didWellEn: q.didWellEn,
+            weaknessZh: q.weaknessZh,
+            weaknessEn: q.weaknessEn,
+            mistakesToWatchZh: q.mistakesToWatchZh,
+            mistakesToWatchEn: q.mistakesToWatchEn,
+            howToImproveZh: q.howToImproveZh,
+            howToImproveEn: q.howToImproveEn,
+          };
+        }),
         jobs: submission.analysisJobs.map((j) => ({
           id: j.id,
           status: j.status,

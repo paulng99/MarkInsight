@@ -27,10 +27,14 @@ export function TopicChartStub({
   data,
   t,
   intensity = "high",
+  title,
+  hint,
 }: {
   data: ChartDatum[];
   t: Dictionary;
   intensity?: "high" | "medium";
+  title?: string;
+  hint?: string;
 }) {
   const [active, setActive] = useState<string | null>(null);
 
@@ -44,9 +48,9 @@ export function TopicChartStub({
         <div>
           <h3 className="section-title flex items-center gap-2">
             <Icon.BarChart size={18} className="text-primary-600" />
-            {t.chartStubTitle}
+            {title ?? t.chartStubTitle}
           </h3>
-          <p className="mt-0.5 text-xs text-[var(--muted)]">{t.chartStubHint}</p>
+          <p className="mt-0.5 text-xs text-[var(--muted)]">{hint ?? t.chartStubHint}</p>
         </div>
         {active ? (
           <span className="badge badge-info">

@@ -6,7 +6,9 @@ import { countLabel, type Dictionary, type Locale } from "@/lib/i18n/dictionarie
 import { JobStatusBadge } from "@/components/jobs/job-status-badge";
 import { ExpandableScoreCards } from "@/components/results/expandable-score-cards";
 import { StudyFocusCard } from "@/components/results/study-report";
-import { ResultSummary, summarize, topicRatios } from "@/components/results/result-summary";
+import { ResultSummary, summarize } from "@/components/results/result-summary";
+import { majorTopicLabel } from "@/lib/exams/major-topics";
+import { groupedMarkRatios } from "@/lib/exams/score-groups";
 import { TopicChartStub } from "@/components/results/topic-chart-stub";
 import { Alert, EmptyState, LoadingBlock } from "@/components/ui/feedback";
 import { Icon } from "@/components/ui/icons";
@@ -29,6 +31,8 @@ type SubmissionDetail = {
   questionScores: Array<{
     questionKey: string;
     topic: string;
+    topicZh?: string;
+    topicEn?: string;
     itemType: string;
     score: number;
     maxScore: number;
@@ -112,8 +116,15 @@ export function TeacherClassResults({
     })();
   }, [selected, t.stateError]);
 
-  // Chart this attempt's own marks by topic; cross-exam aggregates live on the weakness page.
-  const chartData = detail ? topicRatios(detail.questionScores) : [];
+  const chartData = detail
+    ? groupedMarkRatios(
+        detail.questionScores.map((score) => ({
+          key: majorTopicLabel(score, locale),
+          score: score.score,
+          maxScore: score.maxScore,
+        })),
+      ).map((group) => ({ topic: group.label, ratio: group.ratio }))
+    : [];
 
   if (students === null) {
     return <LoadingBlock label={t.stateLoading} className="mt-8" />;

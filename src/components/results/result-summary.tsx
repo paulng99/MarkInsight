@@ -1,4 +1,5 @@
 import type { Dictionary } from "@/lib/i18n/dictionaries";
+import { groupedMarkRatios } from "@/lib/exams/score-groups";
 import { clampScoreRatio } from "@/lib/exams/study-report";
 import { Icon } from "@/components/ui/icons";
 import type { ScoreRow } from "./expandable-score-cards";
@@ -13,16 +14,9 @@ export type Summary = {
 
 /** Mark-weighted score ratio per topic, in first-seen order (one entry per topic). */
 export function topicRatios(scores: ScoreRow[]): Array<{ topic: string; ratio: number }> {
-  const byTopic = new Map<string, { score: number; max: number }>();
-  for (const s of scores) {
-    const cur = byTopic.get(s.topic) ?? { score: 0, max: 0 };
-    cur.score += s.score;
-    cur.max += s.maxScore;
-    byTopic.set(s.topic, cur);
-  }
-  return [...byTopic.entries()]
-    .filter(([, v]) => v.max > 0)
-    .map(([topic, v]) => ({ topic, ratio: clampScoreRatio(v.score, v.max) }));
+  return groupedMarkRatios(
+    scores.map((score) => ({ key: score.topic, score: score.score, maxScore: score.maxScore })),
+  ).map((group) => ({ topic: group.label, ratio: group.ratio }));
 }
 
 export function summarize(scores: ScoreRow[]): Summary {
