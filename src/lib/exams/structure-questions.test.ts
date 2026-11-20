@@ -11,7 +11,9 @@ import {
   groupStructureQuestions,
   limitToMarkAllocation,
   mergeParentRows,
+  missingAllocatedQuestions,
   parentsMissingParts,
+  preferQuestionWording,
   questionsOffMarkAllocation,
   readMarkAllocation,
   scanBatchInstruction,
@@ -223,6 +225,39 @@ test("usableScanQuestion keeps undivided questions and lettered parts", () => {
     false,
   );
   assert.match(scanBatchInstruction(1, 2, {}), /empty partKey/);
+
+  const shortRows = flattenRawQuestion({
+    questionKey: "（3）",
+    parts: [{ partKey: "", prompt: "求 x。", maxScore: 2 }],
+  });
+  assert.equal(shortRows[0].parentKey, "3");
+  assert.equal(
+    usableScanQuestion({
+      questionKey: shortRows[0].parentKey,
+      partKeys: [],
+      note: "",
+      rows: shortRows,
+    }),
+    true,
+  );
+
+  const shortStem = preferQuestionWording(
+    flattenRawQuestion({
+      questionKey: "4",
+      stem: "化簡下列各式，並寫出步驟。",
+      parts: [{ partKey: "", prompt: "化簡", maxScore: 3 }],
+    }),
+  );
+  assert.match(shortStem[0].prompt, /化簡下列各式/);
+  assert.equal(
+    usableScanQuestion({
+      questionKey: "4",
+      partKeys: [],
+      note: "",
+      rows: shortStem,
+    }),
+    true,
+  );
 });
 
 test("keeps a question even when topic is missing and groups legacy part keys", () => {
@@ -474,6 +509,21 @@ test("ignores a blank cover grid that repeats the question numbers", () => {
     reconciled.rows.map((row) => row.maxScore),
     [4, 4, 4],
   );
+});
+
+test("a missing cover question is reported without dropping the questions already read", () => {
+  const rows = flattenRawQuestion({
+    questionKey: "1",
+    parts: [{ partKey: "", prompt: "求 2x + 3 = 11 的解，並寫出驗算。", maxScore: 5 }],
+  });
+  const allocation = Object.fromEntries(
+    Array.from({ length: 8 }, (_, index) => [String(index + 1), 5]),
+  );
+  assert.deepEqual(missingAllocatedQuestions(rows, allocation), ["2", "3", "4", "5", "6", "7", "8"]);
+  const recovered = scanBatchInstruction(2, 4, allocation, ["2", "3", "4"]);
+  assert.match(recovered, /still missing/);
+  assert.match(recovered, /even when it is short/);
+  assert.doesNotMatch(recovered, /omit the question/);
 });
 
 test("a scanned page batch must not be told to invent the rest of the paper", () => {

@@ -308,12 +308,16 @@ export function scanBatchInstruction(
       : allocation;
   const totals = formatMarkAllocation(scoped);
   const totalLine = totals
-    ? `Printed question totals: ${totals}. Parts of a question must sum to that question's total. If you cannot see every part, omit the question. `
+    ? `Printed question totals: ${totals}. Parts of a question should sum to that question's total. `
     : "";
+  const recoverLine =
+    keys && keys.length > 0
+      ? "These question numbers are still missing. If the number is printed on these pages, return that question even when it is short and even when only some of its parts are visible. Do not skip a visible question number. "
+      : "Return every numbered question visible on these pages, including a short question with no lettered parts. If a question continues on another page, return the wording that is visible here. ";
   return (
     `These upright images are question-paper pages ${from}–${to}. ` +
     focus +
-    "Extract only numbered questions whose wording is visible here. " +
+    recoverLine +
     "Do not add questions that are not on these pages. " +
     "Copy each lettered part in the paper's language. Do not summarise, translate, or invent a question. " +
     "partKey is the printed label without the question number, such as a, b, c, b(i), or b(ii). " +
@@ -384,10 +388,11 @@ function marks(value: unknown, fallback: number): number {
   return fallback;
 }
 
-/** "Q1", "第1題", "1." and full-width digits all become "1". Other text stays as written. */
+/** "Q1", "第1題", "（2）", "1." and full-width digits all become the question number. */
 export function canonicalQuestionNumber(raw: string): string {
   const folded = foldDigits(raw.trim());
-  const match = folded.match(/^(?:第\s*)?(?:Q|題)?\s*0*(\d+)\s*(?:題)?[.．、]?\s*$/i);
+  const stripped = folded.replace(/^[（(]\s*/, "").replace(/[)）]\s*$/, "");
+  const match = stripped.match(/^(?:第\s*)?(?:Q|題)?\s*0*(\d+)\s*(?:題)?[.．、]?\s*$/i);
   if (!match) return raw.trim();
   return String(Number(match[1]));
 }
@@ -567,10 +572,27 @@ export function groupStructureQuestions(rows: FlatStructureQuestion[]): Structur
   });
 }
 
+function questionWording(row: FlatStructureQuestion): string {
+  const prompt = row.prompt.trim();
+  const stem = row.stem.trim();
+  return prompt.length >= stem.length ? prompt : stem;
+}
+
+/** Use the fuller of stem and prompt for an undivided question. */
+export function preferQuestionWording(rows: FlatStructureQuestion[]): FlatStructureQuestion[] {
+  return rows.map((row) => {
+    if (row.partKey.trim()) return row;
+    const stem = row.stem.trim();
+    if (stem.length > row.prompt.trim().length) return { ...row, prompt: stem };
+    return row;
+  });
+}
+
 /**
  * Whether a streamed / scanned question object is worth keeping.
- * Lettered parts need non-empty partKeys; a single undivided question uses one
- * row with an empty partKey (common on short papers and some HK exam items).
+ * Lettered parts need non-empty partKeys. A short undivided question may use
+ * one or more rows with an empty partKey; Hong Kong papers often print these
+ * in a single sentence.
  */
 export function usableScanQuestion(item: DigestedQuestion): boolean {
   if (!/^\d+$/.test(item.questionKey)) return false;
@@ -579,12 +601,24 @@ export function usableScanQuestion(item: DigestedQuestion): boolean {
     return false;
   }
   const hasLetteredParts = item.partKeys.length > 0;
-  const undivided =
-    !hasLetteredParts &&
-    item.rows.length === 1 &&
-    !item.rows[0]!.partKey.trim();
+  const undivided = item.rows.every((row) => !row.partKey.trim());
   if (!hasLetteredParts && !undivided) return false;
-  return item.rows.some((row) => row.prompt.trim().length >= 15);
+  return item.rows.some((row) => {
+    const wording = questionWording(row);
+    if (wording.length >= 8) return true;
+    return wording.length >= 2 && /[\u4e00-\u9fffA-Za-z0-9]/.test(wording);
+  });
+}
+
+/** Cover-table numbers that never appeared in the extracted paper. */
+export function missingAllocatedQuestions(
+  rows: FlatStructureQuestion[],
+  allocation: Record<string, number>,
+): string[] {
+  const present = new Set(rows.map((row) => row.parentKey));
+  return Object.keys(allocation)
+    .sort((a, b) => Number(a) - Number(b))
+    .filter((key) => !present.has(key));
 }
 
 /** Parent keys that were stored as one block, with no lettered part. */
