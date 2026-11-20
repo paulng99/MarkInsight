@@ -3,6 +3,7 @@ import test from "node:test";
 import {
   applySyllabusLabels,
   dedupePartRows,
+  reconcileToMarkAllocation,
   selectSyllabusText,
   digestStructureBuffer,
   flattenRawQuestion,
@@ -330,6 +331,149 @@ test("replaces invented parts when a later read matches the printed total", () =
   const kept = mergeParentRows(merged, worse, 11);
   assert.equal(kept.length, 4);
   assert.equal(kept[0].partKey, "a(i)");
+});
+
+test("reads printed marks written as text and normalises question numbers", () => {
+  const allocation = readMarkAllocation({
+    allocation: [
+      { questionKey: "第1題", maxScore: "5分" },
+      { questionKey: "Q2", marks: "（11 分）" },
+      { questionKey: "３", maxScore: 4 },
+    ],
+  });
+  assert.deepEqual(allocation, { "1": 5, "2": 11, "3": 4 });
+
+  const row = flattenRawQuestion({
+    questionKey: "Q1",
+    parts: [{ partKey: "", prompt: "求 2x + 3 = 11 的解，並寫出驗算。", maxScore: "5分" }],
+  });
+  assert.equal(row[0].parentKey, "1");
+  assert.equal(row[0].questionKey, "1");
+  assert.equal(row[0].maxScore, 5);
+});
+
+test("stores undivided questions and does not collapse a split that is already present", () => {
+  const whole = flattenRawQuestion({
+    questionKey: "2",
+    parts: [{ partKey: "", prompt: "如圖，AB = AC，∠ABC = 50°。求 ∠BAC。", maxScore: 4 }],
+  });
+  const stored = mergeParentRows([], whole, 4);
+  assert.equal(stored.length, 1);
+  assert.equal(stored[0].partKey, "");
+  assert.equal(stored[0].maxScore, 4);
+
+  const lettered = flattenRawQuestion({
+    questionKey: "1",
+    parts: [
+      { partKey: "a", prompt: "求 2x + 3 = 11 的解。", maxScore: 2 },
+      { partKey: "b", prompt: "把答案代回方程說明是否正確。", maxScore: 3 },
+    ],
+  });
+  const collapsed = flattenRawQuestion({
+    questionKey: "1",
+    parts: [{ partKey: "", prompt: "解方程並驗算，這是整題而非分題。", maxScore: 5 }],
+  });
+  const kept = mergeParentRows(lettered, collapsed, 5);
+  assert.deepEqual(
+    kept.map((row) => row.partKey),
+    ["a", "b"],
+  );
+});
+
+test("does not count the whole question again on top of its lettered parts", () => {
+  const rows = flattenRawQuestion({
+    questionKey: "4",
+    maxScore: 11,
+    parts: [
+      { partKey: "", prompt: "A long shared question that should not be an extra part.", maxScore: 11 },
+      { partKey: "a(i)", prompt: "Calculate the force on the car.", maxScore: 3 },
+      { partKey: "a(ii)", prompt: "Find the acceleration of the car.", maxScore: 2 },
+      { partKey: "b", prompt: "Explain the energy change in the system.", maxScore: 4 },
+      { partKey: "c", prompt: "State the assumption used above.", maxScore: 2 },
+    ],
+  });
+  assert.deepEqual(
+    rows.map((row) => row.partKey),
+    ["a(i)", "a(ii)", "b", "c"],
+  );
+  assert.equal(
+    rows.reduce((sum, row) => sum + row.maxScore, 0),
+    11,
+  );
+});
+
+test("fits questions 1 to 9 onto the cover table", () => {
+  const allocation = Object.fromEntries(
+    Array.from({ length: 9 }, (_, index) => [String(index + 1), (index % 3) + 3]),
+  );
+  let rows: ReturnType<typeof flattenRawQuestion> = [];
+  for (let n = 1; n <= 9; n += 1) {
+    const incoming = flattenRawQuestion({
+      questionKey: `Q${n}`,
+      maxScore: "1分",
+      parts: [
+        {
+          partKey: "",
+          prompt: `第${n}題的完整題幹，要求學生寫出計算步驟。`,
+          maxScore: "1分",
+        },
+      ],
+    });
+    rows = mergeParentRows(rows, incoming, allocation[String(n)]);
+  }
+  assert.equal(rows.length, 9);
+  const reconciled = reconcileToMarkAllocation(rows, allocation);
+  assert.deepEqual(questionsOffMarkAllocation(reconciled.rows, reconciled.allocation), []);
+  assert.deepEqual(
+    reconciled.rows.map((row) => row.maxScore),
+    [3, 4, 5, 3, 4, 5, 3, 4, 5],
+  );
+});
+
+test("scales lettered parts so the question total matches the cover", () => {
+  const rows = flattenRawQuestion({
+    questionKey: "7",
+    parts: [
+      { partKey: "a", prompt: "Explain why the fringe equation is not accurate here.", maxScore: 2 },
+      { partKey: "b", prompt: "Calculate the new fringe separation for this setup.", maxScore: 2 },
+    ],
+  });
+  const reconciled = reconcileToMarkAllocation(rows, { "7": 5 });
+  assert.equal(
+    reconciled.rows.reduce((sum, row) => sum + row.maxScore, 0),
+    5,
+  );
+  assert.deepEqual(questionsOffMarkAllocation(reconciled.rows, reconciled.allocation), []);
+});
+
+test("uses the marks printed on each part when they add up to the cover total", () => {
+  const rows = flattenRawQuestion({
+    questionKey: "2",
+    parts: [
+      { partKey: "a", prompt: "Estimate the power supplied to the water. (3 marks)", maxScore: 8 },
+      { partKey: "b", prompt: "Find the flow rate of the water. (5 marks)", maxScore: 8 },
+    ],
+  });
+  const reconciled = reconcileToMarkAllocation(rows, { "2": 8 });
+  assert.deepEqual(
+    reconciled.rows.map((row) => row.maxScore),
+    [3, 5],
+  );
+});
+
+test("ignores a blank cover grid that repeats the question numbers", () => {
+  const rows = [1, 2, 3].flatMap((n) =>
+    flattenRawQuestion({
+      questionKey: String(n),
+      parts: [{ partKey: "", prompt: `題目${n}的完整題幹內容在此處。`, maxScore: 4 }],
+    }),
+  );
+  const reconciled = reconcileToMarkAllocation(rows, { "1": 1, "2": 2, "3": 3 });
+  assert.deepEqual(reconciled.allocation, {});
+  assert.deepEqual(
+    reconciled.rows.map((row) => row.maxScore),
+    [4, 4, 4],
+  );
 });
 
 test("a scanned page batch must not be told to invent the rest of the paper", () => {
