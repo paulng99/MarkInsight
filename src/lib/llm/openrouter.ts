@@ -7,7 +7,9 @@ import {
   dedupePartRows,
   limitToMarkAllocation,
   mergeParentRows,
+  missingAllocatedQuestions,
   parentsMissingParts,
+  preferQuestionWording,
   questionsOffMarkAllocation,
   reconcileToMarkAllocation,
   readMarkAllocation,
@@ -716,7 +718,10 @@ export class OpenRouterLlmClient implements LlmClient {
         commit: false,
       });
 
-      const buffer = await this.completeScanChat(llmModel, system, [
+      const buffer = await this.completeScanChat(
+        llmModel,
+        system,
+        [
         {
           type: "text",
           text: scanBatchInstruction(from, to, allocation, onlyKeys),
@@ -728,7 +733,9 @@ export class OpenRouterLlmClient implements LlmClient {
           },
           { type: "image_url" as const, image_url: { url: page.dataUrl } },
         ]),
-      ]);
+        ],
+        onlyKeys && onlyKeys.length > 0 ? 16384 : 12288,
+      );
       if (!buffer.trim()) return;
 
       try {
@@ -764,15 +771,17 @@ export class OpenRouterLlmClient implements LlmClient {
 
       for (const item of items) {
         if (onlyKeys && !onlyKeys.includes(item.questionKey)) continue;
-        if (!usableScanQuestion(item)) continue;
-        const fingerprint = item.rows.map((row) => row.prompt.trim()).join("\n");
+        const rowsForCheck = preferQuestionWording(item.rows);
+        const checked = { ...item, rows: rowsForCheck };
+        if (!usableScanQuestion(checked)) continue;
+        const fingerprint = rowsForCheck.map((row) => row.prompt.trim()).join("\n");
         const duplicate = [...fingerprints.entries()].find(
-          ([key, value]) => key !== item.questionKey && value === fingerprint,
+          ([key, value]) => key !== item.questionKey && value === fingerprint && fingerprint.length >= 40,
         );
         if (duplicate) continue;
         fingerprints.set(item.questionKey, fingerprint);
         const expected = allocation[item.questionKey];
-        questions = mergeParentRows(questions, item.rows, expected);
+        questions = mergeParentRows(questions, rowsForCheck, expected);
         const rows = questions.filter((row) => row.parentKey === item.questionKey);
         const sum = rows.reduce((score, row) => score + (row.maxScore || 0), 0);
         if (expected && sum !== expected) continue;
@@ -802,50 +811,63 @@ export class OpenRouterLlmClient implements LlmClient {
       );
     }
 
-    let pending = questionsOffMarkAllocation(questions, allocation);
-    if (pending.length > 0) {
+    const absent = () => missingAllocatedQuestions(questions, allocation);
+    let pending = absent();
+    while (pending.length > 0) {
+      const chunk = pending.slice(0, 3);
       for (const batch of batches) {
-        pending = questionsOffMarkAllocation(questions, allocation);
-        if (pending.length === 0) break;
+        const still = chunk.filter((key) => absent().includes(key));
+        if (still.length === 0) break;
         const from = batch[0]?.page ?? 1;
         const to = batch[batch.length - 1]?.page ?? from;
         await absorb(
           batch,
-          pending,
-          `正在按封面分數表核對第 ${pending.join("、")} 題（第 ${from}–${to} 頁）。`,
+          still,
+          `正在抽出第 ${still.join("、")} 題（第 ${from}–${to} 頁）。`,
         );
+      }
+      const unresolved = chunk.filter((key) => absent().includes(key));
+      if (unresolved.length === chunk.length) {
+        pending = absent().filter((key) => !chunk.includes(key));
+      } else {
+        pending = absent();
       }
     }
 
     questions = dedupePartRows(questions);
     const reconciled = reconcileToMarkAllocation(questions, allocation);
-    questions = limitToMarkAllocation(reconciled.rows, reconciled.allocation);
-    const off = questionsOffMarkAllocation(questions, reconciled.allocation);
+    const missing = missingAllocatedQuestions(reconciled.rows, reconciled.allocation);
+    const foundAllocation = Object.fromEntries(
+      Object.entries(reconciled.allocation).filter(([key]) => !missing.includes(key)),
+    );
+    questions = limitToMarkAllocation(reconciled.rows, foundAllocation);
+    const off = questionsOffMarkAllocation(questions, foundAllocation);
     if (off.length > 0) {
-      const missing = off.filter((key) => !questions.some((row) => row.parentKey === key));
-      const detail =
-        missing.length === off.length
-          ? `分析未完成，未能抽出第 ${off.join("、")} 題，請再試一次。`
-          : `分析未完成，第 ${off.join("、")} 題的分數同封面分數表不符，請再試一次。`;
-      throw new AppError(detail, 502, "llm_marks_mismatch");
+      throw new AppError(
+        `分析未完成，第 ${off.join("、")} 題的分數同封面分數表不符，請再試一次。`,
+        502,
+        "llm_marks_mismatch",
+      );
     }
-    if (questions.length > 0) {
-      const parents = [...new Set(questions.map((row) => row.parentKey))];
-      await report({
-        stage: "question",
-        completed: parents.length,
-        total: Math.max(total, Object.keys(reconciled.allocation).length, parents.length),
-        questionKey: null,
-        partKeys: [],
-        note:
-          Object.keys(reconciled.allocation).length > 0
-            ? "已按封面分數表核對各題分數。"
-            : "已整理各題內容。",
-        commit: true,
-        replaceParentKeys: [...committedParents],
-        questions,
-      });
-    }
+    if (questions.length === 0) return [];
+    const parents = [...new Set(questions.map((row) => row.parentKey))];
+    const note =
+      missing.length > 0
+        ? `已保留已抽出的題目。第 ${missing.join("、")} 題未能從試卷抽出。`
+        : Object.keys(foundAllocation).length > 0
+          ? "已按封面分數表核對各題分數。"
+          : "已整理各題內容。";
+    await report({
+      stage: "question",
+      completed: parents.length,
+      total: Math.max(total, parents.length + missing.length),
+      questionKey: null,
+      partKeys: [],
+      note,
+      commit: true,
+      replaceParentKeys: [...committedParents],
+      questions,
+    });
     return questions;
   }
 
@@ -898,11 +920,12 @@ export class OpenRouterLlmClient implements LlmClient {
     llmModel: string,
     system: string,
     content: LlmContentPart[],
+    maxTokens = 12288,
   ): Promise<string> {
     const request: LlmChatRequest = {
       model: llmModel,
       temperature: 0.1,
-      maxTokens: 8192,
+      maxTokens,
       responseFormat: "json_object",
       messages: [
         { role: "system", content: system },
