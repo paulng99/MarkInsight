@@ -236,7 +236,7 @@ export function TeacherClassResults({
                 </div>
                 {detail.status === "FAILED" ? (
                   <Alert tone="error" className="mt-4">
-                    {detail.errorMessage || t.stateError} — {t.checkFile}
+                    {detail.errorMessage || t.stateError}
                   </Alert>
                 ) : null}
                 {summary && detail.questionScores.length > 0 ? (

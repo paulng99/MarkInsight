@@ -67,6 +67,10 @@ export const ANALYSIS_BUSY =
 export const ANALYSIS_UNSUPPORTED_FILE =
   "分析失敗。檔案格式可能不受支援，請上載 PDF、JPG 或 PNG。";
 
+/** Model HTTP 200 with no answer text. Not a corrupt upload. */
+export const ANALYSIS_EMPTY_FILE =
+  "分析失敗。所選模型沒有回傳這份檔案的結果。請改用其他分析模型，或將檔案另存為 JPEG／PNG 再上載。";
+
 /** Error codes where the UI may show「請檢查檔案」as a secondary hint. */
 export const FILE_CHECK_ERROR_CODES = new Set([
   "empty_upload",

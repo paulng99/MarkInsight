@@ -8,6 +8,8 @@ const LEGACY_FAILURE_ZH: Record<string, string> = {
     "分析失敗。所選模型可能不支援此檔案格式。請改用可讀 PDF 的視覺模型，或上載 JPEG／PNG。",
   "Analysis failed. Please check the file and try again.":
     "分析失敗。請檢查檔案後再試。",
+  "Analysis failed. The selected model returned no result for this file. Try another analysis model or re-upload as JPEG/PNG.":
+    "分析失敗。所選模型沒有回傳這份檔案的結果。請改用其他分析模型，或將檔案另存為 JPEG／PNG 再上載。",
 };
 
 /** Stored failure text for the usage table. Other statuses never show a reason. */

@@ -184,7 +184,10 @@ export function StudentResultView({
           }
         >
           <p>{detail.errorMessage || t.stateError}</p>
-          <p className="mt-0.5 text-xs opacity-80">{t.checkFile}</p>
+          {detail.errorMessage?.includes("請檢查檔案") ||
+          detail.errorMessage?.toLowerCase().includes("check the file") ? (
+            <p className="mt-0.5 text-xs opacity-80">{t.checkFile}</p>
+          ) : null}
         </Alert>
       ) : null}
 

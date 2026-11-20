@@ -47,12 +47,14 @@ import { parseOpenRouterModelAllowlist } from "@/lib/config/openrouter-model-all
 import { addUsage, emptyUsage, parseProviderUsage, type ProviderUsage } from "@/lib/llm/usage";
 import {
   ANALYSIS_BUSY,
+  ANALYSIS_EMPTY_FILE,
   ANALYSIS_FAILED_GENERIC,
   ANALYSIS_NOT_CONFIGURED,
   ANALYSIS_UNSUPPORTED_FILE,
   AppError,
   sanitizeVendorLeak,
 } from "@/lib/errors";
+import { readAssistantFragment, readAssistantText } from "@/lib/llm/assistant-text";
 import { DEFAULT_SYSTEM_PROMPTS, SCORING_PROMPT_ADDENDUM } from "@/lib/llm/system-prompts";
 import { batchQuestionsByParent } from "@/lib/llm/score-batches";
 import {
@@ -250,20 +252,29 @@ export class OpenRouterLlmClient implements LlmClient {
 
     const data = (await response.json()) as {
       model?: string;
-      choices?: Array<{ message?: { content?: string | null } }>;
+      choices?: Array<{
+        finish_reason?: string | null;
+        message?: {
+          content?: unknown;
+          reasoning?: unknown;
+          reasoning_content?: unknown;
+          reasoning_details?: unknown;
+        };
+      }>;
       usage?: ProviderUsage;
     };
 
     this.recordUsage(data.usage);
 
-    const content = data.choices?.[0]?.message?.content ?? "";
-    if (!content) {
-      console.error("[llm] empty content model=", request.model);
-      throw new AppError(
-        "Analysis failed. The selected model returned no result for this file. Try another analysis model or re-upload as JPEG/PNG.",
-        502,
-        "llm_empty_response",
+    const content = readAssistantText(data.choices?.[0]?.message);
+    if (!content.trim()) {
+      console.error(
+        "[llm] empty content model=",
+        request.model,
+        "finish=",
+        data.choices?.[0]?.finish_reason ?? "",
       );
+      throw new AppError(ANALYSIS_EMPTY_FILE, 502, "llm_empty_response");
     }
 
     return {
@@ -351,7 +362,7 @@ export class OpenRouterLlmClient implements LlmClient {
             choices?: Array<{
               finish_reason?: string | null;
               delta?: {
-                content?: string | null;
+                content?: unknown;
                 reasoning?: string | null;
                 reasoning_content?: string | null;
               };
@@ -369,9 +380,8 @@ export class OpenRouterLlmClient implements LlmClient {
           if (typeof reasoning === "string" && reasoning.trim()) {
             yield { reasoning: reasoning.trim() };
           }
-          if (typeof delta?.content === "string" && delta.content) {
-            yield { text: delta.content };
-          }
+          const text = readAssistantFragment(delta?.content);
+          if (text) yield { text };
           if (choice?.finish_reason) yield { finishReason: choice.finish_reason };
         }
       }
@@ -519,6 +529,7 @@ export class OpenRouterLlmClient implements LlmClient {
     const assetParts = await this.assetParts(input.assetRefs);
     const request = structureChatRequest(llmModel, input, assetParts);
     let buffer = "";
+    let reasoning = "";
     let emitted = 0;
     let total = 0;
     const questions: FlatStructureQuestion[] = [];
@@ -551,6 +562,7 @@ export class OpenRouterLlmClient implements LlmClient {
       for await (const delta of this.chatDeltas(request)) {
         if (delta.finishReason) finishReason = delta.finishReason;
         if (delta.reasoning) {
+          reasoning += delta.reasoning;
           const now = Date.now();
           if (now - lastDraftAt > 800) {
             lastDraftAt = now;
@@ -590,6 +602,10 @@ export class OpenRouterLlmClient implements LlmClient {
       } else if (error instanceof AppError && error.code !== "llm_http_error") {
         throw error;
       }
+    }
+
+    if (!buffer.trim() && reasoning.includes("{")) {
+      buffer = reasoning;
     }
 
     if (buffer.trim()) {
@@ -933,9 +949,11 @@ export class OpenRouterLlmClient implements LlmClient {
       ],
     };
     let buffer = "";
+    let reasoning = "";
     try {
       for await (const delta of this.chatDeltas(request)) {
         if (delta.text) buffer += delta.text;
+        else if (delta.reasoning) reasoning += delta.reasoning;
       }
     } catch (error) {
       if (!buffer.trim()) {
@@ -953,6 +971,7 @@ export class OpenRouterLlmClient implements LlmClient {
         throw error;
       }
     }
+    if (!buffer.trim() && reasoning.includes("{")) return reasoning;
     return buffer;
   }
 
