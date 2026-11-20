@@ -5,17 +5,24 @@ import { useCallback, useEffect, useState, useTransition } from "react";
 import type { Dictionary, Locale } from "@/lib/i18n/dictionaries";
 import { JobProgressPanel } from "@/components/jobs/job-progress-panel";
 import { JobStatusBadge } from "@/components/jobs/job-status-badge";
+import { ClassRoster } from "@/components/teacher/class-roster";
 import { Alert, LoadingBlock } from "@/components/ui/feedback";
-import { EXAM_UPLOAD_ACCEPT } from "@/lib/files/exam-upload";
 import { FileField } from "@/components/ui/file-field";
 import { Icon } from "@/components/ui/icons";
+import { EXAM_UPLOAD_ACCEPT } from "@/lib/files/exam-upload";
 
 type StudentRow = {
   studentId: string;
   name: string | null;
   email: string;
+  pending?: boolean;
   submission: { id: string; status: string } | null;
 };
+
+function studentOptionLabel(student: StudentRow, pendingLabel: string): string {
+  if (student.pending) return `${student.email} (${pendingLabel})`;
+  return student.name?.trim() || student.email;
+}
 
 export function ProxyUploadForm({
   locale,
@@ -29,6 +36,8 @@ export function ProxyUploadForm({
   const [allowed, setAllowed] = useState<boolean | null>(null);
   const [archived, setArchived] = useState(false);
   const [students, setStudents] = useState<StudentRow[]>([]);
+  const [studentsLoaded, setStudentsLoaded] = useState(false);
+  const [classSubject, setClassSubject] = useState<{ id: string; name: string } | null>(null);
   const [studentId, setStudentId] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
@@ -38,23 +47,55 @@ export function ProxyUploadForm({
   const [pending, startTransition] = useTransition();
 
   const load = useCallback(async () => {
-    const ws = await fetch("/api/workspace");
-    const wsData = await ws.json();
-    if (ws.ok) {
-      setAllowed(Boolean(wsData.allowTeacherUploadOnBehalf));
-    }
-    const examRes = await fetch(`/api/exams/${examId}`);
-    const examData = await examRes.json();
-    if (examRes.ok && examData.exam?.archived) {
-      setArchived(true);
-    }
-    const res = await fetch(`/api/exams/${examId}/submissions`);
-    const data = await res.json();
-    if (res.ok) {
-      setStudents(data.students ?? []);
-      setStudentId((cur) => cur || data.students?.[0]?.studentId || "");
-    } else {
-      setError(data.error || t.stateError);
+    try {
+      const [ws, examRes, res] = await Promise.all([
+        fetch("/api/workspace"),
+        fetch(`/api/exams/${examId}`),
+        fetch(`/api/exams/${examId}/submissions`),
+      ]);
+      const wsData = (await ws.json()) as { allowTeacherUploadOnBehalf?: boolean; error?: string };
+      const examData = (await examRes.json()) as {
+        error?: string;
+        exam?: {
+          archived?: boolean;
+          classSubject?: { id?: string; name?: string };
+        };
+      };
+      const data = (await res.json()) as { error?: string; students?: StudentRow[] };
+      if (!ws.ok) {
+        setAllowed(false);
+        setError(wsData.error || t.stateError);
+      } else {
+        setAllowed(Boolean(wsData.allowTeacherUploadOnBehalf));
+      }
+      if (examRes.ok && examData.exam?.archived) {
+        setArchived(true);
+      }
+      if (examRes.ok && examData.exam?.classSubject?.id) {
+        setClassSubject({
+          id: examData.exam.classSubject.id,
+          name: examData.exam.classSubject.name ?? "",
+        });
+      }
+      if (!res.ok) {
+        setStudents([]);
+        setStudentId("");
+        setError(data.error || t.stateError);
+        return;
+      }
+      const list = data.students ?? [];
+      setStudents(list);
+      setStudentId((cur) =>
+        cur && list.some((student) => student.studentId === cur)
+          ? cur
+          : (list[0]?.studentId ?? ""),
+      );
+      if (ws.ok) setError(null);
+    } catch {
+      setError(t.stateError);
+      setAllowed((cur) => (cur === null ? false : cur));
+    } finally {
+      setStudentsLoaded(true);
     }
   }, [examId, t.stateError]);
 
@@ -92,7 +133,7 @@ export function ProxyUploadForm({
     });
   }
 
-  if (allowed === null) {
+  if (allowed === null || !studentsLoaded) {
     return <LoadingBlock label={t.stateLoading} className="mt-8" />;
   }
 
@@ -124,25 +165,33 @@ export function ProxyUploadForm({
 
   return (
     <div className="mt-8 grid gap-6 lg:grid-cols-[minmax(0,1fr)_22rem]">
-      <form onSubmit={onSubmit} className="card card-pad animate-fade-up-delay space-y-5">
+      <div className="space-y-5">
+        <form onSubmit={onSubmit} className="card card-pad animate-fade-up-delay space-y-5">
         <div>
           <label className="label" htmlFor="proxy-student">
             {t.proxySelectStudent}
           </label>
           <select
             id="proxy-student"
-            required
-            value={studentId}
+            required={students.length > 0}
+            disabled={students.length === 0}
+            value={students.length === 0 ? "" : studentId}
             onChange={(e) => setStudentId(e.target.value)}
             className="select"
           >
-            {students.map((s) => (
-              <option key={s.studentId} value={s.studentId}>
-                {s.name || s.email}
-              </option>
-            ))}
+            {students.length === 0 ? (
+              <option value="">{t.rosterEmpty}</option>
+            ) : (
+              students.map((s) => (
+                <option key={s.studentId} value={s.studentId}>
+                  {studentOptionLabel(s, t.rosterPendingStatus)}
+                </option>
+              ))
+            )}
           </select>
-          {selected?.submission ? (
+          {students.length === 0 ? (
+            <p className="field-hint">{t.proxyNoStudents}</p>
+          ) : selected?.submission ? (
             <p className="field-hint flex items-center gap-2">
               {t.uploadedLabel}: <JobStatusBadge status={selected.submission.status} t={t} />
             </p>
@@ -183,24 +232,43 @@ export function ProxyUploadForm({
             {t.examBack}
           </Link>
         </div>
-      </form>
+        </form>
+        {classSubject ? (
+          <ClassRoster
+            classSubjectId={classSubject.id}
+            className={classSubject.name}
+            t={t}
+            locale={locale}
+            initialOpen={students.length === 0}
+            onUpdated={() => {
+              void load();
+            }}
+          />
+        ) : null}
+      </div>
 
       <aside className="space-y-4 animate-fade-up-delay-2">
         <JobProgressPanel jobId={jobId} t={t} />
         <div className="card card-pad">
           <p className="eyebrow">{t.studentsWithScripts}</p>
+          {students.length === 0 ? (
+            <p className="mt-3 text-sm text-[var(--muted)]">{t.rosterEmpty}</p>
+          ) : (
           <ul className="mt-3 space-y-2">
             {students.slice(0, 8).map((s) => (
               <li key={s.studentId} className="flex items-center justify-between gap-2 text-sm">
-                <span className="truncate text-[var(--ink)]">{s.name || s.email}</span>
+                <span className="truncate text-[var(--ink)]">{studentOptionLabel(s, t.rosterPendingStatus)}</span>
                 {s.submission ? (
                   <JobStatusBadge status={s.submission.status} t={t} />
+                ) : s.pending ? (
+                  <span className="badge badge-info">{t.rosterPendingStatus}</span>
                 ) : (
                   <span className="badge badge-neutral">{t.statPendingUpload}</span>
                 )}
               </li>
             ))}
           </ul>
+          )}
         </div>
       </aside>
     </div>

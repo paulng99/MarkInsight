@@ -522,6 +522,8 @@ const dictionaries = {
     proxyUploadTitle: "Upload on behalf of student",
     proxyUploadDisabled: "School settings do not allow teacher upload on behalf.",
     proxySelectStudent: "Student",
+    proxyNoStudents:
+      "This class has no students yet. Add their emails below, then choose a student to upload.",
     myUploadTitle: "My answer script",
     viewResults: "View results",
     classResults: "Class results",
@@ -1103,6 +1105,7 @@ const dictionaries = {
     proxyUploadTitle: "代學生上載答卷",
     proxyUploadDisabled: "學校設定未允許教師代學生上載。",
     proxySelectStudent: "學生",
+    proxyNoStudents: "此班尚未有學生。請在下方加入學生電郵，然後選擇學生上載。",
     myUploadTitle: "我的答卷",
     viewResults: "查看結果",
     classResults: "班別結果",

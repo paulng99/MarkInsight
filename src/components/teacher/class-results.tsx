@@ -18,6 +18,7 @@ type StudentRow = {
   studentId: string;
   name: string | null;
   email: string;
+  pending?: boolean;
   submission: { id: string; status: string } | null;
 };
 
@@ -183,7 +184,9 @@ export function TeacherClassResults({
                     ) : (
                       <div className="flex items-center justify-between gap-2 rounded-lg px-3 py-2.5 text-sm text-[var(--muted)]">
                         <span className="min-w-0 truncate">{s.name || s.email}</span>
-                        <span className="badge badge-neutral">{t.statPendingUpload}</span>
+                        <span className={s.pending ? "badge badge-info" : "badge badge-neutral"}>
+                          {s.pending ? t.rosterPendingStatus : t.statPendingUpload}
+                        </span>
                       </div>
                     )}
                   </li>

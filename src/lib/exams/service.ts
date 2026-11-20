@@ -9,10 +9,12 @@ import {
   isAllowedExamUpload,
 } from "@/lib/files/exam-upload";
 import { isExamUploadMagicConsistent } from "@/lib/files/exam-upload-magic";
+import { pendingEmailFromOptionId } from "@/lib/exams/proxy-students";
 import {
   STRUCTURE_NOT_READY_MESSAGE,
   isExamStructureReady,
 } from "@/lib/exams/structure-ready";
+import { claimPendingStudent } from "@/lib/enrollments/roster";
 import { prisma } from "@/lib/prisma";
 import type { SessionUser } from "@/lib/rbac";
 import { deleteObject, putObject } from "@/lib/storage";
@@ -407,21 +409,31 @@ export async function listClassStudentsForExam(
   examId: string,
 ) {
   const exam = await assertTeacherOwnsExam(user, examId);
-  return prisma.enrollment.findMany({
-    where: {
-      classSubjectId: exam.classSubjectId,
-      schoolId: exam.schoolId,
-      role: "STUDENT",
-    },
-    include: {
-      user: { select: { id: true, name: true, email: true } },
-      submissions: {
-        where: { examId },
-        select: { id: true, status: true },
+  const [enrolled, pending] = await Promise.all([
+    prisma.enrollment.findMany({
+      where: {
+        classSubjectId: exam.classSubjectId,
+        schoolId: exam.schoolId,
+        role: "STUDENT",
       },
-    },
-    orderBy: { user: { email: "asc" } },
-  });
+      include: {
+        user: { select: { id: true, name: true, email: true } },
+        submissions: {
+          where: { examId },
+          select: { id: true, status: true },
+        },
+      },
+      orderBy: { user: { email: "asc" } },
+    }),
+    prisma.pendingEnrollment.findMany({
+      where: {
+        classSubjectId: exam.classSubjectId,
+        schoolId: exam.schoolId,
+      },
+      orderBy: { email: "asc" },
+    }),
+  ]);
+  return { enrolled, pending };
 }
 
 const MAX_SCRIPT_PAGES = 20;
@@ -472,7 +484,14 @@ export async function uploadSubmissionScript(input: {
     if (!input.studentId) {
       throw new AppError("studentId is required", 400, "student_required");
     }
-    studentId = input.studentId;
+    const pendingEmail = pendingEmailFromOptionId(input.studentId);
+    studentId = pendingEmail
+      ? await claimPendingStudent({
+          schoolId,
+          classSubjectId: exam.classSubjectId,
+          email: pendingEmail,
+        })
+      : input.studentId;
   } else if (actor.role === "STUDENT") {
     studentId = actor.id;
   } else {

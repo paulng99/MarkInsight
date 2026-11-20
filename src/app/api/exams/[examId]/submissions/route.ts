@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { jsonError, AppError, UPLOAD_FAILED_ZH } from "@/lib/errors";
 import { requireSessionUser } from "@/lib/api/session";
+import { toProxyStudentRows } from "@/lib/exams/proxy-students";
 import {
   listClassStudentsForExam,
   uploadSubmissionScript,
@@ -15,17 +16,20 @@ export async function GET(_request: Request, context: Ctx) {
     const { examId } = await context.params;
 
     if (user.role === "TEACHER") {
-      const students = await listClassStudentsForExam(user, examId);
+      const { enrolled, pending } = await listClassStudentsForExam(user, examId);
       return NextResponse.json({
-        students: students.map((s) => ({
-          enrollmentId: s.id,
-          studentId: s.user.id,
-          name: s.user.name,
-          email: s.user.email,
-          submission: s.submissions[0]
-            ? { id: s.submissions[0].id, status: s.submissions[0].status }
-            : null,
-        })),
+        students: toProxyStudentRows(
+          enrolled.map((s) => ({
+            enrollmentId: s.id,
+            studentId: s.user.id,
+            name: s.user.name,
+            email: s.user.email,
+            submission: s.submissions[0]
+              ? { id: s.submissions[0].id, status: s.submissions[0].status }
+              : null,
+          })),
+          pending.map((row) => row.email),
+        ),
       });
     }
 

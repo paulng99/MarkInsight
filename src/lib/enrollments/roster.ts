@@ -47,6 +47,17 @@ function isEmail(email: string): boolean {
   return email.length <= 254 && EMAIL.test(email);
 }
 
+function nameFromEmail(email: string): string {
+  const local = email.split("@")[0]?.trim() || email;
+  return local.slice(0, 80);
+}
+
+function isPrismaUniqueConflict(error: unknown): boolean {
+  return Boolean(
+    error && typeof error === "object" && "code" in error && String(error.code) === "P2002",
+  );
+}
+
 async function assertTeacherOwnsClass(user: SessionUser, classSubjectId: string) {
   const schoolId = requireSchoolId(user);
   if (user.role !== "TEACHER") {
@@ -177,6 +188,102 @@ export async function addStudentsByEmail(
   return results;
 }
 
+/**
+ * Turn a roster email into a student account so a teacher can upload a script
+ * before that student has registered. Password stays unset until they register.
+ */
+export async function claimPendingStudent(input: {
+  schoolId: string;
+  classSubjectId: string;
+  email: string;
+}): Promise<string> {
+  const email = normalizeEmail(input.email);
+  const schoolId = input.schoolId;
+  const classSubjectId = input.classSubjectId;
+  if (!isEmail(email)) {
+    throw new AppError("Student is not in this class", 404, "not_enrolled");
+  }
+
+  const [pending, existing] = await Promise.all([
+    prisma.pendingEnrollment.findUnique({
+      where: { classSubjectId_email: { classSubjectId, email } },
+    }),
+    prisma.user.findUnique({ where: { email } }),
+  ]);
+
+  if (pending && pending.schoolId !== schoolId) {
+    throw new AppError("Student is not in this class", 404, "not_enrolled");
+  }
+  if (existing && (existing.role !== "STUDENT" || existing.schoolId !== schoolId)) {
+    throw new AppError("Student is not in this class", 404, "not_enrolled");
+  }
+  if (!pending && !existing) {
+    throw new AppError("Student is not in this class", 404, "not_enrolled");
+  }
+
+  if (!pending && existing) {
+    const enrollment = await prisma.enrollment.findUnique({
+      where: { classSubjectId_userId: { classSubjectId, userId: existing.id } },
+    });
+    if (enrollment?.role !== "STUDENT") {
+      throw new AppError("Student is not in this class", 404, "not_enrolled");
+    }
+    return existing.id;
+  }
+
+  try {
+    return await prisma.$transaction(async (tx) => {
+      let userId = existing?.id;
+      if (!userId) {
+        const created = await tx.user.create({
+          data: {
+            email,
+            name: nameFromEmail(email),
+            role: "STUDENT",
+            schoolId,
+            passwordHash: null,
+          },
+        });
+        userId = created.id;
+      }
+      const enrollment = await tx.enrollment.findUnique({
+        where: { classSubjectId_userId: { classSubjectId, userId } },
+      });
+      if (enrollment && enrollment.role !== "STUDENT") {
+        throw new AppError("Student is not in this class", 404, "not_enrolled");
+      }
+      if (!enrollment) {
+        await tx.enrollment.create({
+          data: { schoolId, classSubjectId, userId, role: "STUDENT" },
+        });
+      }
+      await tx.pendingEnrollment.deleteMany({ where: { classSubjectId, email, schoolId } });
+      return userId;
+    });
+  } catch (error) {
+    if (error instanceof AppError) throw error;
+    if (!isPrismaUniqueConflict(error)) throw error;
+    const again = await prisma.user.findUnique({ where: { email } });
+    if (!again || again.role !== "STUDENT" || again.schoolId !== schoolId) {
+      throw new AppError("Student is not in this class", 404, "not_enrolled");
+    }
+    const enrollment = await prisma.enrollment.findUnique({
+      where: { classSubjectId_userId: { classSubjectId, userId: again.id } },
+    });
+    if (enrollment?.role === "STUDENT") {
+      await prisma.pendingEnrollment.deleteMany({ where: { classSubjectId, email, schoolId } });
+      return again.id;
+    }
+    const stillPending = await prisma.pendingEnrollment.findUnique({
+      where: { classSubjectId_email: { classSubjectId, email } },
+    });
+    if (!stillPending || stillPending.schoolId !== schoolId) {
+      throw new AppError("Student is not in this class", 404, "not_enrolled");
+    }
+    return claimPendingStudent(input);
+  }
+}
+
 export async function registerInvitedStudent(input: {
   email: string;
   name: string;
@@ -194,47 +301,88 @@ export async function registerInvitedStudent(input: {
     throw new AppError("Password must be at least 8 characters", 400, "invalid_password");
   }
 
-  const pending = await prisma.pendingEnrollment.findMany({ where: { email } });
-  if (pending.length === 0) {
+  const [pending, existing] = await Promise.all([
+    prisma.pendingEnrollment.findMany({ where: { email } }),
+    prisma.user.findUnique({ where: { email } }),
+  ]);
+
+  if (existing?.passwordHash) {
+    throw new AppError("An account with this email already exists", 409, "account_exists");
+  }
+  if (existing && existing.role !== "STUDENT") {
+    throw new AppError("An account with this email already exists", 409, "account_exists");
+  }
+
+  const claimedByUpload = Boolean(
+    existing && existing.role === "STUDENT" && existing.schoolId && !existing.passwordHash,
+  );
+  if (pending.length === 0 && !claimedByUpload) {
     throw new AppError("This email has not been added by a teacher", 400, "no_invite");
   }
-  const schoolIds = [...new Set(pending.map((row) => row.schoolId))];
-  if (schoolIds.length !== 1) {
-    throw new AppError("This email is reserved by more than one school", 400, "conflicting_schools");
-  }
-  const schoolId = schoolIds[0]!;
 
-  const taken = await prisma.user.findUnique({ where: { email } });
-  if (taken) {
-    throw new AppError("An account with this email already exists", 409, "account_exists");
+  const schoolIds = [...new Set(pending.map((row) => row.schoolId))];
+  if (existing?.schoolId && schoolIds.some((id) => id !== existing.schoolId)) {
+    throw new AppError(
+      "This email is reserved by more than one school",
+      400,
+      "conflicting_schools",
+    );
+  }
+  if (!existing && schoolIds.length !== 1) {
+    throw new AppError(
+      "This email is reserved by more than one school",
+      400,
+      "conflicting_schools",
+    );
+  }
+  const schoolId = existing?.schoolId ?? schoolIds[0];
+  if (!schoolId) {
+    throw new AppError("This email has not been added by a teacher", 400, "no_invite");
   }
 
   const passwordHash = await bcrypt.hash(input.password, 10);
   try {
     return await prisma.$transaction(async (tx) => {
-      const user = await tx.user.create({
-        data: {
-          email,
-          name,
-          passwordHash,
-          role: "STUDENT",
-          schoolId,
-        },
-      });
-      await tx.enrollment.createMany({
-        data: pending.map((row) => ({
-          schoolId,
-          classSubjectId: row.classSubjectId,
-          userId: user.id,
-          role: "STUDENT" as const,
-        })),
-      });
-      await tx.pendingEnrollment.deleteMany({ where: { email, schoolId } });
+      const user = existing
+        ? await tx.user.update({
+            where: { id: existing.id },
+            data: { name, passwordHash, schoolId, role: "STUDENT" },
+          })
+        : await tx.user.create({
+            data: {
+              email,
+              name,
+              passwordHash,
+              role: "STUDENT",
+              schoolId,
+            },
+          });
+      if (pending.length > 0) {
+        const already = await tx.enrollment.findMany({
+          where: {
+            userId: user.id,
+            classSubjectId: { in: pending.map((row) => row.classSubjectId) },
+          },
+          select: { classSubjectId: true },
+        });
+        const taken = new Set(already.map((row) => row.classSubjectId));
+        const toCreate = pending.filter((row) => !taken.has(row.classSubjectId));
+        if (toCreate.length > 0) {
+          await tx.enrollment.createMany({
+            data: toCreate.map((row) => ({
+              schoolId,
+              classSubjectId: row.classSubjectId,
+              userId: user.id,
+              role: "STUDENT" as const,
+            })),
+          });
+        }
+        await tx.pendingEnrollment.deleteMany({ where: { email, schoolId } });
+      }
       return user;
     });
   } catch (error) {
-    const code = error && typeof error === "object" && "code" in error ? String(error.code) : "";
-    if (code === "P2002") {
+    if (isPrismaUniqueConflict(error)) {
       throw new AppError("An account with this email already exists", 409, "account_exists");
     }
     throw error;

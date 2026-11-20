@@ -25,12 +25,14 @@ export function ClassRoster({
   t,
   locale,
   initialOpen = false,
+  onUpdated,
 }: {
   classSubjectId: string;
   className: string;
   t: Dictionary;
   locale?: Locale;
   initialOpen?: boolean;
+  onUpdated?: () => void;
 }) {
   const [open, setOpen] = useState(initialOpen);
   const [emails, setEmails] = useState("");
@@ -84,6 +86,7 @@ export function ClassRoster({
       setPending(data.pending ?? []);
       setResults(data.results ?? []);
       setEmails("");
+      onUpdated?.();
     } catch {
       setError(t.addStudentsError);
     } finally {
