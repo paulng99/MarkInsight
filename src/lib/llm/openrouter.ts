@@ -9,6 +9,7 @@ import {
   mergeParentRows,
   parentsMissingParts,
   questionsOffMarkAllocation,
+  reconcileToMarkAllocation,
   readMarkAllocation,
   replaceParentQuestions,
   scanBatchInstruction,
@@ -691,6 +692,7 @@ export class OpenRouterLlmClient implements LlmClient {
     let questions: FlatStructureQuestion[] = [];
     let total = 0;
     const fingerprints = new Map<string, string>();
+    const committedParents = new Set<string>();
     const system = scanPageSystemPrompt(
       input.systemPrompt?.trim() || DEFAULT_SYSTEM_PROMPTS.exam_structure,
     );
@@ -775,6 +777,7 @@ export class OpenRouterLlmClient implements LlmClient {
         const sum = rows.reduce((score, row) => score + (row.maxScore || 0), 0);
         if (expected && sum !== expected) continue;
         const done = new Set(questions.map((row) => row.parentKey));
+        committedParents.add(item.questionKey);
         await report({
           stage: "question",
           completed: done.size,
@@ -814,14 +817,34 @@ export class OpenRouterLlmClient implements LlmClient {
       }
     }
 
-    questions = limitToMarkAllocation(dedupePartRows(questions), allocation);
-    const off = questionsOffMarkAllocation(questions, allocation);
+    questions = dedupePartRows(questions);
+    const reconciled = reconcileToMarkAllocation(questions, allocation);
+    questions = limitToMarkAllocation(reconciled.rows, reconciled.allocation);
+    const off = questionsOffMarkAllocation(questions, reconciled.allocation);
     if (off.length > 0) {
-      throw new AppError(
-        `分析未完成，第 ${off.join("、")} 題的分數同封面分數表不符，請再試一次。`,
-        502,
-        "llm_marks_mismatch",
-      );
+      const missing = off.filter((key) => !questions.some((row) => row.parentKey === key));
+      const detail =
+        missing.length === off.length
+          ? `分析未完成，未能抽出第 ${off.join("、")} 題，請再試一次。`
+          : `分析未完成，第 ${off.join("、")} 題的分數同封面分數表不符，請再試一次。`;
+      throw new AppError(detail, 502, "llm_marks_mismatch");
+    }
+    if (questions.length > 0) {
+      const parents = [...new Set(questions.map((row) => row.parentKey))];
+      await report({
+        stage: "question",
+        completed: parents.length,
+        total: Math.max(total, Object.keys(reconciled.allocation).length, parents.length),
+        questionKey: null,
+        partKeys: [],
+        note:
+          Object.keys(reconciled.allocation).length > 0
+            ? "已按封面分數表核對各題分數。"
+            : "已整理各題內容。",
+        commit: true,
+        replaceParentKeys: [...committedParents],
+        questions,
+      });
     }
     return questions;
   }
@@ -836,10 +859,11 @@ export class OpenRouterLlmClient implements LlmClient {
       {
         type: "text",
         text:
-          "Look only for a printed marks table (Question No. / Marks, or 題號 / 分數). " +
+          "Look only for a printed marks table (Question No. / Marks, or 題號 / 分數) whose mark cells are filled in. " +
+          "A blank score grid for the marker to fill in is not a printed marks table. " +
           'Return JSON {"allocation":[{"questionKey":"1","maxScore":5}]}. ' +
-          "questionKey is the question number. maxScore is that question's total marks from the table, not a part mark. " +
-          'If no marks table is visible, return {"allocation":[]}. Do not extract question text.',
+          "questionKey is the question number as digits only, such as 1. maxScore is a number: that question's total marks from the table, not a part mark. " +
+          'If no printed marks are visible, return {"allocation":[]}. Do not extract question text.',
       },
       ...head.flatMap((page) => [
         { type: "text" as const, text: `Page ${page.page}.` },

@@ -158,10 +158,7 @@ export function questionsOffMarkAllocation(
   rows: FlatStructureQuestion[],
   allocation: Record<string, number>,
 ): string[] {
-  const totals = new Map<string, number>();
-  for (const row of rows) {
-    totals.set(row.parentKey, (totals.get(row.parentKey) ?? 0) + (row.maxScore || 0));
-  }
+  const totals = questionTotals(rows);
   return Object.keys(allocation)
     .sort((a, b) => Number(a) - Number(b))
     .filter((key) => totals.get(key) !== allocation[key]);
@@ -175,6 +172,123 @@ export function limitToMarkAllocation(
   if (keys.length === 0) return rows;
   const allowed = new Set(keys);
   return rows.filter((row) => allowed.has(row.parentKey));
+}
+
+function questionTotals(rows: FlatStructureQuestion[]): Map<string, number> {
+  const totals = new Map<string, number>();
+  for (const row of rows) {
+    totals.set(row.parentKey, (totals.get(row.parentKey) ?? 0) + (row.maxScore || 0));
+  }
+  return totals;
+}
+
+/** Mark printed at the end of a part, such as "(3 marks)", "（2 分）", or "[4]". */
+function printedPartMark(prompt: string): number | null {
+  const text = prompt.replace(/\s+/g, " ").trim();
+  const patterns = [
+    /[(（]\s*(\d+(?:\.\d+)?)\s*(?:marks?|分)\s*[)）]\s*[.。]?\s*$/i,
+    /\[\s*(\d+(?:\.\d+)?)\s*(?:marks?|分)?\s*\]\s*[.。]?\s*$/i,
+  ];
+  for (const pattern of patterns) {
+    const match = pattern.exec(text);
+    if (!match) continue;
+    const score = Number(match[1]);
+    if (Number.isFinite(score) && score > 0) return score;
+  }
+  return null;
+}
+
+function apportionMarks(weights: number[], total: number): number[] {
+  const count = weights.length;
+  if (count === 0) return [];
+  const units = Math.round(total * 2);
+  const safe = weights.map((weight) => (weight > 0 ? weight : 0));
+  const weightSum = safe.reduce((sum, weight) => sum + weight, 0);
+  const base = weightSum > 0 ? safe : safe.map(() => 1);
+  const denom = base.reduce((sum, weight) => sum + weight, 0);
+  const exact = base.map((weight) => {
+    const value = (weight / denom) * units;
+    return Math.round(value * 1e9) / 1e9;
+  });
+  const floors = exact.map((value) => Math.floor(value));
+  let left = units - floors.reduce((sum, value) => sum + value, 0);
+  const order = exact
+    .map((value, index) => ({ index, frac: value - Math.floor(value) }))
+    .sort((a, b) => b.frac - a.frac || a.index - b.index);
+  for (const item of order) {
+    if (left <= 0) break;
+    floors[item.index] += 1;
+    left -= 1;
+  }
+  return floors.map((unit) => unit / 2);
+}
+
+function fitGroupToTotal(group: FlatStructureQuestion[], expected: number): FlatStructureQuestion[] {
+  const sum = group.reduce((total, row) => total + (row.maxScore || 0), 0);
+  if (sum === expected) return group;
+  const printed = group.map((row) => printedPartMark(row.prompt));
+  if (printed.every((score): score is number => score != null)) {
+    const printedSum = printed.reduce((total, score) => total + score, 0);
+    if (printedSum === expected) {
+      return group.map((row, index) => ({ ...row, maxScore: printed[index]! }));
+    }
+    if (group.length > 1) {
+      const shares = apportionMarks(printed, expected);
+      return group.map((row, index) => ({ ...row, maxScore: shares[index]! }));
+    }
+  }
+  if (group.length === 1) return [{ ...group[0]!, maxScore: expected }];
+  const shares = apportionMarks(
+    group.map((row) => row.maxScore || 0),
+    expected,
+  );
+  return group.map((row, index) => ({ ...row, maxScore: shares[index]! }));
+}
+
+/**
+ * A blank marker grid is often read as "question 1 is worth 1, question 2 is worth 2".
+ * When every extracted question disagrees with that pattern, the table is not a printed allocation.
+ */
+function isBlankScoreGrid(
+  rows: FlatStructureQuestion[],
+  allocation: Record<string, number>,
+): boolean {
+  const keys = Object.keys(allocation);
+  if (keys.length < 2) return false;
+  if (!keys.every((key) => allocation[key] === Number(key))) return false;
+  const totals = questionTotals(rows);
+  const compared = keys.filter((key) => totals.has(key));
+  if (compared.length === 0) return false;
+  return compared.every((key) => totals.get(key) !== allocation[key]);
+}
+
+/**
+ * Make each extracted question add up to the cover table.
+ * An undivided question takes the cover total. Lettered parts keep printed marks when those already add up.
+ */
+export function reconcileToMarkAllocation(
+  rows: FlatStructureQuestion[],
+  allocation: Record<string, number>,
+): { rows: FlatStructureQuestion[]; allocation: Record<string, number> } {
+  if (Object.keys(allocation).length === 0) return { rows, allocation };
+  if (isBlankScoreGrid(rows, allocation)) return { rows, allocation: {} };
+
+  const groups = new Map<string, FlatStructureQuestion[]>();
+  const order: string[] = [];
+  for (const row of rows) {
+    if (!groups.has(row.parentKey)) {
+      groups.set(row.parentKey, []);
+      order.push(row.parentKey);
+    }
+    groups.get(row.parentKey)!.push(row);
+  }
+  const next = order.flatMap((parent) => {
+    const group = groups.get(parent)!;
+    const expected = allocation[parent];
+    if (!expected) return group;
+    return fitGroupToTotal(group, expected);
+  });
+  return { rows: next, allocation };
 }
 
 export function scanBatchInstruction(
@@ -205,6 +319,7 @@ export function scanBatchInstruction(
     "partKey is the printed label without the question number, such as a, b, c, b(i), or b(ii). " +
     "If the question has no lettered parts, return exactly one part with an empty partKey and the full question wording. " +
     "maxScore is the mark printed for that part (or the whole question when partKey is empty). " +
+    "questionKey is the question number alone, such as 1, and maxScore is a number. " +
     totalLine +
     "Write assessmentObjective (考核要求) and difficultyPoints (難點) in Traditional Chinese (Hong Kong), about that part only. " +
     "Skip cover pages, instructions, and blank answer lines."
@@ -253,20 +368,41 @@ function attachBilingual<T extends Record<(typeof BILINGUAL_FIELDS)[number], str
     Record<`${(typeof BILINGUAL_FIELDS)[number]}Zh` | `${(typeof BILINGUAL_FIELDS)[number]}En`, string>;
 }
 
+function foldDigits(text: string): string {
+  return text.replace(/[０-９]/g, (ch) => String.fromCharCode(ch.charCodeAt(0) - 0xff10 + 0x30));
+}
+
 function marks(value: unknown, fallback: number): number {
-  const n = typeof value === "number" ? value : Number(value);
-  return Number.isFinite(n) && n > 0 ? n : fallback;
+  if (typeof value === "number" && Number.isFinite(value) && value > 0) return value;
+  if (typeof value === "string") {
+    const match = foldDigits(value).match(/(\d+(?:\.\d+)?)/);
+    if (match) {
+      const n = Number(match[1]);
+      if (Number.isFinite(n) && n > 0) return n;
+    }
+  }
+  return fallback;
+}
+
+/** "Q1", "第1題", "1." and full-width digits all become "1". Other text stays as written. */
+export function canonicalQuestionNumber(raw: string): string {
+  const folded = foldDigits(raw.trim());
+  const match = folded.match(/^(?:第\s*)?(?:Q|題)?\s*0*(\d+)\s*(?:題)?[.．、]?\s*$/i);
+  if (!match) return raw.trim();
+  return String(Number(match[1]));
 }
 
 export function splitQuestionKey(key: string): { parentKey: string; partKey: string } {
   const trimmed = key.trim();
   const paren = trimmed.match(/^(.*?)[(（]\s*([a-z0-9ivx]+)\s*[)）]$/i);
   if (paren?.[1]?.trim()) {
-    return { parentKey: paren[1].trim(), partKey: paren[2] };
+    return { parentKey: canonicalQuestionNumber(paren[1].trim()), partKey: paren[2] };
   }
   const suffix = trimmed.match(/^(Q?\d+)\s*([a-z])$/i);
-  if (suffix) return { parentKey: suffix[1], partKey: suffix[2].toLowerCase() };
-  return { parentKey: trimmed, partKey: "" };
+  if (suffix) {
+    return { parentKey: canonicalQuestionNumber(suffix[1]), partKey: suffix[2].toLowerCase() };
+  }
+  return { parentKey: canonicalQuestionNumber(trimmed), partKey: "" };
 }
 
 export function formatQuestionKey(parentKey: string, partKey: string): string {
@@ -316,11 +452,17 @@ export function flattenRawQuestion(raw: Record<string, unknown>): FlatStructureQ
     ];
   }
 
-  return partsRaw.flatMap((part, index) => {
-    if (!part || typeof part !== "object") return [];
-    const record = part as Record<string, unknown>;
-    const partKey = textOf(record.partKey || record.key || record.label) || "";
-    const resolvedPart = partKey || (partsRaw.length === 1 ? "" : String.fromCharCode(97 + index));
+  const partRecords = partsRaw.flatMap((part) =>
+    part && typeof part === "object" ? [part as Record<string, unknown>] : [],
+  );
+  const explicitKeys = partRecords.map((record) => textOf(record.partKey || record.key || record.label));
+  const anyExplicit = explicitKeys.some((key) => key.length > 0);
+
+  return partRecords.flatMap((record, index) => {
+    const explicit = explicitKeys[index] ?? "";
+    // A blank part beside real (a)/(b) rows is the whole question repeated, not another part.
+    if (!explicit && anyExplicit) return [];
+    const resolvedPart = explicit || (partRecords.length === 1 ? "" : String.fromCharCode(97 + index));
     const prompt =
       textOf(record.prompt || record.stem || record.text || record.content) || stem;
     return [
@@ -334,7 +476,7 @@ export function flattenRawQuestion(raw: Record<string, unknown>): FlatStructureQ
           topic: textOf(record.topic) || topic,
           itemType: textOf(record.itemType || record.type) || itemType,
           questionCategory: textOf(record.questionCategory) || questionCategory,
-          maxScore: marks(record.maxScore, partsRaw.length === 1 ? marks(raw.maxScore, 1) : 0),
+          maxScore: marks(record.maxScore, partRecords.length === 1 ? marks(raw.maxScore, 1) : 0),
           assessmentObjective:
             textOf(record.assessmentObjective || record.objective) || assessmentObjective,
           difficultyPoints:
@@ -631,8 +773,11 @@ export function dedupePartRows(rows: FlatStructureQuestion[]): FlatStructureQues
   }
 
   return order.flatMap((parent) => {
+    const source = map.get(parent)!;
+    const lettered = source.filter((row) => row.partKey.trim());
+    const pool = lettered.length > 0 ? lettered : source;
     const kept: FlatStructureQuestion[] = [];
-    for (const row of map.get(parent)!) {
+    for (const row of pool) {
       const key = partPromptKey(row.prompt);
       const index = kept.findIndex((item) => {
         const other = partPromptKey(item.prompt);
@@ -663,21 +808,47 @@ export function mergeParentRows(
   expectedMax?: number,
 ): FlatStructureQuestion[] {
   const parent = incoming[0]?.parentKey;
-  if (!parent || incoming.every((row) => !row.partKey.trim())) return current;
+  if (!parent) return current;
+
+  let next = incoming;
+  if (next.some((row) => row.partKey.trim())) {
+    next = next.filter((row) => row.partKey.trim());
+  } else if (next.length > 1) {
+    const fullest = next.reduce((best, row) =>
+      row.prompt.trim().length > best.prompt.trim().length ? row : best,
+    );
+    next = [{ ...fullest, partKey: "", questionKey: parent }];
+  }
+
   const currentRows = current.filter((row) => row.parentKey === parent);
   const currentSum = currentRows.reduce((sum, row) => sum + (row.maxScore || 0), 0);
-  const incomingSum = incoming.reduce((sum, row) => sum + (row.maxScore || 0), 0);
+  const incomingSum = next.reduce((sum, row) => sum + (row.maxScore || 0), 0);
+  const incomingUndivided = next.length === 1 && !next[0]!.partKey.trim();
+  const currentHasParts = currentRows.some((row) => row.partKey.trim());
   if (expectedMax && expectedMax > 0) {
-    if (incomingSum === expectedMax && currentSum !== expectedMax) {
-      return replaceParentQuestions(current, parent, incoming);
-    }
+    const incomingReplaces =
+      incomingSum === expectedMax &&
+      currentSum !== expectedMax &&
+      !(incomingUndivided && currentHasParts);
+    if (incomingReplaces) return replaceParentQuestions(current, parent, next);
     if (currentSum === expectedMax && incomingSum !== expectedMax) return current;
   }
-  const byPart = new Map<string, FlatStructureQuestion>();
-  for (const row of current) {
-    if (row.parentKey === parent) byPart.set(row.partKey, row);
+
+  if (incomingUndivided) {
+    if (currentHasParts) return current;
+    if (currentRows.length === 0) return replaceParentQuestions(current, parent, next);
+    const prev = currentRows[0]!;
+    if (next[0]!.prompt.trim().length >= prev.prompt.trim().length) {
+      return replaceParentQuestions(current, parent, next);
+    }
+    return current;
   }
-  for (const row of incoming) {
+
+  const byPart = new Map<string, FlatStructureQuestion>();
+  for (const row of currentRows) {
+    if (row.partKey.trim()) byPart.set(row.partKey, row);
+  }
+  for (const row of next) {
     const prev = byPart.get(row.partKey);
     if (!prev || row.prompt.trim().length >= prev.prompt.trim().length) {
       byPart.set(row.partKey, row);
